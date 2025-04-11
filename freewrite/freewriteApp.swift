@@ -10,6 +10,7 @@ import SwiftUI
 @main
 struct freewriteApp: App {
     @NSApplicationDelegateAdaptor(AppDelegate.self) var appDelegate
+    @AppStorage("colorScheme") private var colorSchemeString: String = "light"
     
     init() {
         // Register Lato font
@@ -22,6 +23,7 @@ struct freewriteApp: App {
         WindowGroup {
             ContentView()
                 .toolbar(.hidden, for: .windowToolbar)
+                .preferredColorScheme(colorSchemeString == "dark" ? .dark : .light)
         }
         .windowStyle(.hiddenTitleBar)
         .defaultSize(width: 1100, height: 600)
