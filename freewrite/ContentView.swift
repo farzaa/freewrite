@@ -375,6 +375,18 @@ struct ContentView: View {
                 TextEditor(text: Binding(
                     get: { text },
                     set: { newValue in
+                        // Play keyboard sound when text changes
+                        if newValue.count != text.count {
+                            // Get the key that was pressed
+                            if let event = NSApp.currentEvent, event.type == .keyDown {
+                                let keyCode = String(event.keyCode)
+                                AudioManager.shared.playKeyboardSound(forKey: keyCode)
+                            } else {
+                                // Fallback to default sound if we can't determine the key
+                                AudioManager.shared.playKeyboardSound()
+                            }
+                        }
+                        
                         // Ensure the text always starts with two newlines
                         if !newValue.hasPrefix("\n\n") {
                             text = "\n\n" + newValue.trimmingCharacters(in: .newlines)
