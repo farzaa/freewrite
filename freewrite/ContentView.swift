@@ -79,6 +79,10 @@ struct ContentView: View {
     @State private var isHoveringHistoryText = false
     @State private var isHoveringHistoryPath = false
     @State private var isHoveringHistoryArrow = false
+    @State private var showingEditPrompts = false
+    @State private var editableChatGPTPrompt: String = ""
+    @State private var editableClaudePrompt: String = ""
+    @State private var editingPromptType: String = "ChatGPT"
     let timer = Timer.publish(every: 1, on: .main, in: .common).autoconnect()
     let entryHeight: CGFloat = 40
     
@@ -117,8 +121,8 @@ struct ContentView: View {
         return directory
     }()
     
-    // Add shared prompt constant
-    private let aiChatPrompt = """
+    // Add static constants for prompts
+    private static let defaultChatGPTPrompt = """
     below is my journal entry. wyt? talk through it with me like a friend. don't therpaize me and give me a whole breakdown, don't repeat my thoughts with headings. really take all of this, and tell me back stuff truly as if you're an old homie.
     
     Keep it casual, dont say yo, help me make new connections i don't see, comfort, validate, challenge, all of it. dont be afraid to say a lot. format with markdown headings if needed.
@@ -132,7 +136,7 @@ struct ContentView: View {
     my entry:
     """
     
-    private let claudePrompt = """
+    private static let defaultClaudePrompt = """
     Take a look at my journal entry below. I'd like you to analyze it and respond with deep insight that feels personal, not clinical.
     Imagine you're not just a friend, but a mentor who truly gets both my tech background and my psychological patterns. I want you to uncover the deeper meaning and emotional undercurrents behind my scattered thoughts.
     Keep it casual, dont say yo, help me make new connections i don't see, comfort, validate, challenge, all of it. dont be afraid to say a lot. format with markdown headings if needed.
@@ -143,6 +147,20 @@ struct ContentView: View {
 
     Here's my journal entry:
     """
+    
+    private var aiChatPrompt: String {
+        if let savedPrompt = UserDefaults.standard.string(forKey: "aiChatPrompt") {
+            return savedPrompt
+        }
+        return Self.defaultChatGPTPrompt
+    }
+    
+    private var claudePrompt: String {
+        if let savedPrompt = UserDefaults.standard.string(forKey: "claudePrompt") {
+            return savedPrompt
+        }
+        return Self.defaultClaudePrompt
+    }
     
     // Modify getDocumentsDirectory to use cached value
     private func getDocumentsDirectory() -> URL {
@@ -629,31 +647,63 @@ struct ContentView: View {
                                         .shadow(color: Color.black.opacity(0.1), radius: 4, y: 2)
                                 } else {
                                     VStack(spacing: 0) {
-                                        Button(action: {
-                                            showingChatMenu = false
-                                            openChatGPT()
-                                        }) {
-                                            Text("ChatGPT")
-                                                .frame(maxWidth: .infinity, alignment: .leading)
-                                                .padding(.horizontal, 12)
-                                                .padding(.vertical, 8)
+                                        HStack {
+                                            Button(action: {
+                                                showingChatMenu = false
+                                                openChatGPT()
+                                            }) {
+                                                Text("ChatGPT")
+                                                    .frame(maxWidth: .infinity, alignment: .leading)
+                                                    .padding(.horizontal, 12)
+                                                    .padding(.vertical, 8)
+                                            }
+                                            .buttonStyle(.plain)
+                                            .foregroundColor(.primary)
+                                            
+                                            Button(action: {
+                                                showingChatMenu = false
+                                                loadPrompts()
+                                                editingPromptType = "ChatGPT"
+                                                showingEditPrompts = true
+                                            }) {
+                                                Image(systemName: "pencil")
+                                                    .font(.system(size: 12))
+                                                    .padding(.trailing, 12)
+                                                    .padding(.vertical, 8)
+                                            }
+                                            .buttonStyle(.plain)
+                                            .foregroundColor(.primary)
                                         }
-                                        .buttonStyle(.plain)
-                                        .foregroundColor(.primary)
                                         
                                         Divider()
                                         
-                                        Button(action: {
-                                            showingChatMenu = false
-                                            openClaude()
-                                        }) {
-                                            Text("Claude")
-                                                .frame(maxWidth: .infinity, alignment: .leading)
-                                                .padding(.horizontal, 12)
-                                                .padding(.vertical, 8)
+                                        HStack {
+                                            Button(action: {
+                                                showingChatMenu = false
+                                                openClaude()
+                                            }) {
+                                                Text("Claude")
+                                                    .frame(maxWidth: .infinity, alignment: .leading)
+                                                    .padding(.horizontal, 12)
+                                                    .padding(.vertical, 8)
+                                            }
+                                            .buttonStyle(.plain)
+                                            .foregroundColor(.primary)
+                                            
+                                            Button(action: {
+                                                showingChatMenu = false
+                                                loadPrompts()
+                                                editingPromptType = "Claude"
+                                                showingEditPrompts = true
+                                            }) {
+                                                Image(systemName: "pencil")
+                                                    .font(.system(size: 12))
+                                                    .padding(.trailing, 12)
+                                                    .padding(.vertical, 8)
+                                            }
+                                            .buttonStyle(.plain)
+                                            .foregroundColor(.primary)
                                         }
-                                        .buttonStyle(.plain)
-                                        .foregroundColor(.primary)
                                     }
                                     .frame(width: 120)
                                     .background(Color(NSColor.controlBackgroundColor))
@@ -874,6 +924,11 @@ struct ContentView: View {
         .onAppear {
             showingSidebar = false  // Hide sidebar by default
             loadExistingEntries()
+            loadPrompts()  // Load saved prompts
+            editingPromptType = "ChatGPT"
+        }
+        .sheet(isPresented: $showingEditPrompts) {
+            promptEditorView
         }
         .onChange(of: text) { _ in
             // Save current entry when text changes
@@ -1030,6 +1085,126 @@ struct ContentView: View {
             }
         } catch {
             print("Error deleting file: \(error)")
+        }
+    }
+    
+    private func savePrompts() {
+        UserDefaults.standard.set(editableChatGPTPrompt, forKey: "aiChatPrompt")
+        UserDefaults.standard.set(editableClaudePrompt, forKey: "claudePrompt")
+    }
+    
+    private func loadPrompts() {
+        if let savedChatGPTPrompt = UserDefaults.standard.string(forKey: "aiChatPrompt") {
+            editableChatGPTPrompt = savedChatGPTPrompt
+        } else {
+            editableChatGPTPrompt = aiChatPrompt
+        }
+        
+        if let savedClaudePrompt = UserDefaults.standard.string(forKey: "claudePrompt") {
+            editableClaudePrompt = savedClaudePrompt
+        } else {
+            editableClaudePrompt = claudePrompt
+        }
+    }
+
+    private func resetPrompt() {
+        if editingPromptType == "ChatGPT" {
+            editableChatGPTPrompt = Self.defaultChatGPTPrompt
+        } else {
+            editableClaudePrompt = Self.defaultClaudePrompt
+        }
+    }
+    
+    private var promptEditorView: some View {
+        VStack(spacing: 16) {
+            Text("Edit \(editingPromptType) Prompt")
+                .font(.custom(selectedFont, size: fontSize))
+                .foregroundColor(Color(red: 0.20, green: 0.20, blue: 0.20))
+            
+            let promptBinding = Binding<String>(
+                get: {
+                    if editingPromptType == "ChatGPT" {
+                        return editableChatGPTPrompt
+                    } else {
+                        return editableClaudePrompt
+                    }
+                },
+                set: { newValue in
+                    if editingPromptType == "ChatGPT" {
+                        editableChatGPTPrompt = newValue
+                    } else {
+                        editableClaudePrompt = newValue
+                    }
+                }
+            )
+            
+            TextEditor(text: promptBinding)
+                .font(.custom(selectedFont, size: fontSize))
+                .foregroundColor(Color(red: 0.20, green: 0.20, blue: 0.20))
+                .frame(height: 400)
+                .padding(8)
+                .background(Color.white)
+                .cornerRadius(8)
+                .scrollContentBackground(.hidden)
+                .scrollIndicators(.never)
+                .id("promptEditor-\(editingPromptType)")
+            
+            HStack {
+                Button("Cancel") {
+                    showingEditPrompts = false
+                }
+                .buttonStyle(.plain)
+                .foregroundColor(.gray)
+                .onHover { hovering in
+                    if hovering {
+                        NSCursor.pointingHand.push()
+                    } else {
+                        NSCursor.pop()
+                    }
+                }
+                
+                Spacer()
+                
+                Button("Reset") {
+                    resetPrompt()
+                }
+                .buttonStyle(.plain)
+                .foregroundColor(.gray)
+                .onHover { hovering in
+                    if hovering {
+                        NSCursor.pointingHand.push()
+                    } else {
+                        NSCursor.pop()
+                    }
+                }
+                
+                Spacer()
+                
+                Button("Save") {
+                    savePrompts()
+                    showingEditPrompts = false
+                }
+                .buttonStyle(.plain)
+                .foregroundColor(.gray)
+                .onHover { hovering in
+                    if hovering {
+                        NSCursor.pointingHand.push()
+                    } else {
+                        NSCursor.pop()
+                    }
+                }
+            }
+        }
+        .padding()
+        .frame(width: 700)
+        .background(Color.white)
+        .cornerRadius(12)
+        .onAppear {
+            if editingPromptType == "ChatGPT" {
+                editableChatGPTPrompt = UserDefaults.standard.string(forKey: "aiChatPrompt") ?? aiChatPrompt
+            } else {
+                editableClaudePrompt = UserDefaults.standard.string(forKey: "claudePrompt") ?? claudePrompt
+            }
         }
     }
 }
