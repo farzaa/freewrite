@@ -20,7 +20,7 @@ A minimalist writing application designed for distraction-free freewriting. Feat
 
 ## Installation
 
-1. Download the latest installer from the [releases page](https://github.com/GxAditya/freewrite-win/releases)
+1. Download the latest installer from the [releases page](https://github.com/GxAditya/FeatherWrite/releases)
 2. Run the installer and follow the prompts
 3. Launch Freewrite from the Start menu or desktop shortcut
 
@@ -35,7 +35,7 @@ A minimalist writing application designed for distraction-free freewriting. Feat
 
 1. Clone the repository:
 ```bash
-git clone https://github.com/GxAditya/freewrite-win.git
+git clone https://github.com/GxAditya/FeatherWrite.git
 cd freewrite-win
 ```
 
