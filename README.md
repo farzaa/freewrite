@@ -2,7 +2,6 @@
 
 A minimalist writing application designed for distraction-free freewriting. Features a clean interface, automatic saving, and AI-powered writing assistance.
 
-<iframe width="560" height="315" src="https://www.youtube.com/embed/vIPzU16fdrs?si=05Z_aqEWWQu_0-mg" frameborder="0" allowfullscreen></iframe>
 
 
 ## Features
