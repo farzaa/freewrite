@@ -1,0 +1,93 @@
+/* Font styles */
+:root {
+  --random-font: inherit; /* Will be controlled by JavaScript */
+}
+
+.text-editor {
+  /* Font rendering optimizations */
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  text-rendering: optimizeLegibility;
+}
+
+/* Font preview styles in settings */
+.font-option {
+  display: flex;
+  align-items: center;
+}
+
+.font-preview {
+  margin-left: 8px;
+  font-size: 1.1em;
+  color: #666;
+}
+
+/* Dancing Script preview */
+.font-preview.dancing-script {
+  font-family: "Dancing Script", cursive;
+}
+
+/* Courier Prime preview */
+.font-preview.courier-prime {
+  font-family: "Courier Prime", monospace;
+}
+
+/* Zen Loop preview */
+.font-preview.zen-loop {
+  font-family: "Zen Loop", cursive;
+}
+
+/* Cormorant Garamond preview */
+.font-preview.cormorant-garamond {
+  font-family: "Cormorant Garamond", serif;
+}
+
+/* Amatic SC preview */
+.font-preview.amatic-sc {
+  font-family: "Amatic SC", cursive;
+}
+
+/* IBM Plex Mono preview */
+.font-preview.ibm-plex-mono {
+  font-family: "IBM Plex Mono", monospace;
+}
+
+/* Great Vibes preview */
+.font-preview.great-vibes {
+  font-family: "Great Vibes", cursive;
+}
+
+/* Crimson Pro preview */
+.font-preview.crimson-pro {
+  font-family: "Crimson Pro", serif;
+}
+
+/* UnifrakturCook preview */
+.font-preview.unifrakturcook {
+  font-family: "UnifrakturCook", fantasy;
+}
+
+/* Indie Flower preview */
+.font-preview.indie-flower {
+  font-family: "Indie Flower", cursive;
+}
+
+/* Lato preview */
+.font-preview.lato {
+  font-family: "Lato", sans-serif;
+}
+
+/* Arial preview */
+.font-preview.arial {
+  font-family: Arial, sans-serif;
+}
+
+/* System preview */
+.font-preview.system {
+  font-family: system-ui, -apple-system, BlinkMacSystemFont, sans-serif;
+}
+
+/* Serif preview */
+.font-preview.serif {
+  font-family: Georgia, Times, serif;
+} 

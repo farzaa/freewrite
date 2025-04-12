@@ -1,0 +1,27 @@
+.timer {
+  font-family: 'Lato', Arial, sans-serif;
+  color: #666666;
+  cursor: pointer;
+  user-select: none;
+  transition: color 0.3s ease;
+}
+
+.timer:hover {
+  color: #646cff;
+}
+
+.timer.running {
+  color: #646cff;
+}
+
+@keyframes pulse {
+  0% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.8;
+  }
+  100% {
+    opacity: 1;
+  }
+}
