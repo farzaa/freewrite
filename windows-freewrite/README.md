@@ -8,8 +8,8 @@ This is a Windows port of the original macOS app, converted to Electron.
 
 ### Quick Install (Pre-built)
 
-1. Download the latest release from the releases page (when available)
-2. Run the installer or use the portable version
+1. Download the latest release from the releases page
+2. Run
 
 ### Building from Source
 
