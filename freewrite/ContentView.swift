@@ -79,6 +79,10 @@ struct ContentView: View {
     @State private var isHoveringHistoryText = false
     @State private var isHoveringHistoryPath = false
     @State private var isHoveringHistoryArrow = false
+    @State private var isRTL: Bool = false
+    @State private var textDirection: NSWritingDirection = .leftToRight
+    @State private var languageCode: String = "en" // Default language
+    @State private var isHoveringLanguage = false
     let timer = Timer.publish(every: 1, on: .main, in: .common).autoconnect()
     let entryHeight: CGFloat = 40
     
@@ -143,6 +147,39 @@ struct ContentView: View {
 
     Here's my journal entry:
     """
+    
+    private var languageDirectionSelector: some View {
+        Menu {
+            Button("English (LTR)") {
+                isRTL = false
+                textDirection = .leftToRight
+                languageCode = "en"
+                updateTextDirection()
+            }
+            Button("Arabic (RTL)") {
+                isRTL = true
+                textDirection = .rightToLeft
+                languageCode = "ar"
+                updateTextDirection()
+            }
+            Button("Hebrew (RTL)") {
+                isRTL = true
+                textDirection = .rightToLeft
+                languageCode = "he"
+                updateTextDirection()
+            }
+            Button("Auto-detect") {
+                detectTextDirection()
+                updateTextDirection()
+            }
+        } label: {
+            Image(systemName: isRTL ? "character.ar" : "character.latin")
+                .foregroundColor(isHoveringLanguage ? .black : .gray)
+                .onHover { hovering in
+                    isHoveringLanguage = hovering
+                }
+        }
+    }
     
     // Modify getDocumentsDirectory to use cached value
     private func getDocumentsDirectory() -> URL {
@@ -321,6 +358,51 @@ struct ContentView: View {
             print("Error loading directory contents: \(error)")
             print("Creating default entry after error")
             createNewEntry()
+        }
+    }
+    
+    //Function to detect and set text direction
+    private func detectTextDirection() {
+        let direction = TextDirection.detect(for: text)
+        isRTL = direction == .rightToLeft
+        textDirection = isRTL ? .rightToLeft : .leftToRight
+        
+        // Detect language
+        languageCode = TextDirection.detectLanguage(for: text)
+    }
+     
+    private func updateTextDirection() {
+        // Using the AppKit APIs to find and update the NSTextView
+        DispatchQueue.main.async {
+            if let textView = NSApplication.shared.keyWindow?.contentView?.findSubview(ofType: NSTextView.self) {
+                let direction: NSWritingDirection = isRTL ? .rightToLeft : .leftToRight
+                
+                // Updating the text view's base writing direction
+                textView.baseWritingDirection = direction
+                
+                // Set alignment based on direction
+                if let layoutManager = textView.layoutManager,
+                   let textStorage = layoutManager.textStorage {
+                    let fullRange = NSRange(location: 0, length: textStorage.length)
+                    
+                    // Create a paragraph style with proper alignment and direction
+                    let paragraphStyle = NSMutableParagraphStyle()
+                    paragraphStyle.baseWritingDirection = direction
+                    paragraphStyle.alignment = isRTL ? .right : .left
+                    
+                    // Apply to entire text
+                    textStorage.addAttribute(.paragraphStyle, value: paragraphStyle, range: fullRange)
+                    
+                    // Update typing attributes for new text
+                    var typingAttributes = textView.typingAttributes
+                    typingAttributes[.paragraphStyle] = paragraphStyle
+                    textView.typingAttributes = typingAttributes
+                }
+                
+                // Force layout update
+                textView.needsLayout = true
+                textView.layoutManager?.ensureLayout(for: textView.textContainer!)
+            }
         }
     }
     
@@ -664,6 +746,25 @@ struct ContentView: View {
                             
                             Text("•")
                                 .foregroundColor(.gray)
+
+                            // Language Direction Selector
+                             Button(textDirection == .leftToRight ? "LTR" : "RTL") {
+                                 textDirection = textDirection == .leftToRight ? .rightToLeft : .leftToRight
+                             }
+                           .buttonStyle(.plain)
+                           .foregroundColor(isHoveringLanguage ? .black : .gray)
+                           .onHover { hovering in
+                               isHoveringLanguage = hovering
+                               isHoveringBottomNav = hovering
+                               if hovering {
+                                   NSCursor.pointingHand.push()
+                               } else {
+                                   NSCursor.pop()
+                               }
+                           }
+
+                            Text("•")
+                                .foregroundColor(.gray)
                             
                             Button(isFullscreen ? "Minimize" : "Fullscreen") {
                                 if let window = NSApplication.shared.windows.first {
@@ -874,6 +975,7 @@ struct ContentView: View {
         .onAppear {
             showingSidebar = false  // Hide sidebar by default
             loadExistingEntries()
+            initializeTextDirection()
         }
         .onChange(of: text) { _ in
             // Save current entry when text changes
@@ -936,8 +1038,12 @@ struct ContentView: View {
         let documentsDirectory = getDocumentsDirectory()
         let fileURL = documentsDirectory.appendingPathComponent(entry.filename)
         
+        // Add RTL metadata as a comment at the beginning of the file
+            let rtlMetadata = "<!-- DIRECTION:\(isRTL ? "RTL" : "LTR") LANG:\(languageCode) -->\n"
+            let textToSave = rtlMetadata + text
+        
         do {
-            try text.write(to: fileURL, atomically: true, encoding: .utf8)
+            try textToSave.write(to: fileURL, atomically: true, encoding: .utf8)
             print("Successfully saved entry: \(entry.filename)")
             updatePreviewText(for: entry)  // Update preview after saving
         } catch {
@@ -951,11 +1057,56 @@ struct ContentView: View {
         
         do {
             if fileManager.fileExists(atPath: fileURL.path) {
-                text = try String(contentsOf: fileURL, encoding: .utf8)
+                let fileContent = try String(contentsOf: fileURL, encoding: .utf8)
+                
+                // Check for RTL metadata comment
+                if let metadataRange = fileContent.range(of: "<!-- DIRECTION:(RTL|LTR) LANG:[a-z]{2} -->", options: .regularExpression) {
+                    let metadata = String(fileContent[metadataRange])
+                    
+                    // Extract direction
+                    if metadata.contains("DIRECTION:RTL") {
+                        isRTL = true
+                        textDirection = .rightToLeft
+                    } else {
+                        isRTL = false
+                        textDirection = .leftToRight
+                    }
+                    
+                    // Extract language code
+                    if let langRange = metadata.range(of: "LANG:[a-z]{2}", options: .regularExpression) {
+                        let langString = String(metadata[langRange])
+                        languageCode = String(langString.suffix(2))
+                    }
+                    
+                    // Remove metadata from displayed text
+                    text = String(fileContent[metadataRange.upperBound...])
+                } else {
+                    // No metadata, use default LTR
+                    text = fileContent
+                    isRTL = false
+                    textDirection = .leftToRight
+                    languageCode = "en"
+                }
+                
+                // Apply direction to text view
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
+                    updateTextDirection()
+                }
+                
                 print("Successfully loaded entry: \(entry.filename)")
             }
         } catch {
             print("Error loading entry: \(error)")
+        }
+    }
+    
+    private func initializeTextDirection() {
+        // Check if current text contains RTL characters
+        detectTextDirection()
+        
+        // Apply direction to text view
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
+            updateTextDirection()
         }
     }
     
@@ -1071,6 +1222,100 @@ extension NSView {
     }
 }
 
+// Extend UnicodeScalar to add BidiClass enum
+extension UnicodeScalar {
+    enum BidiClass: Int {
+        case leftToRight = 0
+        case rightToLeft = 1
+        case arabicLetter = 2
+        case hebrewLetter = 18
+        //add other here as needed
+    }
+}
+
+extension NSMutableAttributedString {
+    func setTextDirection(_ direction: NSWritingDirection) {
+        let paragraphStyle = NSMutableParagraphStyle()
+        paragraphStyle.baseWritingDirection = direction
+        
+        let attributes: [NSAttributedString.Key: Any] = [
+            .paragraphStyle: paragraphStyle
+        ]
+        
+        self.addAttributes(attributes, range: NSRange(location: 0, length: self.length))
+    }
+}
+
+enum TextDirection {
+    case leftToRight
+    case rightToLeft
+    
+    static func detect(for text: String) -> TextDirection {
+        // Get the first non-whitespace character
+        guard let firstChar = text.trimmingCharacters(in: .whitespacesAndNewlines).first else {
+            return .leftToRight
+        }
+        
+        for scalar in firstChar.unicodeScalars {
+            let value = scalar.value
+            
+            // Arabic range
+            if (0x0600...0x06FF).contains(value) {
+                return .rightToLeft
+            }
+            
+            // Hebrew range
+            if (0x0590...0x05FF).contains(value) {
+                return .rightToLeft
+            }
+            
+            // Farsi/Persian specific characters
+            if [0x067E, 0x0686, 0x0698, 0x06AF].contains(value) {
+                return .rightToLeft
+            }
+            
+            // Other RTL scripts can be added here
+            // Thaana
+            if (0x0780...0x07BF).contains(value) {
+                return .rightToLeft
+            }
+            
+            // Syriac
+            if (0x0700...0x074F).contains(value) {
+                return .rightToLeft
+            }
+        }
+        
+        return .leftToRight
+    }
+    
+    static func detectLanguage(for text: String) -> String {
+        let sampleText = String(text.prefix(100)).trimmingCharacters(in: .whitespacesAndNewlines)
+        
+        // Check for Arabic script
+        if sampleText.contains(where: { char in
+            char.unicodeScalars.contains(where: { (0x0600...0x06FF).contains($0.value) })
+        }) {
+            // Try to distinguish between Arabic and Persian/Farsi
+            if sampleText.contains(where: { char in
+                char.unicodeScalars.contains(where: { [0x067E, 0x0686, 0x0698, 0x06AF].contains($0.value) })
+            }) {
+                return "fa" // Persian/Farsi
+            }
+            return "ar" // Arabic
+        }
+        
+        // Check for Hebrew script
+        if sampleText.contains(where: { char in
+            char.unicodeScalars.contains(where: { (0x0590...0x05FF).contains($0.value) })
+        }) {
+            return "he" // Hebrew
+        }
+        
+        // Default to English for LTR
+        return "en"
+    }
+}
 #Preview {
     ContentView()
 }
