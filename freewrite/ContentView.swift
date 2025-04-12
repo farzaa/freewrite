@@ -753,7 +753,18 @@ struct ContentView: View {
                                 GitHubSettingsView(
                                     githubService: githubService,
                                     entries: entries,
-                                    documentsDirectory: getDocumentsDirectory()
+                                    documentsDirectory: getDocumentsDirectory(),
+                                    onEntriesDownloaded: { downloadedEntries in
+                                        // Update the entries array with downloaded entries
+                                        if !downloadedEntries.isEmpty {
+                                            entries = downloadedEntries
+                                            // Select the most recent entry
+                                            if let firstEntry = entries.first {
+                                                selectedEntryId = firstEntry.id
+                                                loadEntry(entry: firstEntry)
+                                            }
+                                        }
+                                    }
                                 )
                             }
                         }

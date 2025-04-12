@@ -7,9 +7,11 @@ struct GitHubSettingsView: View {
     @State private var showingAlert = false
     @State private var alertMessage = ""
     @State private var isLoading = false
+    @State private var isDownloading = false
     @Environment(\.dismiss) private var dismiss
     let entries: [HumanEntry]
     let documentsDirectory: URL
+    let onEntriesDownloaded: ([HumanEntry]) -> Void
     
     var body: some View {
         VStack(spacing: 20) {
@@ -42,20 +44,38 @@ struct GitHubSettingsView: View {
                     }
                     .font(.system(size: 13))
                     
-                    if isLoading {
+                    if isLoading || isDownloading {
                         ProgressView()
+                            .padding()
                     } else {
-                        Button("Sync Now") {
-                            Task {
-                                isLoading = true
-                                do {
-                                    try await githubService.syncEntries(entries: entries, documentsDirectory: documentsDirectory)
-                                    alertMessage = "Sync completed successfully!"
-                                } catch {
-                                    alertMessage = "Sync failed: \(error.localizedDescription)"
+                        HStack(spacing: 16) {
+                            Button("Upload") {
+                                Task {
+                                    isLoading = true
+                                    do {
+                                        try await githubService.syncEntries(entries: entries, documentsDirectory: documentsDirectory)
+                                        alertMessage = "Upload completed successfully!"
+                                    } catch {
+                                        alertMessage = "Upload failed: \(error.localizedDescription)"
+                                    }
+                                    showingAlert = true
+                                    isLoading = false
                                 }
-                                showingAlert = true
-                                isLoading = false
+                            }
+                            
+                            Button("Download") {
+                                Task {
+                                    isDownloading = true
+                                    do {
+                                        let downloadedEntries = try await githubService.downloadEntries(documentsDirectory: documentsDirectory)
+                                        onEntriesDownloaded(downloadedEntries)
+                                        alertMessage = "Download completed successfully! Downloaded \(downloadedEntries.count) entries."
+                                    } catch {
+                                        alertMessage = "Download failed: \(error.localizedDescription)"
+                                    }
+                                    showingAlert = true
+                                    isDownloading = false
+                                }
                             }
                         }
                         
@@ -63,6 +83,7 @@ struct GitHubSettingsView: View {
                             githubService.logout()
                         }
                         .foregroundColor(.red)
+                        .padding(.top, 8)
                     }
                 }
             }
@@ -80,7 +101,7 @@ struct GitHubSettingsView: View {
         }
         .padding()
         .frame(width: 400)
-        .alert("Sync Status", isPresented: $showingAlert) {
+        .alert("GitHub Sync", isPresented: $showingAlert) {
             Button("OK", role: .cancel) { }
         } message: {
             Text(alertMessage)

@@ -224,4 +224,139 @@ class GitHubService: ObservableObject {
     func setUserName(_ username: String) {
         defaults.set(username, forKey: "github_username")
     }
+    
+    // Download all entries from GitHub
+    func downloadEntries(documentsDirectory: URL) async throws -> [HumanEntry] {
+        guard let token = token else {
+            throw NSError(domain: "GitHubService", code: 401, userInfo: [NSLocalizedDescriptionKey: "Not authenticated"])
+        }
+        
+        // Update sync status
+        await MainActor.run {
+            syncStatus = "Downloading..."
+        }
+        
+        // Get all files from repository
+        let fileInfos = try await getRepositoryFileContents()
+        var downloadedEntries: [HumanEntry] = []
+        
+        // Process each file
+        for fileInfo in fileInfos {
+            guard let filename = fileInfo["name"] as? String,
+                  let downloadUrl = fileInfo["download_url"] as? String,
+                  filename.hasSuffix(".md") else {
+                continue
+            }
+            
+            // Download file content
+            let content = try await downloadFileContent(url: downloadUrl)
+            
+            // Extract entry details from filename pattern [uuid]-[yyyy-MM-dd-HH-mm-ss].md
+            if let entry = createEntryFromFilename(filename: filename, content: content) {
+                downloadedEntries.append(entry)
+                
+                // Save file locally
+                let fileURL = documentsDirectory.appendingPathComponent(filename)
+                try content.write(to: fileURL, atomically: true, encoding: .utf8)
+            }
+        }
+        
+        // Update sync status
+        await MainActor.run {
+            syncStatus = "Download Complete"
+            lastSyncDate = Date()
+        }
+        
+        return downloadedEntries.sorted { 
+            // Compare by date if available, otherwise alphabetically
+            extractDateFromFilename($0.filename) > extractDateFromFilename($1.filename)
+        }
+    }
+    
+    private func extractDateFromFilename(_ filename: String) -> Date {
+        let dateFormatter = DateFormatter()
+        dateFormatter.dateFormat = "yyyy-MM-dd-HH-mm-ss"
+        
+        if let dateMatch = filename.range(of: "\\[(\\d{4}-\\d{2}-\\d{2}-\\d{2}-\\d{2}-\\d{2})\\]", options: .regularExpression),
+           let date = dateFormatter.date(from: String(filename[dateMatch].dropFirst().dropLast())) {
+            return date
+        }
+        
+        return Date.distantPast
+    }
+    
+    private func createEntryFromFilename(filename: String, content: String) -> HumanEntry? {
+        // Extract UUID and date from filename pattern [uuid]-[yyyy-MM-dd-HH-mm-ss].md
+        guard let uuidMatch = filename.range(of: "\\[(.*?)\\]", options: .regularExpression),
+              let dateMatch = filename.range(of: "\\[(\\d{4}-\\d{2}-\\d{2}-\\d{2}-\\d{2}-\\d{2})\\]", options: .regularExpression),
+              let uuid = UUID(uuidString: String(filename[uuidMatch].dropFirst().dropLast())) else {
+            return nil
+        }
+        
+        // Parse the date string for display
+        let dateString = String(filename[dateMatch].dropFirst().dropLast())
+        let dateFormatter = DateFormatter()
+        dateFormatter.dateFormat = "yyyy-MM-dd-HH-mm-ss"
+        
+        guard let fileDate = dateFormatter.date(from: dateString) else {
+            return nil
+        }
+        
+        // Format display date
+        dateFormatter.dateFormat = "MMM d"
+        let displayDate = dateFormatter.string(from: fileDate)
+        
+        // Create entry preview
+        let preview = content
+            .replacingOccurrences(of: "\n", with: " ")
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        let truncated = preview.isEmpty ? "" : (preview.count > 30 ? String(preview.prefix(30)) + "..." : preview)
+        
+        return HumanEntry(
+            id: uuid,
+            date: displayDate,
+            filename: filename,
+            previewText: truncated
+        )
+    }
+    
+    private func downloadFileContent(url: String) async throws -> String {
+        guard let url = URL(string: url) else {
+            throw NSError(domain: "GitHubService", code: 400, userInfo: [NSLocalizedDescriptionKey: "Invalid URL"])
+        }
+        
+        var request = URLRequest(url: url)
+        request.setValue("Bearer \(token!)", forHTTPHeaderField: "Authorization")
+        
+        let (data, response) = try await URLSession.shared.data(for: request)
+        guard let httpResponse = response as? HTTPURLResponse,
+              httpResponse.statusCode == 200 else {
+            throw NSError(domain: "GitHubService", code: (response as? HTTPURLResponse)?.statusCode ?? 500,
+                         userInfo: [NSLocalizedDescriptionKey: "Failed to download file"])
+        }
+        
+        return String(data: data, encoding: .utf8) ?? ""
+    }
+    
+    private func getRepositoryFileContents() async throws -> [[String: Any]] {
+        let url = URL(string: "\(baseURL)/repos/\(getUserName())/freewrite-entries/contents/")!
+        var request = URLRequest(url: url)
+        request.setValue("Bearer \(token!)", forHTTPHeaderField: "Authorization")
+        
+        let (data, response) = try await URLSession.shared.data(for: request)
+        guard let httpResponse = response as? HTTPURLResponse else { 
+            throw NSError(domain: "GitHubService", code: 500, userInfo: [NSLocalizedDescriptionKey: "Invalid response"]) 
+        }
+        
+        if httpResponse.statusCode == 404 {
+            return [] // Repository or folder doesn't exist yet
+        }
+        
+        guard httpResponse.statusCode == 200,
+              let jsonArray = try JSONSerialization.jsonObject(with: data) as? [[String: Any]] else {
+            throw NSError(domain: "GitHubService", code: httpResponse.statusCode, userInfo: [NSLocalizedDescriptionKey: "Failed to parse repository contents"])
+        }
+        
+        return jsonArray
+    }
 } 
