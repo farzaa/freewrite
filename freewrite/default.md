@@ -1,10 +1,14 @@
-Hi. My name is Farza.
+Hi. Welcome to Freewrite :).
 
-I made this app.
+Plz read this guide.
 
-Plz read this guide. I beg of you.
+I beg of you.
 
 It’s 5 min max.
+
+My name is Farza.
+
+I made this app.
 
 This is not a journaling app or a note-taking app.
 If you use it for that, you’ll probably use it once or twice,
@@ -83,3 +87,32 @@ So that’s it! That’s the app. I hope freewriting helps you.
 I know it’s a dumb little app — just a text view with some black text + a timer — but, use its ideas properly and it can make a big impact :).
 
 (Or it ends up being dumb and useless for you haha. Find out for yourself!)
+
+Lil bonus features:
+
+1. Once you finish a freewrite session, click “Chat”.
+
+It’ll push your entry to ChatGPT or Claude via a query parameter to help you reflect. I also baked in my custom prompt I’ve been using for months. This little thing has helped me so much. AI is really good at helping make connections you might not see. I hope it helps you too.
+
+2. Try to scroll on the timer using your trackpad — this is how you set different timer.
+
+Maybe start with 5m or 10m if 15m feels like a lot. For longer sessions where I’m writing scripts or brainstorming, I do 25m.
+
+3. There is no spellcheck. There is no markdown. This is on purpose. It doesn’t matter.
+
+4. I’ve always felt that the font and size should reflect the mood of my writing. I’m kinda weird like that. But maybe there are other weird people like me out there haha.
+
+For example, for more emotional entries I like a larger “24px Lato”.
+If I’m thinking through a new business idea, I prefer a more official-looking “18px Serif”. I also added the random button to help you find the vibe you’re looking for.
+
+5. Click the clock on the bottom right to see your history. It’s all saved locally. Click the file path at the top to open it in Finder.
+
+See a bug? Wanna add something? See open issues and requests on the repo here:
+https://github.com/farzaa/freewrite
+
+Wanna join your fellow writers? Join:
+https://freewrite.io (click join writing at top).
+
+Enjoy everyone!!
+
+– Farza
