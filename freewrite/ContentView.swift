@@ -79,6 +79,9 @@ struct ContentView: View {
     @State private var isHoveringHistoryText = false
     @State private var isHoveringHistoryPath = false
     @State private var isHoveringHistoryArrow = false
+    @State private var isHoveringGitHub = false
+    @StateObject private var githubService = GitHubService()
+    @State private var showingGitHubSettings = false
     let timer = Timer.publish(every: 1, on: .main, in: .common).autoconnect()
     let entryHeight: CGFloat = 40
     
@@ -725,6 +728,45 @@ struct ContentView: View {
                                     NSCursor.pop()
                                 }
                             }
+                            
+                            // Add GitHub sync button next to the history button
+                            Text("•")
+                                .foregroundColor(.gray)
+                            
+                            Button(action: {
+                                showingGitHubSettings = true
+                            }) {
+                                Image(systemName: "arrow.triangle.2.circlepath.circle")
+                                    .foregroundColor(isHoveringGitHub ? .black : .gray)
+                            }
+                            .buttonStyle(.plain)
+                            .onHover { hovering in
+                                isHoveringGitHub = hovering
+                                isHoveringBottomNav = hovering
+                                if hovering {
+                                    NSCursor.pointingHand.push()
+                                } else {
+                                    NSCursor.pop()
+                                }
+                            }
+                            .sheet(isPresented: $showingGitHubSettings) {
+                                GitHubSettingsView(
+                                    githubService: githubService,
+                                    entries: entries,
+                                    documentsDirectory: getDocumentsDirectory(),
+                                    onEntriesDownloaded: { downloadedEntries in
+                                        // Update the entries array with downloaded entries
+                                        if !downloadedEntries.isEmpty {
+                                            entries = downloadedEntries
+                                            // Select the most recent entry
+                                            if let firstEntry = entries.first {
+                                                selectedEntryId = firstEntry.id
+                                                loadEntry(entry: firstEntry)
+                                            }
+                                        }
+                                    }
+                                )
+                            }
                         }
                         .padding(8)
                         .cornerRadius(6)
@@ -1013,6 +1055,9 @@ struct ContentView: View {
         do {
             try fileManager.removeItem(at: fileURL)
             print("Successfully deleted file: \(entry.filename)")
+            
+            // Track the deleted file for GitHub sync
+            githubService.trackDeletedFile(filename: entry.filename)
             
             // Remove the entry from the entries array
             if let index = entries.firstIndex(where: { $0.id == entry.id }) {
