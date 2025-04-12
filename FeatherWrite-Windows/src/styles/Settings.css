@@ -1,0 +1,179 @@
+.settings-overlay {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: rgba(0, 0, 0, 0.5);
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  z-index: 1000;
+}
+
+.settings-panel {
+  background: white;
+  padding: 2rem;
+  border-radius: 8px;
+  width: 400px;
+  position: relative;
+  box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+}
+
+.close-button {
+  position: absolute;
+  top: 1rem;
+  right: 1rem;
+  background: transparent;
+  border: none;
+  font-size: 1.5rem;
+  cursor: pointer;
+  padding: 0.5rem;
+  width: 40px;
+  height: 40px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 50%;
+}
+
+.close-button:hover {
+  background: rgba(0, 0, 0, 0.1);
+}
+
+.settings-panel h2 {
+  margin: 0 0 2rem 0;
+  color: #333;
+}
+
+.setting-group {
+  margin-bottom: 1.5rem;
+}
+
+.setting-group label {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  color: #666;
+  font-size: 0.9rem;
+}
+
+.setting-group select,
+.setting-group input {
+  margin-left: 1rem;
+  padding: 0.5rem;
+  border: 1px solid #ddd;
+  border-radius: 4px;
+  width: 120px;
+  font-size: 0.9rem;
+}
+
+.setting-group input[type="number"] {
+  width: 80px;
+}
+
+.setting-group input[type="password"] {
+  font-family: monospace;
+  letter-spacing: 0.1em;
+}
+
+.setting-group select:focus,
+.setting-group input:focus {
+  outline: none;
+  border-color: #646cff;
+}
+
+.settings-tabs {
+  display: flex;
+  gap: 1rem;
+  margin-bottom: 2rem;
+  border-bottom: 1px solid #eee;
+  padding-bottom: 1rem;
+}
+
+.settings-tabs button {
+  background: transparent;
+  border: none;
+  color: #666;
+  padding: 0.5rem 1rem;
+  cursor: pointer;
+  font-size: 0.9rem;
+  transition: all 0.2s ease;
+  border-radius: 4px;
+}
+
+.settings-tabs button:hover {
+  background: #f5f5f5;
+  color: #333;
+}
+
+.settings-tabs button.active {
+  color: #646cff;
+  background: #f0f0ff;
+}
+
+.shortcuts-list {
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+}
+
+.shortcut-item {
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+  padding: 0.75rem;
+  background: #f8f9fa;
+  border-radius: 4px;
+}
+
+.shortcut-item kbd {
+  background: #e9ecef;
+  padding: 0.25rem 0.5rem;
+  border-radius: 4px;
+  font-family: monospace;
+  font-size: 0.9rem;
+  min-width: 80px;
+  text-align: center;
+  border: 1px solid #dee2e6;
+  box-shadow: 0 2px 0 #dee2e6;
+}
+
+.shortcut-item span {
+  color: #666;
+  font-size: 0.9rem;
+}
+
+.ai-settings {
+  display: flex;
+  flex-direction: column;
+  gap: 1.5rem;
+}
+
+.setting-description {
+  display: block;
+  color: #666;
+  font-size: 0.8rem;
+  margin-top: 0.5rem;
+  font-style: italic;
+}
+
+/* Font preview styles */
+.font-preview-container {
+  margin-top: 0.5rem;
+  padding: 0.75rem;
+  border: 1px solid #eee;
+  border-radius: 4px;
+  background-color: #f8f9fa;
+}
+
+.font-preview {
+  font-size: 1.2rem;
+  color: #333;
+  text-align: center;
+  padding: 0.5rem;
+  min-height: 2.5rem;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}

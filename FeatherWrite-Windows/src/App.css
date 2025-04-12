@@ -1,0 +1,280 @@
+#root {
+  max-width: 1280px;
+  margin: 0 auto;
+  padding: 2rem;
+  text-align: center;
+}
+
+.logo {
+  height: 6em;
+  padding: 1.5em;
+  will-change: filter;
+  transition: filter 300ms;
+}
+.logo:hover {
+  filter: drop-shadow(0 0 2em #646cffaa);
+}
+.logo.react:hover {
+  filter: drop-shadow(0 0 2em #61dafbaa);
+}
+
+@keyframes logo-spin {
+  from {
+    transform: rotate(0deg);
+  }
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  a:nth-of-type(2) .logo {
+    animation: logo-spin infinite 20s linear;
+  }
+}
+
+.card {
+  padding: 2em;
+}
+
+.read-the-docs {
+  color: #888;
+}
+
+.app {
+  width: 100%;
+  height: 100vh;
+  background-color: #ffffff;
+  position: relative;
+}
+
+.app.fullscreen {
+  background: #ffffff;
+}
+
+.app.fullscreen .window-controls,
+.app.fullscreen .toolbar {
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.3s ease;
+}
+
+.app.fullscreen:hover .window-controls,
+.app.fullscreen:hover .toolbar {
+  opacity: 1;
+  pointer-events: all;
+}
+
+.window-controls {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 32px;
+  display: flex;
+  justify-content: space-between;
+  padding: 0 0.5rem;
+  align-items: center;
+  background: transparent;
+  -webkit-app-region: drag;
+  z-index: 1000;
+}
+
+.window-controls-left,
+.window-controls-right {
+  display: flex;
+  align-items: center;
+}
+
+.window-controls-left button {
+  font-size: 0.8rem;
+  padding: 0.25rem 0.5rem;
+  background: rgba(0, 0, 0, 0.1);
+  border-radius: 4px;
+  color: #333;
+}
+
+.window-controls button {
+  -webkit-app-region: no-drag;
+  border: none;
+  background: transparent;
+  width: 46px;
+  height: 32px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-family: "Segoe MDL2 Assets", sans-serif;
+  font-size: 10px;
+  color: #666666;
+  cursor: pointer;
+}
+
+.window-controls-right button {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.window-controls button:hover {
+  background-color: rgba(0, 0, 0, 0.1);
+}
+
+.window-controls button:last-child:hover {
+  background-color: #e81123;
+  color: white;
+}
+
+.toolbar {
+  position: fixed;
+  top: 32px;
+  left: 0;
+  right: 0;
+  height: 40px;
+  display: flex;
+  justify-content: flex-end;
+  align-items: center;
+  padding: 0 1rem;
+  background: transparent;
+  z-index: 900;
+}
+
+.toolbar button {
+  margin-left: 1rem;
+  padding: 0.5rem 1rem;
+  background: transparent;
+  border: 1px solid #ddd;
+  border-radius: 4px;
+  color: #666;
+  font-size: 0.9rem;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.toolbar button:hover {
+  border-color: #646cff;
+  color: #646cff;
+}
+
+.toolbar button .icon {
+  font-size: 1.2rem;
+  line-height: 1;
+  display: inline-block;
+  transform: translateY(1px);
+}
+
+.toolbar button[title]:hover::after {
+  content: attr(title);
+  position: absolute;
+  bottom: -30px;
+  left: 50%;
+  transform: translateX(-50%);
+  background: rgba(0, 0, 0, 0.8);
+  color: white;
+  padding: 0.25rem 0.5rem;
+  border-radius: 4px;
+  font-size: 0.8rem;
+  white-space: nowrap;
+  pointer-events: none;
+}
+
+.ai-error,
+.ai-feedback {
+  position: fixed;
+  bottom: 2rem;
+  right: 2rem;
+  width: 400px;
+  background: white;
+  border-radius: 8px;
+  box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+  padding: 1.5rem;
+  z-index: 1000;
+  animation: slide-up 0.3s ease;
+}
+
+.ai-error {
+  background: #fff2f2;
+  border: 1px solid #ffcdd2;
+  color: #d32f2f;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.ai-error button {
+  background: transparent;
+  border: none;
+  color: #d32f2f;
+  padding: 0.25rem;
+  font-size: 1.2rem;
+  cursor: pointer;
+  margin-left: 1rem;
+}
+
+.ai-feedback {
+  background: #f8f9fa;
+  border: 1px solid #e9ecef;
+}
+
+.ai-feedback h3 {
+  margin: 0 0 1rem 0;
+  color: #333;
+  font-size: 1.2rem;
+}
+
+.ai-feedback p {
+  color: #666;
+  line-height: 1.6;
+  margin-bottom: 1rem;
+}
+
+.ai-suggestions {
+  margin-top: 1rem;
+  padding-top: 1rem;
+  border-top: 1px solid #e9ecef;
+}
+
+.ai-suggestions h4 {
+  color: #333;
+  margin: 0 0 0.5rem 0;
+  font-size: 1rem;
+}
+
+.ai-suggestions ul {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+}
+
+.ai-suggestions li {
+  color: #666;
+  padding: 0.5rem 0;
+  font-size: 0.9rem;
+  line-height: 1.4;
+}
+
+.ai-feedback button {
+  margin-top: 1rem;
+  width: 100%;
+  padding: 0.75rem;
+  background: #646cff;
+  color: white;
+  border: none;
+  border-radius: 4px;
+  cursor: pointer;
+  transition: background-color 0.2s ease;
+}
+
+.ai-feedback button:hover {
+  background: #535bf2;
+}
+
+@keyframes slide-up {
+  from {
+    transform: translateY(100%);
+    opacity: 0;
+  }
+  to {
+    transform: translateY(0);
+    opacity: 1;
+  }
+}
