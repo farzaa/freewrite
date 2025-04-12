@@ -79,6 +79,8 @@ struct ContentView: View {
     @State private var isHoveringHistoryText = false
     @State private var isHoveringHistoryPath = false
     @State private var isHoveringHistoryArrow = false
+    @State private var isHoveringSound = false
+    @State private var isSoundEnabled = false  // Changed to false by default
     let timer = Timer.publish(every: 1, on: .main, in: .common).autoconnect()
     let entryHeight: CGFloat = 40
     
@@ -559,6 +561,28 @@ struct ContentView: View {
                         
                         // Utility buttons (moved to right)
                         HStack(spacing: 8) {
+                            Button(action: {
+                                AudioManager.shared.toggleSound()
+                                isSoundEnabled.toggle()  // Update state immediately
+                            }) {
+                                Image(systemName: isSoundEnabled ? "speaker.wave.2.fill" : "speaker.slash.fill")
+                                    .frame(width: 20, height: 16)  // Fixed frame size for both icons
+                            }
+                            .buttonStyle(.plain)
+                            .foregroundColor(isHoveringSound ? .black : .gray)
+                            .onHover { hovering in
+                                isHoveringSound = hovering
+                                isHoveringBottomNav = hovering
+                                if hovering {
+                                    NSCursor.pointingHand.push()
+                                } else {
+                                    NSCursor.pop()
+                                }
+                            }
+                            
+                            Text("•")
+                                .foregroundColor(.gray)
+                            
                             Button(timerButtonTitle) {
                                 let now = Date()
                                 if let lastClick = lastClickTime,

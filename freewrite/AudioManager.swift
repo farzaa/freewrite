@@ -9,6 +9,7 @@ class AudioManager {
     static let shared = AudioManager()
     private var soundData: Data?
     private var keySoundMap: [String: KeySound] = [:]
+    private(set) var isEnabled: Bool = false
     
     private init() {
         setupKeyboardSound()
@@ -55,8 +56,13 @@ class AudioManager {
         }
     }
     
+    func toggleSound() {
+        isEnabled.toggle()
+    }
+    
     func playKeyboardSound(forKey key: String = "1") {
-        guard let soundData = soundData,
+        guard isEnabled,
+              let soundData = soundData,
               let player = try? AVAudioPlayer(data: soundData) else {
             return
         }
