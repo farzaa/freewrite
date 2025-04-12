@@ -96,7 +96,10 @@ const App = () => {
     if (response.error) {
       setAiError(response.error);
     } else {
-      // Add message to chat instead of showing in a popup
+      // Always show the chat with each new AI feedback
+      setShowChat(true);
+      
+      // Add message to chat
       addChatMessage(response.feedback, response.suggestions);
       
       // Also update the aiFeedback state for backward compatibility
@@ -257,7 +260,7 @@ const App = () => {
   }, [isLoading, toggleFullscreen, showSettings, showSidebar, aiFeedback.feedback, aiError, text, settings, isFullscreen, currentEntry]);
 
   if (isLoading || !settings) {
-    return <div className="loading-screen">Loading FeatherWrite...</div>;
+    return <div className="loading-screen">Loading freewrite...</div>;
   }
 
   return (
@@ -273,24 +276,44 @@ const App = () => {
         </div>
       </div>
 
-      <div className="toolbar">
-        <button onClick={() => setShowSettings(true)} title="Settings (Alt+S)">Settings</button>
-        <button onClick={() => setShowSidebar(true)} title="History (Ctrl+H)">History</button>
-        <button onClick={() => setShowChat(prev => !prev)} title="AI Chat (Ctrl+C)">Chat</button>
-      </div>
-
-      <Timer
-        ref={timerRef}
-        initialMinutes={settings.timerDuration}
-        onTimerEnd={handleTimerEnd}
-      />
-
       <TextEditor
         key={currentEntry?.id || 'new'}
         onTextChange={handleTextChange}
         initialText={text}
         settings={settings}
       />
+
+      <div className="toolbar">
+        <div className="toolbar-left">
+          <span className="toolbar-item">{settings.fontSize}px</span>
+          <span className="toolbar-separator">•</span>
+          <span className="toolbar-item">{settings.font}</span>
+          <span className="toolbar-separator">•</span>
+          <button onClick={() => setShowSettings(true)}>System</button>
+          <span className="toolbar-separator">•</span>
+          <span className="toolbar-item">Serif</span>
+          <span className="toolbar-separator">•</span>
+          <span className="toolbar-item">Random[{settings.font}]</span>
+        </div>
+        
+        <div className="toolbar-right">
+          <Timer
+            ref={timerRef}
+            initialMinutes={settings.timerDuration}
+            onTimerEnd={handleTimerEnd}
+          />
+          <span className="toolbar-separator">•</span>
+          <button onClick={() => setShowChat(prev => !prev)}>Chat</button>
+          <span className="toolbar-separator">•</span>
+          <button onClick={toggleFullscreen}>
+            {isFullscreen ? 'Exit Fullscreen' : 'Fullscreen'}
+          </button>
+          <span className="toolbar-separator">•</span>
+          <button onClick={() => setShowSidebar(true)}>New Entry</button>
+          <span className="toolbar-separator">•</span>
+          <button onClick={() => setShowSettings(true)} title="Settings">⚙</button>
+        </div>
+      </div>
 
       {showSettings && (
         <Settings

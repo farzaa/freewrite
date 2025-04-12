@@ -15,6 +15,7 @@ const Settings: React.FC<SettingsProps> = ({ config, onConfigChange, onClose }) 
   // Local state still useful for immediate UI feedback
   const [localConfig, setLocalConfig] = useState<SettingsConfig>(config);
   const [activeTab, setActiveTab] = useState<'general' | 'shortcuts' | 'ai'>('general');
+  const [isClosing, setIsClosing] = useState(false);
 
   // Update local state if the config prop changes from App.tsx (e.g., after reset)
   useEffect(() => {
@@ -51,15 +52,23 @@ const Settings: React.FC<SettingsProps> = ({ config, onConfigChange, onClose }) 
 
   // Handle closing - ensure App state reflects the latest persisted state
   const handleClose = async () => {
-      try {
-          const latestConfig = await settingsService.getAll();
-          onConfigChange(latestConfig); // Update App state with latest from main process
-      } catch (error) {
-          console.error("Failed to fetch latest settings on close:", error);
-          // Fallback to local state if fetch fails?
-          onConfigChange(localConfig);
-      }
+    // Start exit animation
+    setIsClosing(true);
+    
+    // Update settings in the background while animation plays
+    try {
+      const latestConfig = await settingsService.getAll();
+      onConfigChange(latestConfig); // Update App state with latest from main process
+    } catch (error) {
+      console.error("Failed to fetch latest settings on close:", error);
+      // Fallback to local state if fetch fails
+      onConfigChange(localConfig);
+    }
+    
+    // Wait for animation to complete before fully closing
+    setTimeout(() => {
       onClose();
+    }, 800); // Match duration with animation
   };
 
   // Helper to convert font name to CSS class name
@@ -68,8 +77,8 @@ const Settings: React.FC<SettingsProps> = ({ config, onConfigChange, onClose }) 
   };
 
   return (
-    <div className="settings-overlay">
-      <div className="settings-panel">
+    <div className={`settings-overlay ${isClosing ? 'overlay-closing' : ''}`}>
+      <div className={`settings-panel ${isClosing ? 'settings-closing' : ''}`}>
         {/* Use handleClose instead of onClose directly */}
         <button className="close-button" onClick={handleClose}>×</button>
         <h2>Settings</h2>

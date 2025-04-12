@@ -1,24 +1,17 @@
 .timer {
-  position: fixed;
-  top: 80px;
-  right: 1rem;
   font-family: 'Lato', Arial, sans-serif;
-  font-size: 1.5rem;
   color: #666666;
-  padding: 0.5rem;
   cursor: pointer;
   user-select: none;
-  transition: opacity 0.5s ease, color 0.3s ease;
-  z-index: 850;
+  transition: color 0.3s ease;
 }
 
 .timer:hover {
-  color: #333333;
+  color: #646cff;
 }
 
 .timer.running {
   color: #646cff;
-  animation: pulse 2s infinite;
 }
 
 @keyframes pulse {

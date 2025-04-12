@@ -52,17 +52,24 @@
   background: #ffffff;
 }
 
-.app.fullscreen .window-controls,
-.app.fullscreen .toolbar {
+.app.fullscreen .window-controls {
   opacity: 0;
   pointer-events: none;
   transition: opacity 0.3s ease;
 }
 
-.app.fullscreen:hover .window-controls,
-.app.fullscreen:hover .toolbar {
+.app.fullscreen:hover .window-controls {
   opacity: 1;
   pointer-events: all;
+}
+
+.app.fullscreen .toolbar {
+  opacity: 0.3;
+  transition: opacity 0.3s ease;
+}
+
+.app.fullscreen:hover .toolbar {
+  opacity: 1;
 }
 
 .window-controls {
@@ -126,55 +133,71 @@
 
 .toolbar {
   position: fixed;
-  top: 32px;
+  bottom: 0;
   left: 0;
   right: 0;
   height: 40px;
   display: flex;
-  justify-content: flex-end;
+  justify-content: space-between;
   align-items: center;
-  padding: 0 1rem;
-  background: transparent;
+  padding: 0 20px;
+  background: rgba(255, 255, 255, 0.95);
   z-index: 900;
+  border-top: 1px solid #eee;
+  font-size: 14px;
+  color: #666;
 }
 
-.toolbar button {
-  margin-left: 1rem;
-  padding: 0.5rem 1rem;
+.toolbar-left,
+.toolbar-right {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.toolbar-separator {
+  margin: 0 4px;
+  color: #999;
+}
+
+.toolbar button,
+.toolbar-item {
+  margin: 0;
+  padding: 0;
   background: transparent;
-  border: 1px solid #ddd;
-  border-radius: 4px;
+  border: none;
+  border-radius: 0;
   color: #666;
-  font-size: 0.9rem;
+  font-size: 14px;
+  font-weight: normal;
   cursor: pointer;
   transition: all 0.2s ease;
 }
 
-.toolbar button:hover {
-  border-color: #646cff;
+.toolbar button:hover,
+.toolbar-item:hover {
+  border-color: transparent;
   color: #646cff;
 }
 
-.toolbar button .icon {
-  font-size: 1.2rem;
-  line-height: 1;
-  display: inline-block;
-  transform: translateY(1px);
+.toolbar button:after,
+.toolbar-item:after {
+  display: none;
 }
 
-.toolbar button[title]:hover::after {
-  content: attr(title);
-  position: absolute;
-  bottom: -30px;
-  left: 50%;
-  transform: translateX(-50%);
-  background: rgba(0, 0, 0, 0.8);
-  color: white;
-  padding: 0.25rem 0.5rem;
-  border-radius: 4px;
-  font-size: 0.8rem;
-  white-space: nowrap;
-  pointer-events: none;
+.timer {
+  position: static;
+  font-size: 14px;
+  padding: 0;
+  color: #666;
+}
+
+.timer.running {
+  animation: none;
+}
+
+.timer:hover {
+  color: #646cff;
 }
 
 .ai-error,

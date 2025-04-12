@@ -43,9 +43,9 @@ interface FileStoreSchema {
   [key: string]: Entry;
 }
 
-const fileStore = new Store<FileStoreSchema>({ name: 'featherwrite-entries' });
+const fileStore = new Store<FileStoreSchema>({ name: 'freewrite-entries' });
 const settingsStore = new Store<Settings>({
-  name: 'featherwrite-settings',
+  name: 'freewrite-settings',
   defaults: {
     font: 'Lato',
     fontSize: 18,
@@ -55,7 +55,7 @@ const settingsStore = new Store<Settings>({
     aiMinCharCount: 350,
     aiProvider: 'chatgpt',
   },
-  encryptionKey: 'featherwrite-secret',
+  encryptionKey: 'freewrite-secret',
 });
 
 let mainWindow: BrowserWindow | null = null;
@@ -86,6 +86,7 @@ function createWindow() {
     height: 600,
     minWidth: 1100,
     minHeight: 600,
+    title: 'freewrite',
     webPreferences: {
       nodeIntegration: false,
       contextIsolation: true,

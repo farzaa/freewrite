@@ -33,6 +33,13 @@ const Chat: React.FC<ChatProps> = ({
     }
   }, [messages, isVisible, isMinimized]);
 
+  // Ensure chat is expanded when new messages arrive
+  useEffect(() => {
+    if (messages.length > 0 && isVisible) {
+      setIsMinimized(false);
+    }
+  }, [messages, isVisible]);
+
   const formatTime = (date: Date) => {
     return date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
   };
@@ -57,7 +64,9 @@ const Chat: React.FC<ChatProps> = ({
           <span className="message-time">{formatTime(message.timestamp)}</span>
         </div>
         <div className="message-content">
-          <ReactMarkdown className="markdown-content">{formatText(message.content)}</ReactMarkdown>
+          <div className="markdown-content">
+            <ReactMarkdown>{formatText(message.content)}</ReactMarkdown>
+          </div>
           {message.suggestions.length > 0 && (
             <div className="message-suggestions">
               <h4>Suggestions:</h4>

@@ -1,6 +1,6 @@
 {
-  "appId": "com.featherwrite.app",
-  "productName": "FeatherWrite",
+  "appId": "com.freewrite.app",
+  "productName": "freewrite",
   "directories": {
     "output": "release/"
   },
