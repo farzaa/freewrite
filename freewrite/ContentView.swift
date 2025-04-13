@@ -535,7 +535,7 @@ struct ContentView: View {
                             }
                         }
                 }
-                .keyboardShortcut("t", modifiers: [.command])
+                .keyboardShortcut("t", modifiers: [.command, .shift])
                 .buttonStyle(.plain)
                 .foregroundColor(
                     isHoveringToggleTheme ? themeManager.currentTheme.hoverColor: themeManager.currentTheme.textSecondary
@@ -714,7 +714,7 @@ struct ContentView: View {
                             lastClickTime = now
                         }
                     }
-                    .keyboardShortcut("s", modifiers: [.command])
+                    .keyboardShortcut("s", modifiers: [.command, .shift])
                     .buttonStyle(.plain)
                     .foregroundColor(isHoveringTimer ? themeManager.currentTheme.hoverColor: themeManager.currentTheme.textSecondary)
                     .onHover { hovering in
@@ -828,7 +828,7 @@ struct ContentView: View {
                         window.toggleFullScreen(nil)
                     }
                 }
-                .keyboardShortcut("f", modifiers: [.command])
+                .keyboardShortcut("f", modifiers: [.command, .shift])
                 .buttonStyle(.plain)
                 .foregroundColor(isHoveringFullscreen ? themeManager.currentTheme.hoverColor: themeManager.currentTheme.textSecondary)
                 .onHover { hovering in
@@ -850,7 +850,7 @@ struct ContentView: View {
                     Text("New Entry")
                         .font(.system(size: 13))
                 }
-                .keyboardShortcut("n", modifiers: [.command])
+                .keyboardShortcut("n", modifiers: [.command, .shift])
                 .buttonStyle(.plain)
                 .foregroundColor(isHoveringNewEntry ? themeManager.currentTheme.hoverColor: themeManager.currentTheme.textSecondary)
                 .onHover { hovering in
@@ -875,7 +875,7 @@ struct ContentView: View {
                     Image(systemName: "clock.arrow.circlepath")
                         .foregroundColor(isHoveringClock ? themeManager.currentTheme.hoverColor: themeManager.currentTheme.textSecondary)
                 }
-                .keyboardShortcut("h", modifiers: [.command])
+                .keyboardShortcut("h", modifiers: [.command, .shift])
                 .buttonStyle(.plain)
                 .onHover { hovering in
                     isHoveringClock = hovering
