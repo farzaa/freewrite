@@ -38,6 +38,10 @@ struct ContentView: View {
     @State private var hoveredEntryId: UUID? = nil
     @State private var isHoveringChat = false  // Add this state variable
     @State private var showingChatMenu = false
+    @State private var showingTimerMenu = false
+    @State private var isHoveringTimeOption = false
+    @AppStorage("timerOptionSelected") private var timerOptionSelected = 900 // 1500secs (25 mins); 900secs (15 mins); 600secs (10 mins); 300secs (5 mins)
+//    @AppStorage("startTimerOnWritting") private var startTimerOnWritting = false
     @State private var chatMenuAnchor: CGPoint = .zero
     @State private var showingSidebar = false  // Add this state variable
     @State private var hoveredTrashId: UUID? = nil
@@ -250,6 +254,10 @@ struct ContentView: View {
         return isHoveringTimer ? .black : .gray
     }
     
+    var timerOptionColor: Color {
+        return isHoveringTimeOption ? .black  :  .gray
+    }
+    
     var lineHeight: CGFloat {
         let font = NSFont(name: selectedFont, size: fontSize) ?? .systemFont(ofSize: fontSize)
         let defaultLineHeight = font.defaultLineHeight()
@@ -349,6 +357,7 @@ struct ContentView: View {
         .preferredColorScheme(.light)
         .onAppear {
             showingSidebar = false  // Hide sidebar by default
+            timeRemaining = timerOptionSelected
             loadExistingEntries()
         }
         .onChange(of: text) { _ in
@@ -508,46 +517,207 @@ struct ContentView: View {
             
             // Utility buttons (moved to right)
             HStack(spacing: 8) {
-                Button(timerButtonTitle) {
-                    let now = Date()
-                    if let lastClick = lastClickTime,
-                       now.timeIntervalSince(lastClick) < 0.3 {
-                        timeRemaining = 900
+                
+                HStack {
+                    Button{
+                        showingTimerMenu = true
                         timerIsRunning = false
-                        lastClickTime = nil
-                    } else {
-                        timerIsRunning.toggle()
-                        lastClickTime = now
+                    } label: {
+                        Image(systemName: "chevron.up")
                     }
-                }
-                .buttonStyle(.plain)
-                .foregroundColor(timerColor)
-                .onHover { hovering in
-                    isHoveringTimer = hovering
-                    isHoveringBottomNav = hovering
-                    if hovering {
-                        NSCursor.pointingHand.push()
-                    } else {
-                        NSCursor.pop()
-                    }
-                }
-                .onAppear {
-                    NSEvent.addLocalMonitorForEvents(matching: .scrollWheel) { event in
-                        if isHoveringTimer {
-                            let scrollBuffer = event.deltaY * 0.25
-                            
-                            if abs(scrollBuffer) >= 0.1 {
-                                let currentMinutes = timeRemaining / 60
-                                NSHapticFeedbackManager.defaultPerformer.perform(.generic, performanceTime: .now)
-                                let direction = -scrollBuffer > 0 ? 5 : -5
-                                let newMinutes = currentMinutes + direction
-                                let roundedMinutes = (newMinutes / 5) * 5
-                                let newTime = roundedMinutes * 60
-                                timeRemaining = min(max(newTime, 0), 2700)
-                            }
+                    .onHover { hovering in
+                        isHoveringTimer = hovering
+                        isHoveringBottomNav = hovering
+                        if hovering {
+                            NSCursor.pointingHand.push()
+                        } else {
+                            NSCursor.pop()
                         }
-                        return event
                     }
+                    .foregroundColor(timerColor)
+                    .buttonStyle(.plain)
+                    .popover(isPresented: $showingTimerMenu, attachmentAnchor: .point(UnitPoint(x: 0.5, y: 0)), arrowEdge: .top) {
+                            VStack(spacing: 0) {
+                                Button(action: {
+                                    showingTimerMenu = false
+                                    timerOptionSelected = 1500 // 25 mins
+                                    timeRemaining = 1500
+                                    timerIsRunning = false
+                                }) {
+                                    Text("25:00")
+                                        .frame(maxWidth: .infinity, alignment: .leading)
+                                        .padding(.horizontal, 12)
+                                        .padding(.vertical, 8)
+                                }
+                                .buttonStyle(.plain)
+                                .foregroundColor(
+                                    timerOptionSelected == 1500 ? .black:timerOptionColor
+                                )
+                                .onHover { hovering in
+                                    timerOptionSelected = 1500
+                                    if hovering {
+                                        NSCursor.pointingHand.push()
+                                    } else {
+                                        NSCursor.pop()
+                                        timerOptionSelected = timeRemaining
+                                    }
+                                }
+                                
+                                Divider()
+                                
+                                Button(action: {
+                                    showingTimerMenu = false
+                                    timerOptionSelected = 900
+                                    timeRemaining = 900
+                                    timerIsRunning = false
+                                }) {
+                                    Text("15:00")
+                                        .frame(maxWidth: .infinity, alignment: .leading)
+                                        .padding(.horizontal, 12)
+                                        .padding(.vertical, 8)
+                                }
+                                .buttonStyle(.plain)
+                                .foregroundColor(
+                                    timerOptionSelected == 900 ? .black:timerOptionColor
+                                )
+                                .onHover { hovering in
+                                    timerOptionSelected = 900
+                                    if hovering {
+                                        NSCursor.pointingHand.push()
+                                    } else {
+                                        NSCursor.pop()
+                                        timerOptionSelected = timeRemaining
+                                    }
+                                }
+                                
+                                Divider()
+                                
+                                Button(action: {
+                                    showingTimerMenu = false
+                                    timerOptionSelected = 600
+                                    timeRemaining = 600
+                                    timerIsRunning = false
+                                }) {
+                                    Text("10:00")
+                                        .frame(maxWidth: .infinity, alignment: .leading)
+                                        .padding(.horizontal, 12)
+                                        .padding(.vertical, 8)
+                                }
+                                .buttonStyle(.plain)
+                                .foregroundColor(
+                                    timerOptionSelected == 600 ? .black:timerOptionColor
+                                )
+                                .onHover { hovering in
+                                    timerOptionSelected = 600
+                                    if hovering {
+                                        NSCursor.pointingHand.push()
+                                    } else {
+                                        NSCursor.pop()
+                                        timerOptionSelected = timeRemaining
+                                    }
+                                }
+                                
+                                Divider()
+                                
+                                Button(action: {
+                                    showingTimerMenu = false
+                                    timerOptionSelected = 300
+                                    timeRemaining = 300
+                                    timerIsRunning = false
+                                }) {
+                                    Text("05:00")
+                                        .frame(maxWidth: .infinity, alignment: .leading)
+                                        .padding(.horizontal, 12)
+                                        .padding(.vertical, 8)
+                                }
+                                .buttonStyle(.plain)
+                                .foregroundColor(
+                                    timerOptionSelected == 300 ? .black:timerOptionColor
+                                )
+                                .onHover { hovering in
+                                    timerOptionSelected = 300
+                                    if hovering {
+                                        NSCursor.pointingHand.push()
+                                    } else {
+                                        NSCursor.pop()
+                                        timerOptionSelected = timeRemaining
+                                    }
+                                }
+                                
+//                                maybe auto-start timer option on writting, future¿?
+//                                Toggle(
+//                                    "Auto-start timer",
+//                                    isOn: $startTimerOnWritting
+//                                )
+//                                .padding(
+//                                    .horizontal,
+//                                    12
+//                                )
+//                                .padding(
+//                                    .vertical,
+//                                    8
+//                                )
+//                                .onHover { hovering in
+//                                    if hovering {
+//                                        NSCursor.pointingHand
+//                                            .push()
+//                                    } else {
+//                                        NSCursor
+//                                            .pop()
+//                                                timerOptionSelected = timeRemaining
+//                                            }
+//                                        }
+                            }
+                            .frame(width: 120)
+                            .background(Color(NSColor.controlBackgroundColor))
+                            .cornerRadius(8)
+                            .shadow(color: Color.black.opacity(0.1), radius: 4, y: 2)
+                        
+                    }
+                    
+                   
+                    Button(timerButtonTitle) {
+                        let now = Date()
+                        if let lastClick = lastClickTime,
+                           now.timeIntervalSince(lastClick) < 0.3 {
+                            timeRemaining = 900
+                            timerIsRunning = false
+                            lastClickTime = nil
+                        } else {
+                            timerIsRunning.toggle()
+                            lastClickTime = now
+                        }
+                    }
+                    .buttonStyle(.plain)
+                    .foregroundColor(timerColor)
+                    .onHover { hovering in
+                        isHoveringTimer = hovering
+                        isHoveringBottomNav = hovering
+                        if hovering {
+                            NSCursor.pointingHand.push()
+                        } else {
+                            NSCursor.pop()
+                        }
+                    }
+                    .onAppear {
+                        NSEvent.addLocalMonitorForEvents(matching: .scrollWheel) { event in
+                            if isHoveringTimer {
+                                let scrollBuffer = event.deltaY * 0.25
+                                
+                                if abs(scrollBuffer) >= 0.1 {
+                                    let currentMinutes = timeRemaining / 60
+                                    NSHapticFeedbackManager.defaultPerformer.perform(.generic, performanceTime: .now)
+                                    let direction = -scrollBuffer > 0 ? 5 : -5
+                                    let newMinutes = currentMinutes + direction
+                                    let roundedMinutes = (newMinutes / 5) * 5
+                                    let newTime = roundedMinutes * 60
+                                    timeRemaining = min(max(newTime, 0), 2700)
+                                }
+                            }
+                            return event
+                        }
+                    }
+
                 }
                 
                 Text("•")
