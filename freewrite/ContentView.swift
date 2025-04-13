@@ -45,12 +45,22 @@ struct ContentView: View {
     private let headerString = "\n\n"
     @State private var entries: [HumanEntry] = []
     @State private var text: String = ""  // Remove initial welcome text since we'll handle it in createNewEntry
+    @State private var isTryingToDelete = false
     
     @State private var isFullscreen = false
     @State private var selectedFont: String = "Lato-Regular"
     @State private var currentRandomFont: String = ""
     @State private var timeRemaining: Int = 900  // Changed to 900 seconds (15 minutes)
     @State private var timerIsRunning = false
+    // MARK: - Embrace Mode
+    // Toggles a distraction-free writing mode where backspace is disabled.
+    // Includes visual feedback (red flash) when users attempt to delete text.
+
+    /// True when Embrace Mode is active (disables ⌫ key
+    @State private var embraceMode = false
+    /// Controls smooth red glow animation when ⌫ is blocked
+    @State private var deleteFlashProgress: Double = 0.0
+    @State private var isHoveringEmbrace = false
     @State private var isHoveringTimer = false
     @State private var isHoveringFullscreen = false
     @State private var hoveredFont: String? = nil
@@ -359,7 +369,7 @@ struct ContentView: View {
         let defaultLineHeight = font.defaultLineHeight()
         // Account for two newlines plus a small adjustment for visual alignment
         // return (defaultLineHeight * 2) + 2
-        return fontSize / 2 
+        return fontSize / 2
     }
     
     var body: some View {
@@ -400,6 +410,17 @@ struct ContentView: View {
                             if let scrollView = NSApp.keyWindow?.contentView?.findSubview(ofType: NSScrollView.self) {
                                 scrollView.hasVerticalScroller = false
                                 scrollView.hasHorizontalScroller = false
+                            }
+                            // Intercept delete key (⌫) and animate icon glow when Embrace Mode is active
+                            NSEvent.addLocalMonitorForEvents(matching: .keyDown) { event in
+                                if embraceMode && event.keyCode == 51 {
+                                    deleteFlashProgress = 1.0
+                                    withAnimation(.easeOut(duration: 1.0)) {
+                                        deleteFlashProgress = 0.0
+                                    }
+                                    return nil
+                                }
+                                return event
                             }
                         }
                     }
@@ -593,6 +614,8 @@ struct ContentView: View {
                                 .foregroundColor(.gray)
                             
                             Button("Chat") {
+                                // Turn off Embrace Mode when switching contexts
+                                embraceMode = false
                                 showingChatMenu = true
                             }
                             .buttonStyle(.plain)
@@ -706,7 +729,35 @@ struct ContentView: View {
                             Text("•")
                                 .foregroundColor(.gray)
                             
-                            // Version history button
+                            // Embrace Mode toggle button (🚫)
+                            // Glows red if delete is pressed, black when active, and darkens on hover
+                            Button(action: {
+                                embraceMode.toggle()
+                            }) {
+                                Image(systemName: "nosign")
+                                    .foregroundColor(
+                                        embraceMode
+                                            ? Color(red: 0.2 + (0.8 * deleteFlashProgress), green: 0, blue: 0)
+                                            : (isHoveringEmbrace ? .black : .gray)
+                                    )
+                            }
+                            .buttonStyle(.plain)
+                            .focusable(false)
+                            .background(Color.clear)
+                            .contentShape(Rectangle())
+                            .onHover { hovering in
+                                isHoveringEmbrace = hovering
+                                isHoveringBottomNav = hovering
+                                if hovering {
+                                    NSCursor.pointingHand.push()
+                                } else {
+                                    NSCursor.pop()
+                                }
+                            }
+                            
+                            Text("•")
+                                .foregroundColor(.gray)
+                            
                             Button(action: {
                                 withAnimation(.easeInOut(duration: 0.2)) {
                                     showingSidebar.toggle()
@@ -961,6 +1012,8 @@ struct ContentView: View {
     
     private func createNewEntry() {
         let newEntry = HumanEntry.createNew()
+        // Turn off Embrace Mode when switching contexts
+        embraceMode = false
         entries.insert(newEntry, at: 0) // Add to the beginning
         selectedEntryId = newEntry.id
         
