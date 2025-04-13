@@ -9,40 +9,9 @@
 import SwiftUI
 import AppKit
 
-struct HumanEntry: Identifiable {
-    let id: UUID
-    let date: String
-    let filename: String
-    var previewText: String
-    
-    static func createNew() -> HumanEntry {
-        let id = UUID()
-        let now = Date()
-        let dateFormatter = DateFormatter()
-        dateFormatter.dateFormat = "yyyy-MM-dd-HH-mm-ss"
-        let dateString = dateFormatter.string(from: now)
-        
-        // For display
-        dateFormatter.dateFormat = "MMM d"
-        let displayDate = dateFormatter.string(from: now)
-        
-        return HumanEntry(
-            id: id,
-            date: displayDate,
-            filename: "[\(id)]-[\(dateString)].md",
-            previewText: ""
-        )
-    }
-}
-
-struct HeartEmoji: Identifiable {
-    let id = UUID()
-    var position: CGPoint
-    var offset: CGFloat = 0
-}
-
 struct ContentView: View {
     private let headerString = "\n\n"
+    private let fileHelper = FileManagerHelper.shared
     @State private var entries: [HumanEntry] = []
     @State private var text: String = ""  // Remove initial welcome text since we'll handle it in createNewEntry
     
@@ -96,26 +65,14 @@ struct ContentView: View {
         "\n\nJust say it"
     ]
     
+    // documents directory
+    var documentsDirectory: URL {
+        return fileHelper.getDocumentsDirectory()
+    }
+    
     // Add file manager and save timer
     private let fileManager = FileManager.default
     private let saveTimer = Timer.publish(every: 1.0, on: .main, in: .common).autoconnect()
-    
-    // Add cached documents directory
-    private let documentsDirectory: URL = {
-        let directory = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0].appendingPathComponent("Freewrite")
-        
-        // Create Freewrite directory if it doesn't exist
-        if !FileManager.default.fileExists(atPath: directory.path) {
-            do {
-                try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
-                print("Successfully created Freewrite directory")
-            } catch {
-                print("Error creating directory: \(error)")
-            }
-        }
-        
-        return directory
-    }()
     
     // Add shared prompt constant
     private let aiChatPrompt = """
@@ -144,14 +101,9 @@ struct ContentView: View {
     Here's my journal entry:
     """
     
-    // Modify getDocumentsDirectory to use cached value
-    private func getDocumentsDirectory() -> URL {
-        return documentsDirectory
-    }
-    
     // Add function to save text
     private func saveText() {
-        let documentsDirectory = getDocumentsDirectory()
+        let documentsDirectory = documentsDirectory
         let fileURL = documentsDirectory.appendingPathComponent("entry.md")
         
         print("Attempting to save file to: \(fileURL.path)")
@@ -167,7 +119,7 @@ struct ContentView: View {
     
     // Add function to load text
     private func loadText() {
-        let documentsDirectory = getDocumentsDirectory()
+        let documentsDirectory = documentsDirectory
         let fileURL = documentsDirectory.appendingPathComponent("entry.md")
         
         print("Attempting to load file from: \(fileURL.path)")
@@ -187,141 +139,95 @@ struct ContentView: View {
     
     // Add function to load existing entries
     private func loadExistingEntries() {
-        let documentsDirectory = getDocumentsDirectory()
-        print("Looking for entries in: \(documentsDirectory.path)")
-        
-        do {
-            let fileURLs = try fileManager.contentsOfDirectory(at: documentsDirectory, includingPropertiesForKeys: nil)
-            let mdFiles = fileURLs.filter { $0.pathExtension == "md" }
-            
-            print("Found \(mdFiles.count) .md files")
-            
-            // Process each file
-            let entriesWithDates = mdFiles.compactMap { fileURL -> (entry: HumanEntry, date: Date, content: String)? in
-                let filename = fileURL.lastPathComponent
-                print("Processing: \(filename)")
+        fileHelper.loadExistingEntries(
+            onSuccess: { loadedEntries, fullContents in
+                entries = loadedEntries
+                print("Successfully loaded \(entries.count) entries")
                 
-                // Extract UUID and date from filename - pattern [uuid]-[yyyy-MM-dd-HH-mm-ss].md
-                guard let uuidMatch = filename.range(of: "\\[(.*?)\\]", options: .regularExpression),
-                      let dateMatch = filename.range(of: "\\[(\\d{4}-\\d{2}-\\d{2}-\\d{2}-\\d{2}-\\d{2})\\]", options: .regularExpression),
-                      let uuid = UUID(uuidString: String(filename[uuidMatch].dropFirst().dropLast())) else {
-                    print("Failed to extract UUID or date from filename: \(filename)")
-                    return nil
-                }
+                let calendar = Calendar.current
+                let today = Date()
+                let todayStart = calendar.startOfDay(for: today)
                 
-                // Parse the date string
-                let dateString = String(filename[dateMatch].dropFirst().dropLast())
-                let dateFormatter = DateFormatter()
-                dateFormatter.dateFormat = "yyyy-MM-dd-HH-mm-ss"
-                
-                guard let fileDate = dateFormatter.date(from: dateString) else {
-                    print("Failed to parse date from filename: \(filename)")
-                    return nil
-                }
-                
-                // Read file contents for preview
-                do {
-                    let content = try String(contentsOf: fileURL, encoding: .utf8)
-                    let preview = content
-                        .replacingOccurrences(of: "\n", with: " ")
-                        .trimmingCharacters(in: .whitespacesAndNewlines)
-                    let truncated = preview.isEmpty ? "" : (preview.count > 30 ? String(preview.prefix(30)) + "..." : preview)
-                    
-                    // Format display date
-                    dateFormatter.dateFormat = "MMM d"
-                    let displayDate = dateFormatter.string(from: fileDate)
-                    
-                    return (
-                        entry: HumanEntry(
-                            id: uuid,
-                            date: displayDate,
-                            filename: filename,
-                            previewText: truncated
-                        ),
-                        date: fileDate,
-                        content: content  // Store the full content to check for welcome message
-                    )
-                } catch {
-                    print("Error reading file: \(error)")
-                    return nil
-                }
-            }
-            
-            // Sort and extract entries
-            entries = entriesWithDates
-                .sorted { $0.date > $1.date }  // Sort by actual date from filename
-                .map { $0.entry }
-            
-            print("Successfully loaded and sorted \(entries.count) entries")
-            
-            // Check if we need to create a new entry
-            let calendar = Calendar.current
-            let today = Date()
-            let todayStart = calendar.startOfDay(for: today)
-            
-            // Check if there's an empty entry from today
-            let hasEmptyEntryToday = entries.contains { entry in
-                // Convert the display date (e.g. "Mar 14") to a Date object
-                let dateFormatter = DateFormatter()
-                dateFormatter.dateFormat = "MMM d"
-                if let entryDate = dateFormatter.date(from: entry.date) {
-                    // Set year component to current year since our stored dates don't include year
-                    var components = calendar.dateComponents([.year, .month, .day], from: entryDate)
-                    components.year = calendar.component(.year, from: today)
-                    
-                    // Get start of day for the entry date
-                    if let entryDateWithYear = calendar.date(from: components) {
-                        let entryDayStart = calendar.startOfDay(for: entryDateWithYear)
-                        return calendar.isDate(entryDayStart, inSameDayAs: todayStart) && entry.previewText.isEmpty
-                    }
-                }
-                return false
-            }
-            
-            // Check if we have only one entry and it's the welcome message
-            let hasOnlyWelcomeEntry = entries.count == 1 && entriesWithDates.first?.content.contains("Welcome to Freewrite.") == true
-            
-            if entries.isEmpty {
-                // First time user - create entry with welcome message
-                print("First time user, creating welcome entry")
-                createNewEntry()
-            } else if !hasEmptyEntryToday && !hasOnlyWelcomeEntry {
-                // No empty entry for today and not just the welcome entry - create new entry
-                print("No empty entry for today, creating new entry")
-                createNewEntry()
-            } else {
-                // Select the most recent empty entry from today or the welcome entry
-                if let todayEntry = entries.first(where: { entry in
-                    // Convert the display date (e.g. "Mar 14") to a Date object
-                    let dateFormatter = DateFormatter()
-                    dateFormatter.dateFormat = "MMM d"
-                    if let entryDate = dateFormatter.date(from: entry.date) {
-                        // Set year component to current year since our stored dates don't include year
-                        var components = calendar.dateComponents([.year, .month, .day], from: entryDate)
+                let hasEmptyEntryToday = entries.contains { entry in
+                    let formatter = DateFormatter()
+                    formatter.dateFormat = "MMM d"
+                    if let date = formatter.date(from: entry.date) {
+                        var components = calendar.dateComponents([.year, .month, .day], from: date)
                         components.year = calendar.component(.year, from: today)
-                        
-                        // Get start of day for the entry date
-                        if let entryDateWithYear = calendar.date(from: components) {
-                            let entryDayStart = calendar.startOfDay(for: entryDateWithYear)
-                            return calendar.isDate(entryDayStart, inSameDayAs: todayStart) && entry.previewText.isEmpty
+                        if let fullDate = calendar.date(from: components) {
+                            return calendar.isDate(fullDate, inSameDayAs: todayStart) && entry.previewText.isEmpty
                         }
                     }
                     return false
-                }) {
-                    selectedEntryId = todayEntry.id
-                    loadEntry(entry: todayEntry)
-                } else if hasOnlyWelcomeEntry {
-                    // If we only have the welcome entry, select it
-                    selectedEntryId = entries[0].id
-                    loadEntry(entry: entries[0])
                 }
+                
+                let hasOnlyWelcomeEntry = entries.count == 1 && fullContents[entries[0].id]?.contains("Welcome to Freewrite.") == true
+                
+                if entries.isEmpty {
+                    fileHelper.createNewEntry(
+                        isFirstEntry: true,
+                        placeholderOptions: placeholderOptions,
+                        onSuccess: { newEntry, entryText, placeholder in
+                            entries.insert(newEntry, at: 0)
+                            selectedEntryId = newEntry.id
+                            text = entryText
+                            placeholderText = placeholder ?? "\n\nBegin writing"
+                            updatePreviewText(for: newEntry)
+                        }
+                    )
+                } else if !hasEmptyEntryToday && !hasOnlyWelcomeEntry {
+                    fileHelper.createNewEntry(
+                        isFirstEntry: false,
+                        placeholderOptions: placeholderOptions,
+                        onSuccess: { newEntry, entryText, placeholder in
+                            entries.insert(newEntry, at: 0)
+                            selectedEntryId = newEntry.id
+                            text = entryText
+                            placeholderText = placeholder ?? "\n\nBegin writing"
+                            updatePreviewText(for: newEntry)
+                        }
+                    )
+                } else {
+                    // Select the most relevant existing entry
+                    if let todayEntry = entries.first(where: { entry in
+                        let formatter = DateFormatter()
+                        formatter.dateFormat = "MMM d"
+                        if let date = formatter.date(from: entry.date) {
+                            var components = calendar.dateComponents([.year, .month, .day], from: date)
+                            components.year = calendar.component(.year, from: today)
+                            if let fullDate = calendar.date(from: components) {
+                                return calendar.isDate(fullDate, inSameDayAs: todayStart) && entry.previewText.isEmpty
+                            }
+                        }
+                        return false
+                    }) {
+                        selectedEntryId = todayEntry.id
+                        fileHelper.loadEntry(todayEntry) { loadedText in
+                            text = loadedText
+                        }
+                    } else if hasOnlyWelcomeEntry {
+                        selectedEntryId = entries[0].id
+                        fileHelper.loadEntry(entries[0]) { loadedText in
+                            text = loadedText
+                        }
+                    }
+                }
+            },
+            onError: { error in
+                print("Error loading entries: \(error.localizedDescription)")
+                fileHelper.createNewEntry(
+                    isFirstEntry: true,
+                    placeholderOptions: placeholderOptions,
+                    onSuccess: { newEntry, entryText, placeholder in
+                        entries.insert(newEntry, at: 0)
+                        selectedEntryId = newEntry.id
+                        text = entryText
+                        placeholderText = placeholder ?? "\n\nBegin writing"
+                        updatePreviewText(for: newEntry)
+                    }
+                )
             }
-            
-        } catch {
-            print("Error loading directory contents: \(error)")
-            print("Creating default entry after error")
-            createNewEntry()
-        }
+        )
     }
     
     var randomButtonTitle: String {
@@ -359,7 +265,7 @@ struct ContentView: View {
         let defaultLineHeight = font.defaultLineHeight()
         // Account for two newlines plus a small adjustment for visual alignment
         // return (defaultLineHeight * 2) + 2
-        return fontSize / 2 
+        return fontSize / 2
     }
     
     var body: some View {
@@ -419,453 +325,23 @@ struct ContentView: View {
                 
                 VStack {
                     Spacer()
-                    HStack {
-                        // Font buttons (moved to left)
-                        HStack(spacing: 8) {
-                            Button(fontSizeButtonTitle) {
-                                if let currentIndex = fontSizes.firstIndex(of: fontSize) {
-                                    let nextIndex = (currentIndex + 1) % fontSizes.count
-                                    fontSize = fontSizes[nextIndex]
-                                }
-                            }
-                            .buttonStyle(.plain)
-                            .foregroundColor(isHoveringSize ? .black : .gray)
-                            .onHover { hovering in
-                                isHoveringSize = hovering
-                                isHoveringBottomNav = hovering
-                                if hovering {
-                                    NSCursor.pointingHand.push()
-                                } else {
-                                    NSCursor.pop()
-                                }
-                            }
-                            
-                            Text("•")
-                                .foregroundColor(.gray)
-                            
-                            Button("Lato") {
-                                selectedFont = "Lato-Regular"
-                                currentRandomFont = ""
-                            }
-                            .buttonStyle(.plain)
-                            .foregroundColor(hoveredFont == "Lato" ? .black : .gray)
-                            .onHover { hovering in
-                                hoveredFont = hovering ? "Lato" : nil
-                                isHoveringBottomNav = hovering
-                                if hovering {
-                                    NSCursor.pointingHand.push()
-                                } else {
-                                    NSCursor.pop()
-                                }
-                            }
-                            
-                            Text("•")
-                                .foregroundColor(.gray)
-                            
-                            Button("Arial") {
-                                selectedFont = "Arial"
-                                currentRandomFont = ""
-                            }
-                            .buttonStyle(.plain)
-                            .foregroundColor(hoveredFont == "Arial" ? .black : .gray)
-                            .onHover { hovering in
-                                hoveredFont = hovering ? "Arial" : nil
-                                isHoveringBottomNav = hovering
-                                if hovering {
-                                    NSCursor.pointingHand.push()
-                                } else {
-                                    NSCursor.pop()
-                                }
-                            }
-                            
-                            Text("•")
-                                .foregroundColor(.gray)
-                            
-                            Button("System") {
-                                selectedFont = ".AppleSystemUIFont"
-                                currentRandomFont = ""
-                            }
-                            .buttonStyle(.plain)
-                            .foregroundColor(hoveredFont == "System" ? .black : .gray)
-                            .onHover { hovering in
-                                hoveredFont = hovering ? "System" : nil
-                                isHoveringBottomNav = hovering
-                                if hovering {
-                                    NSCursor.pointingHand.push()
-                                } else {
-                                    NSCursor.pop()
-                                }
-                            }
-                            
-                            Text("•")
-                                .foregroundColor(.gray)
-                            
-                            Button("Serif") {
-                                selectedFont = "Times New Roman"
-                                currentRandomFont = ""
-                            }
-                            .buttonStyle(.plain)
-                            .foregroundColor(hoveredFont == "Serif" ? .black : .gray)
-                            .onHover { hovering in
-                                hoveredFont = hovering ? "Serif" : nil
-                                isHoveringBottomNav = hovering
-                                if hovering {
-                                    NSCursor.pointingHand.push()
-                                } else {
-                                    NSCursor.pop()
-                                }
-                            }
-                            
-                            Text("•")
-                                .foregroundColor(.gray)
-                            
-                            Button(randomButtonTitle) {
-                                if let randomFont = availableFonts.randomElement() {
-                                    selectedFont = randomFont
-                                    currentRandomFont = randomFont
-                                }
-                            }
-                            .buttonStyle(.plain)
-                            .foregroundColor(hoveredFont == "Random" ? .black : .gray)
-                            .onHover { hovering in
-                                hoveredFont = hovering ? "Random" : nil
-                                isHoveringBottomNav = hovering
-                                if hovering {
-                                    NSCursor.pointingHand.push()
-                                } else {
-                                    NSCursor.pop()
-                                }
-                            }
-                        }
-                        .padding(8)
-                        .cornerRadius(6)
-                        .onHover { hovering in
-                            isHoveringBottomNav = hovering
-                        }
-                        
-                        Spacer()
-                        
-                        // Utility buttons (moved to right)
-                        HStack(spacing: 8) {
-                            Button(timerButtonTitle) {
-                                let now = Date()
-                                if let lastClick = lastClickTime,
-                                   now.timeIntervalSince(lastClick) < 0.3 {
-                                    timeRemaining = 900
-                                    timerIsRunning = false
-                                    lastClickTime = nil
-                                } else {
-                                    timerIsRunning.toggle()
-                                    lastClickTime = now
-                                }
-                            }
-                            .buttonStyle(.plain)
-                            .foregroundColor(timerColor)
-                            .onHover { hovering in
-                                isHoveringTimer = hovering
-                                isHoveringBottomNav = hovering
-                                if hovering {
-                                    NSCursor.pointingHand.push()
-                                } else {
-                                    NSCursor.pop()
-                                }
-                            }
-                            .onAppear {
-                                NSEvent.addLocalMonitorForEvents(matching: .scrollWheel) { event in
-                                    if isHoveringTimer {
-                                        let scrollBuffer = event.deltaY * 0.25
-                                        
-                                        if abs(scrollBuffer) >= 0.1 {
-                                            let currentMinutes = timeRemaining / 60
-                                            NSHapticFeedbackManager.defaultPerformer.perform(.generic, performanceTime: .now)
-                                            let direction = -scrollBuffer > 0 ? 5 : -5
-                                            let newMinutes = currentMinutes + direction
-                                            let roundedMinutes = (newMinutes / 5) * 5
-                                            let newTime = roundedMinutes * 60
-                                            timeRemaining = min(max(newTime, 0), 2700)
-                                        }
-                                    }
-                                    return event
-                                }
-                            }
-                            
-                            Text("•")
-                                .foregroundColor(.gray)
-                            
-                            Button("Chat") {
-                                showingChatMenu = true
-                            }
-                            .buttonStyle(.plain)
-                            .foregroundColor(isHoveringChat ? .black : .gray)
-                            .onHover { hovering in
-                                isHoveringChat = hovering
-                                isHoveringBottomNav = hovering
-                                if hovering {
-                                    NSCursor.pointingHand.push()
-                                } else {
-                                    NSCursor.pop()
-                                }
-                            }
-                            .popover(isPresented: $showingChatMenu, attachmentAnchor: .point(UnitPoint(x: 0.5, y: 0)), arrowEdge: .top) {
-                                if text.trimmingCharacters(in: .whitespacesAndNewlines).hasPrefix("hi. my name is farza.") {
-                                    Text("Yo. Sorry, you can't chat with the guide lol. Please write your own entry.")
-                                        .font(.system(size: 14))
-                                        .foregroundColor(.primary)
-                                        .frame(width: 250)
-                                        .padding(.horizontal, 12)
-                                        .padding(.vertical, 8)
-                                        .background(Color(NSColor.controlBackgroundColor))
-                                        .cornerRadius(8)
-                                        .shadow(color: Color.black.opacity(0.1), radius: 4, y: 2)
-                                } else if text.count < 350 {
-                                    Text("Please free write for at minimum 5 minutes first. Then click this. Trust.")
-                                        .font(.system(size: 14))
-                                        .foregroundColor(.primary)
-                                        .frame(width: 250)
-                                        .padding(.horizontal, 12)
-                                        .padding(.vertical, 8)
-                                        .background(Color(NSColor.controlBackgroundColor))
-                                        .cornerRadius(8)
-                                        .shadow(color: Color.black.opacity(0.1), radius: 4, y: 2)
-                                } else {
-                                    VStack(spacing: 0) {
-                                        Button(action: {
-                                            showingChatMenu = false
-                                            openChatGPT()
-                                        }) {
-                                            Text("ChatGPT")
-                                                .frame(maxWidth: .infinity, alignment: .leading)
-                                                .padding(.horizontal, 12)
-                                                .padding(.vertical, 8)
-                                        }
-                                        .buttonStyle(.plain)
-                                        .foregroundColor(.primary)
-                                        
-                                        Divider()
-                                        
-                                        Button(action: {
-                                            showingChatMenu = false
-                                            openClaude()
-                                        }) {
-                                            Text("Claude")
-                                                .frame(maxWidth: .infinity, alignment: .leading)
-                                                .padding(.horizontal, 12)
-                                                .padding(.vertical, 8)
-                                        }
-                                        .buttonStyle(.plain)
-                                        .foregroundColor(.primary)
-                                    }
-                                    .frame(width: 120)
-                                    .background(Color(NSColor.controlBackgroundColor))
-                                    .cornerRadius(8)
-                                    .shadow(color: Color.black.opacity(0.1), radius: 4, y: 2)
-                                }
-                            }
-                            
-                            Text("•")
-                                .foregroundColor(.gray)
-                            
-                            Button(isFullscreen ? "Minimize" : "Fullscreen") {
-                                if let window = NSApplication.shared.windows.first {
-                                    window.toggleFullScreen(nil)
-                                }
-                            }
-                            .buttonStyle(.plain)
-                            .foregroundColor(isHoveringFullscreen ? .black : .gray)
-                            .onHover { hovering in
-                                isHoveringFullscreen = hovering
-                                isHoveringBottomNav = hovering
-                                if hovering {
-                                    NSCursor.pointingHand.push()
-                                } else {
-                                    NSCursor.pop()
-                                }
-                            }
-                            
-                            Text("•")
-                                .foregroundColor(.gray)
-                            
-                            Button(action: {
-                                createNewEntry()
-                            }) {
-                                Text("New Entry")
-                                    .font(.system(size: 13))
-                            }
-                            .buttonStyle(.plain)
-                            .foregroundColor(isHoveringNewEntry ? .black : .gray)
-                            .onHover { hovering in
-                                isHoveringNewEntry = hovering
-                                isHoveringBottomNav = hovering
-                                if hovering {
-                                    NSCursor.pointingHand.push()
-                                } else {
-                                    NSCursor.pop()
-                                }
-                            }
-                            
-                            Text("•")
-                                .foregroundColor(.gray)
-                            
-                            // Version history button
-                            Button(action: {
-                                withAnimation(.easeInOut(duration: 0.2)) {
-                                    showingSidebar.toggle()
-                                }
-                            }) {
-                                Image(systemName: "clock.arrow.circlepath")
-                                    .foregroundColor(isHoveringClock ? .black : .gray)
-                            }
-                            .buttonStyle(.plain)
-                            .onHover { hovering in
-                                isHoveringClock = hovering
-                                isHoveringBottomNav = hovering
-                                if hovering {
-                                    NSCursor.pointingHand.push()
-                                } else {
-                                    NSCursor.pop()
-                                }
-                            }
-                        }
-                        .padding(8)
-                        .cornerRadius(6)
-                        .onHover { hovering in
-                            isHoveringBottomNav = hovering
-                        }
-                    }
-                    .padding()
-                    .background(Color.white)
-                    .opacity(bottomNavOpacity)
-                    .onHover { hovering in
-                        isHoveringBottomNav = hovering
-                        if hovering {
-                            withAnimation(.easeOut(duration: 0.2)) {
-                                bottomNavOpacity = 1.0
-                            }
-                        } else if timerIsRunning {
-                            withAnimation(.easeIn(duration: 1.0)) {
-                                bottomNavOpacity = 0.0
-                            }
-                        }
-                    }
+                    BottomActionsView()
                 }
             }
             
             // Right sidebar
             if showingSidebar {
                 Divider()
-                
-                VStack(spacing: 0) {
-                    // Header
-                    Button(action: {
-                        NSWorkspace.shared.selectFile(nil, inFileViewerRootedAtPath: getDocumentsDirectory().path)
-                    }) {
-                        HStack {
-                            VStack(alignment: .leading, spacing: 4) {
-                                HStack(spacing: 4) {
-                                    Text("History")
-                                        .font(.system(size: 13))
-                                        .foregroundColor(isHoveringHistory ? .black : .secondary)
-                                    Image(systemName: "arrow.up.right")
-                                        .font(.system(size: 10))
-                                        .foregroundColor(isHoveringHistory ? .black : .secondary)
-                                }
-                                Text(getDocumentsDirectory().path)
-                                    .font(.system(size: 10))
-                                    .foregroundColor(.secondary)
-                                    .lineLimit(1)
-                            }
-                            Spacer()
-                        }
-                    }
-                    .buttonStyle(.plain)
-                    .padding(.horizontal, 16)
-                    .padding(.vertical, 12)
-                    .onHover { hovering in
-                        isHoveringHistory = hovering
-                    }
-                    
-                    Divider()
-                    
-                    // Entries List
-                    ScrollView {
-                        LazyVStack(spacing: 0) {
-                            ForEach(entries) { entry in
-                                Button(action: {
-                                    if selectedEntryId != entry.id {
-                                        // Save current entry before switching
-                                        if let currentId = selectedEntryId,
-                                           let currentEntry = entries.first(where: { $0.id == currentId }) {
-                                            saveEntry(entry: currentEntry)
-                                        }
-                                        
-                                        selectedEntryId = entry.id
-                                        loadEntry(entry: entry)
-                                    }
-                                }) {
-                                    HStack {
-                                        VStack(alignment: .leading, spacing: 4) {
-                                            Text(entry.previewText)
-                                                .font(.system(size: 13))
-                                                .lineLimit(1)
-                                                .foregroundColor(.primary)
-                                            Text(entry.date)
-                                                .font(.system(size: 12))
-                                                .foregroundColor(.secondary)
-                                        }
-                                        Spacer()
-                                        
-                                        // Trash icon that appears on hover
-                                        if hoveredEntryId == entry.id {
-                                            Button(action: {
-                                                deleteEntry(entry: entry)
-                                            }) {
-                                                Image(systemName: "trash")
-                                                    .font(.system(size: 11))
-                                                    .foregroundColor(hoveredTrashId == entry.id ? .red : .gray)
-                                            }
-                                            .buttonStyle(.plain)
-                                            .onHover { hovering in
-                                                withAnimation(.easeInOut(duration: 0.2)) {
-                                                    hoveredTrashId = hovering ? entry.id : nil
-                                                }
-                                                if hovering {
-                                                    NSCursor.pointingHand.push()
-                                                } else {
-                                                    NSCursor.pop()
-                                                }
-                                            }
-                                        }
-                                    }
-                                    .frame(maxWidth: .infinity)
-                                    .padding(.horizontal, 16)
-                                    .padding(.vertical, 8)
-                                    .background(
-                                        RoundedRectangle(cornerRadius: 4)
-                                            .fill(backgroundColor(for: entry))
-                                    )
-                                }
-                                .buttonStyle(PlainButtonStyle())
-                                .contentShape(Rectangle())
-                                .onHover { hovering in
-                                    withAnimation(.easeInOut(duration: 0.2)) {
-                                        hoveredEntryId = hovering ? entry.id : nil
-                                    }
-                                }
-                                .onAppear {
-                                    NSCursor.pop()  // Reset cursor when button appears
-                                }
-                                .help("Click to select this entry")  // Add tooltip
-                                
-                                if entry.id != entries.last?.id {
-                                    Divider()
-                                }
-                            }
-                        }
-                    }
-                    .scrollIndicators(.never)
-                }
-                .frame(width: 200)
-                .background(Color(NSColor.controlBackgroundColor))
+                SidebarView(
+                    isHoveringHistory: $isHoveringHistory,
+                    entries: entries,
+                    selectedEntryId: $selectedEntryId,
+                    hoveredEntryId: $hoveredEntryId,
+                    hoveredTrashId: $hoveredTrashId,
+                    onSaveEntry: saveEntry,
+                    onLoadEntry: loadEntry,
+                    onDeleteEntry: deleteEntry
+                )
             }
         }
         .frame(minWidth: 1100, minHeight: 600)
@@ -902,18 +378,341 @@ struct ContentView: View {
         }
     }
     
-    private func backgroundColor(for entry: HumanEntry) -> Color {
-        if entry.id == selectedEntryId {
-            return Color.gray.opacity(0.1)  // More subtle selection highlight
-        } else if entry.id == hoveredEntryId {
-            return Color.gray.opacity(0.05)  // Even more subtle hover state
-        } else {
-            return Color.clear
+    @ViewBuilder
+    func BottomActionsView () -> some View {
+        HStack {
+            // Font buttons (moved to left)
+            HStack(spacing: 8) {
+                Button(fontSizeButtonTitle) {
+                    if let currentIndex = fontSizes.firstIndex(of: fontSize) {
+                        let nextIndex = (currentIndex + 1) % fontSizes.count
+                        fontSize = fontSizes[nextIndex]
+                    }
+                }
+                .buttonStyle(.plain)
+                .foregroundColor(isHoveringSize ? .black : .gray)
+                .onHover { hovering in
+                    isHoveringSize = hovering
+                    isHoveringBottomNav = hovering
+                    if hovering {
+                        NSCursor.pointingHand.push()
+                    } else {
+                        NSCursor.pop()
+                    }
+                }
+                
+                Text("•")
+                    .foregroundColor(.gray)
+                
+                Button("Lato") {
+                    selectedFont = "Lato-Regular"
+                    currentRandomFont = ""
+                }
+                .buttonStyle(.plain)
+                .foregroundColor(hoveredFont == "Lato" ? .black : .gray)
+                .onHover { hovering in
+                    hoveredFont = hovering ? "Lato" : nil
+                    isHoveringBottomNav = hovering
+                    if hovering {
+                        NSCursor.pointingHand.push()
+                    } else {
+                        NSCursor.pop()
+                    }
+                }
+                
+                Text("•")
+                    .foregroundColor(.gray)
+                
+                Button("Arial") {
+                    selectedFont = "Arial"
+                    currentRandomFont = ""
+                }
+                .buttonStyle(.plain)
+                .foregroundColor(hoveredFont == "Arial" ? .black : .gray)
+                .onHover { hovering in
+                    hoveredFont = hovering ? "Arial" : nil
+                    isHoveringBottomNav = hovering
+                    if hovering {
+                        NSCursor.pointingHand.push()
+                    } else {
+                        NSCursor.pop()
+                    }
+                }
+                
+                Text("•")
+                    .foregroundColor(.gray)
+                
+                Button("System") {
+                    selectedFont = ".AppleSystemUIFont"
+                    currentRandomFont = ""
+                }
+                .buttonStyle(.plain)
+                .foregroundColor(hoveredFont == "System" ? .black : .gray)
+                .onHover { hovering in
+                    hoveredFont = hovering ? "System" : nil
+                    isHoveringBottomNav = hovering
+                    if hovering {
+                        NSCursor.pointingHand.push()
+                    } else {
+                        NSCursor.pop()
+                    }
+                }
+                
+                Text("•")
+                    .foregroundColor(.gray)
+                
+                Button("Serif") {
+                    selectedFont = "Times New Roman"
+                    currentRandomFont = ""
+                }
+                .buttonStyle(.plain)
+                .foregroundColor(hoveredFont == "Serif" ? .black : .gray)
+                .onHover { hovering in
+                    hoveredFont = hovering ? "Serif" : nil
+                    isHoveringBottomNav = hovering
+                    if hovering {
+                        NSCursor.pointingHand.push()
+                    } else {
+                        NSCursor.pop()
+                    }
+                }
+                
+                Text("•")
+                    .foregroundColor(.gray)
+                
+                Button(randomButtonTitle) {
+                    if let randomFont = availableFonts.randomElement() {
+                        selectedFont = randomFont
+                        currentRandomFont = randomFont
+                    }
+                }
+                .buttonStyle(.plain)
+                .foregroundColor(hoveredFont == "Random" ? .black : .gray)
+                .onHover { hovering in
+                    hoveredFont = hovering ? "Random" : nil
+                    isHoveringBottomNav = hovering
+                    if hovering {
+                        NSCursor.pointingHand.push()
+                    } else {
+                        NSCursor.pop()
+                    }
+                }
+            }
+            .padding(8)
+            .cornerRadius(6)
+            .onHover { hovering in
+                isHoveringBottomNav = hovering
+            }
+            
+            Spacer()
+            
+            // Utility buttons (moved to right)
+            HStack(spacing: 8) {
+                Button(timerButtonTitle) {
+                    let now = Date()
+                    if let lastClick = lastClickTime,
+                       now.timeIntervalSince(lastClick) < 0.3 {
+                        timeRemaining = 900
+                        timerIsRunning = false
+                        lastClickTime = nil
+                    } else {
+                        timerIsRunning.toggle()
+                        lastClickTime = now
+                    }
+                }
+                .buttonStyle(.plain)
+                .foregroundColor(timerColor)
+                .onHover { hovering in
+                    isHoveringTimer = hovering
+                    isHoveringBottomNav = hovering
+                    if hovering {
+                        NSCursor.pointingHand.push()
+                    } else {
+                        NSCursor.pop()
+                    }
+                }
+                .onAppear {
+                    NSEvent.addLocalMonitorForEvents(matching: .scrollWheel) { event in
+                        if isHoveringTimer {
+                            let scrollBuffer = event.deltaY * 0.25
+                            
+                            if abs(scrollBuffer) >= 0.1 {
+                                let currentMinutes = timeRemaining / 60
+                                NSHapticFeedbackManager.defaultPerformer.perform(.generic, performanceTime: .now)
+                                let direction = -scrollBuffer > 0 ? 5 : -5
+                                let newMinutes = currentMinutes + direction
+                                let roundedMinutes = (newMinutes / 5) * 5
+                                let newTime = roundedMinutes * 60
+                                timeRemaining = min(max(newTime, 0), 2700)
+                            }
+                        }
+                        return event
+                    }
+                }
+                
+                Text("•")
+                    .foregroundColor(.gray)
+                
+                Button("Chat") {
+                    showingChatMenu = true
+                }
+                .buttonStyle(.plain)
+                .foregroundColor(isHoveringChat ? .black : .gray)
+                .onHover { hovering in
+                    isHoveringChat = hovering
+                    isHoveringBottomNav = hovering
+                    if hovering {
+                        NSCursor.pointingHand.push()
+                    } else {
+                        NSCursor.pop()
+                    }
+                }
+                .popover(isPresented: $showingChatMenu, attachmentAnchor: .point(UnitPoint(x: 0.5, y: 0)), arrowEdge: .top) {
+                    if text.trimmingCharacters(in: .whitespacesAndNewlines).hasPrefix("hi. my name is farza.") {
+                        Text("Yo. Sorry, you can't chat with the guide lol. Please write your own entry.")
+                            .font(.system(size: 14))
+                            .foregroundColor(.primary)
+                            .frame(width: 250)
+                            .padding(.horizontal, 12)
+                            .padding(.vertical, 8)
+                            .background(Color(NSColor.controlBackgroundColor))
+                            .cornerRadius(8)
+                            .shadow(color: Color.black.opacity(0.1), radius: 4, y: 2)
+                    } else if text.count < 350 {
+                        Text("Please free write for at minimum 5 minutes first. Then click this. Trust.")
+                            .font(.system(size: 14))
+                            .foregroundColor(.primary)
+                            .frame(width: 250)
+                            .padding(.horizontal, 12)
+                            .padding(.vertical, 8)
+                            .background(Color(NSColor.controlBackgroundColor))
+                            .cornerRadius(8)
+                            .shadow(color: Color.black.opacity(0.1), radius: 4, y: 2)
+                    } else {
+                        VStack(spacing: 0) {
+                            Button(action: {
+                                showingChatMenu = false
+                                openChatGPT()
+                            }) {
+                                Text("ChatGPT")
+                                    .frame(maxWidth: .infinity, alignment: .leading)
+                                    .padding(.horizontal, 12)
+                                    .padding(.vertical, 8)
+                            }
+                            .buttonStyle(.plain)
+                            .foregroundColor(.primary)
+                            
+                            Divider()
+                            
+                            Button(action: {
+                                showingChatMenu = false
+                                openClaude()
+                            }) {
+                                Text("Claude")
+                                    .frame(maxWidth: .infinity, alignment: .leading)
+                                    .padding(.horizontal, 12)
+                                    .padding(.vertical, 8)
+                            }
+                            .buttonStyle(.plain)
+                            .foregroundColor(.primary)
+                        }
+                        .frame(width: 120)
+                        .background(Color(NSColor.controlBackgroundColor))
+                        .cornerRadius(8)
+                        .shadow(color: Color.black.opacity(0.1), radius: 4, y: 2)
+                    }
+                }
+                
+                Text("•")
+                    .foregroundColor(.gray)
+                
+                Button(isFullscreen ? "Minimize" : "Fullscreen") {
+                    if let window = NSApplication.shared.windows.first {
+                        window.toggleFullScreen(nil)
+                    }
+                }
+                .buttonStyle(.plain)
+                .foregroundColor(isHoveringFullscreen ? .black : .gray)
+                .onHover { hovering in
+                    isHoveringFullscreen = hovering
+                    isHoveringBottomNav = hovering
+                    if hovering {
+                        NSCursor.pointingHand.push()
+                    } else {
+                        NSCursor.pop()
+                    }
+                }
+                
+                Text("•")
+                    .foregroundColor(.gray)
+                
+                Button(action: {
+                    createNewEntry()
+                }) {
+                    Text("New Entry")
+                        .font(.system(size: 13))
+                }
+                .buttonStyle(.plain)
+                .foregroundColor(isHoveringNewEntry ? .black : .gray)
+                .onHover { hovering in
+                    isHoveringNewEntry = hovering
+                    isHoveringBottomNav = hovering
+                    if hovering {
+                        NSCursor.pointingHand.push()
+                    } else {
+                        NSCursor.pop()
+                    }
+                }
+                
+                Text("•")
+                    .foregroundColor(.gray)
+                
+                // Version history button
+                Button(action: {
+                    withAnimation(.easeInOut(duration: 0.2)) {
+                        showingSidebar.toggle()
+                    }
+                }) {
+                    Image(systemName: "clock.arrow.circlepath")
+                        .foregroundColor(isHoveringClock ? .black : .gray)
+                }
+                .buttonStyle(.plain)
+                .onHover { hovering in
+                    isHoveringClock = hovering
+                    isHoveringBottomNav = hovering
+                    if hovering {
+                        NSCursor.pointingHand.push()
+                    } else {
+                        NSCursor.pop()
+                    }
+                }
+            }
+            .padding(8)
+            .cornerRadius(6)
+            .onHover { hovering in
+                isHoveringBottomNav = hovering
+            }
         }
+        .padding()
+        .background(Color.white)
+        .opacity(bottomNavOpacity)
+        .onHover { hovering in
+            isHoveringBottomNav = hovering
+            if hovering {
+                withAnimation(.easeOut(duration: 0.2)) {
+                    bottomNavOpacity = 1.0
+                }
+            } else if timerIsRunning {
+                withAnimation(.easeIn(duration: 1.0)) {
+                    bottomNavOpacity = 0.0
+                }
+            }
+        }
+
     }
     
     private func updatePreviewText(for entry: HumanEntry) {
-        let documentsDirectory = getDocumentsDirectory()
+        let documentsDirectory = documentsDirectory
         let fileURL = documentsDirectory.appendingPathComponent(entry.filename)
         
         do {
@@ -933,56 +732,36 @@ struct ContentView: View {
     }
     
     private func saveEntry(entry: HumanEntry) {
-        let documentsDirectory = getDocumentsDirectory()
-        let fileURL = documentsDirectory.appendingPathComponent(entry.filename)
-        
-        do {
-            try text.write(to: fileURL, atomically: true, encoding: .utf8)
-            print("Successfully saved entry: \(entry.filename)")
-            updatePreviewText(for: entry)  // Update preview after saving
-        } catch {
-            print("Error saving entry: \(error)")
-        }
+        fileHelper.saveEntry(entry, withText: text, onSuccess: {
+            updatePreviewText(for: entry)
+        }, onError: { error in
+            print("Save failed: \(error.localizedDescription)")
+        })
     }
     
     private func loadEntry(entry: HumanEntry) {
-        let documentsDirectory = getDocumentsDirectory()
-        let fileURL = documentsDirectory.appendingPathComponent(entry.filename)
-        
-        do {
-            if fileManager.fileExists(atPath: fileURL.path) {
-                text = try String(contentsOf: fileURL, encoding: .utf8)
-                print("Successfully loaded entry: \(entry.filename)")
-            }
-        } catch {
-            print("Error loading entry: \(error)")
-        }
+        fileHelper.loadEntry(entry, onSuccess: { loadedText in
+            text = loadedText
+        }, onError: { error in
+            print("Failed to load entry: \(error.localizedDescription)")
+        })
     }
     
     private func createNewEntry() {
-        let newEntry = HumanEntry.createNew()
-        entries.insert(newEntry, at: 0) // Add to the beginning
-        selectedEntryId = newEntry.id
-        
-        // If this is the first entry (entries was empty before adding this one)
-        if entries.count == 1 {
-            // Read welcome message from default.md
-            if let defaultMessageURL = Bundle.main.url(forResource: "default", withExtension: "md"),
-               let defaultMessage = try? String(contentsOf: defaultMessageURL, encoding: .utf8) {
-                text = "\n\n" + defaultMessage
+        fileHelper.createNewEntry(
+            isFirstEntry: entries.isEmpty,
+            placeholderOptions: placeholderOptions,
+            onSuccess: { newEntry, entryText, placeholder in
+                entries.insert(newEntry, at: 0)
+                selectedEntryId = newEntry.id
+                text = entryText
+                placeholderText = placeholder ?? "\n\nBegin writing"
+                updatePreviewText(for: newEntry)
+            },
+            onError: { error in
+                print("Failed to create new entry: \(error.localizedDescription)")
             }
-            // Save the welcome message immediately
-            saveEntry(entry: newEntry)
-            // Update the preview text
-            updatePreviewText(for: newEntry)
-        } else {
-            // Regular new entry starts with newlines
-            text = "\n\n"
-            // Randomize placeholder text for new entry
-            placeholderText = placeholderOptions.randomElement() ?? "\n\nBegin writing"
-            // Save the empty entry
-            saveEntry(entry: newEntry)
-        }
+        )
     }
     
     private func openChatGPT() {
@@ -1006,68 +785,37 @@ struct ContentView: View {
     }
     
     private func deleteEntry(entry: HumanEntry) {
-        // Delete the file from the filesystem
-        let documentsDirectory = getDocumentsDirectory()
-        let fileURL = documentsDirectory.appendingPathComponent(entry.filename)
-        
-        do {
-            try fileManager.removeItem(at: fileURL)
-            print("Successfully deleted file: \(entry.filename)")
-            
-            // Remove the entry from the entries array
+        fileHelper.deleteEntry(entry, onSuccess: {
+            // Remove from entries list
             if let index = entries.firstIndex(where: { $0.id == entry.id }) {
                 entries.remove(at: index)
                 
-                // If the deleted entry was selected, select the first entry or create a new one
+                // Update selection
                 if selectedEntryId == entry.id {
-                    if let firstEntry = entries.first {
-                        selectedEntryId = firstEntry.id
-                        loadEntry(entry: firstEntry)
+                    if let first = entries.first {
+                        selectedEntryId = first.id
+                        fileHelper.loadEntry(first, onSuccess: { loadedText in
+                            text = loadedText
+                        })
                     } else {
-                        createNewEntry()
+                        fileHelper.createNewEntry(
+                            isFirstEntry: true,
+                            placeholderOptions: placeholderOptions,
+                            onSuccess: { newEntry, entryText, placeholder in
+                                entries.insert(newEntry, at: 0)
+                                selectedEntryId = newEntry.id
+                                text = entryText
+                                placeholderText = placeholder ?? "\n\nBegin writing"
+                                updatePreviewText(for: newEntry)
+                            }
+                        )
                     }
                 }
             }
-        } catch {
-            print("Error deleting file: \(error)")
-        }
-    }
-}
+        }, onError: { error in
+            print("Failed to delete entry: \(error.localizedDescription)")
+        })
 
-// Add helper extension to find NSTextView
-extension NSView {
-    func findTextView() -> NSView? {
-        if self is NSTextView {
-            return self
-        }
-        for subview in subviews {
-            if let textView = subview.findTextView() {
-                return textView
-            }
-        }
-        return nil
-    }
-}
-
-// Helper extension to get default line height
-extension NSFont {
-    func defaultLineHeight() -> CGFloat {
-        return self.ascender - self.descender + self.leading
-    }
-}
-
-// Add helper extension at the bottom of the file
-extension NSView {
-    func findSubview<T: NSView>(ofType type: T.Type) -> T? {
-        if let typedSelf = self as? T {
-            return typedSelf
-        }
-        for subview in subviews {
-            if let found = subview.findSubview(ofType: type) {
-                return found
-            }
-        }
-        return nil
     }
 }
 
