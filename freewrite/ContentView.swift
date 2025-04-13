@@ -11,6 +11,7 @@ import AppKit
 
 struct ContentView: View {
     private let headerString = "\n\n"
+    @StateObject private var themeManager = ThemeManager()
     private let fileHelper = FileManagerHelper.shared
     @State private var entries: [HumanEntry] = []
     @State private var text: String = ""  // Remove initial welcome text since we'll handle it in createNewEntry
@@ -21,6 +22,7 @@ struct ContentView: View {
     @State private var timeRemaining: Int = 900  // Changed to 900 seconds (15 minutes)
     @State private var timerIsRunning = false
     @State private var isHoveringTimer = false
+    @State private var isHoveringToggleTheme = false
     @State private var isHoveringFullscreen = false
     @State private var hoveredFont: String? = nil
     @State private var isHoveringSize = false
@@ -40,6 +42,7 @@ struct ContentView: View {
     @State private var showingChatMenu = false
     @State private var showingTimerMenu = false
     @State private var isHoveringTimeOption = false
+    @AppStorage("themeType") private var savedThemeType: String = ThemeType.light.rawValue
     @AppStorage("timerOptionSelected") private var timerOptionSelected = 900 // 1500secs (25 mins); 900secs (15 mins); 600secs (10 mins); 300secs (5 mins)
 //    @AppStorage("startTimerOnWritting") private var startTimerOnWritting = false
     @State private var chatMenuAnchor: CGPoint = .zero
@@ -283,7 +286,7 @@ struct ContentView: View {
         HStack(spacing: 0) {
             // Main content
             ZStack {
-                Color.white
+                themeManager.currentTheme.background
                     .ignoresSafeArea()
                 
                 TextEditor(text: Binding(
@@ -297,9 +300,9 @@ struct ContentView: View {
                         }
                     }
                 ))
-                    .background(Color.white)
+                .background(themeManager.currentTheme.background)
                     .font(.custom(selectedFont, size: fontSize))
-                    .foregroundColor(Color(red: 0.20, green: 0.20, blue: 0.20))
+                    .foregroundColor(themeManager.currentTheme is LightTheme ? Color(red: 0.20, green: 0.20, blue: 0.20) : Color(red: 0.9, green: 0.9, blue: 0.9))
                     .scrollContentBackground(.hidden)
                     .scrollIndicators(.never)
                     .lineSpacing(lineHeight)
@@ -307,7 +310,7 @@ struct ContentView: View {
                     .id("\(selectedFont)-\(fontSize)")
                     .padding(.bottom, bottomNavOpacity > 0 ? navHeight : 0)
                     .ignoresSafeArea()
-                    .colorScheme(.light)
+                    .colorScheme(.dark)
                     .onAppear {
                         placeholderText = placeholderOptions.randomElement() ?? "\n\nBegin writing"
                         DispatchQueue.main.async {
@@ -399,7 +402,7 @@ struct ContentView: View {
                     }
                 }
                 .buttonStyle(.plain)
-                .foregroundColor(isHoveringSize ? .black : .gray)
+                .foregroundColor(isHoveringSize ? themeManager.currentTheme.hoverColor: themeManager.currentTheme.textSecondary)
                 .onHover { hovering in
                     isHoveringSize = hovering
                     isHoveringBottomNav = hovering
@@ -418,7 +421,7 @@ struct ContentView: View {
                     currentRandomFont = ""
                 }
                 .buttonStyle(.plain)
-                .foregroundColor(hoveredFont == "Lato" ? .black : .gray)
+                .foregroundColor(hoveredFont == "Lato" ? themeManager.currentTheme.hoverColor: themeManager.currentTheme.textSecondary)
                 .onHover { hovering in
                     hoveredFont = hovering ? "Lato" : nil
                     isHoveringBottomNav = hovering
@@ -437,7 +440,7 @@ struct ContentView: View {
                     currentRandomFont = ""
                 }
                 .buttonStyle(.plain)
-                .foregroundColor(hoveredFont == "Arial" ? .black : .gray)
+                .foregroundColor(hoveredFont == "Arial" ? themeManager.currentTheme.hoverColor: themeManager.currentTheme.textSecondary)
                 .onHover { hovering in
                     hoveredFont = hovering ? "Arial" : nil
                     isHoveringBottomNav = hovering
@@ -456,7 +459,7 @@ struct ContentView: View {
                     currentRandomFont = ""
                 }
                 .buttonStyle(.plain)
-                .foregroundColor(hoveredFont == "System" ? .black : .gray)
+                .foregroundColor(hoveredFont == "System" ? themeManager.currentTheme.hoverColor: themeManager.currentTheme.textSecondary)
                 .onHover { hovering in
                     hoveredFont = hovering ? "System" : nil
                     isHoveringBottomNav = hovering
@@ -475,7 +478,7 @@ struct ContentView: View {
                     currentRandomFont = ""
                 }
                 .buttonStyle(.plain)
-                .foregroundColor(hoveredFont == "Serif" ? .black : .gray)
+                .foregroundColor(hoveredFont == "Serif" ? themeManager.currentTheme.hoverColor: themeManager.currentTheme.textSecondary)
                 .onHover { hovering in
                     hoveredFont = hovering ? "Serif" : nil
                     isHoveringBottomNav = hovering
@@ -496,7 +499,7 @@ struct ContentView: View {
                     }
                 }
                 .buttonStyle(.plain)
-                .foregroundColor(hoveredFont == "Random" ? .black : .gray)
+                .foregroundColor(hoveredFont == "Random" ?  themeManager.currentTheme.hoverColor: themeManager.currentTheme.textSecondary)
                 .onHover { hovering in
                     hoveredFont = hovering ? "Random" : nil
                     isHoveringBottomNav = hovering
@@ -518,23 +521,46 @@ struct ContentView: View {
             // Utility buttons (moved to right)
             HStack(spacing: 8) {
                 
+                Button{
+                    themeManager.switchTheme()
+                } label: {
+                    Image(systemName: themeManager.currentTheme is LightTheme ? "sun.max.fill" : "moon.fill")
+                        .onHover { hovering in
+                            isHoveringToggleTheme = hovering
+                            isHoveringBottomNav = hovering
+                            if hovering {
+                                NSCursor.pointingHand.push()
+                            } else {
+                                NSCursor.pop()
+                            }
+                        }
+                }
+                .keyboardShortcut("t", modifiers: [.command])
+                .buttonStyle(.plain)
+                .foregroundColor(
+                    isHoveringToggleTheme ? themeManager.currentTheme.hoverColor: themeManager.currentTheme.textSecondary
+                )
+                
+                Text("•")
+                    .foregroundColor(.gray)
+                
                 HStack {
                     Button{
                         showingTimerMenu = true
                         timerIsRunning = false
                     } label: {
                         Image(systemName: "chevron.up")
+                            .onHover { hovering in
+                                isHoveringTimer = hovering
+                                isHoveringBottomNav = hovering
+                                if hovering {
+                                    NSCursor.pointingHand.push()
+                                } else {
+                                    NSCursor.pop()
+                                }
+                            }
                     }
-                    .onHover { hovering in
-                        isHoveringTimer = hovering
-                        isHoveringBottomNav = hovering
-                        if hovering {
-                            NSCursor.pointingHand.push()
-                        } else {
-                            NSCursor.pop()
-                        }
-                    }
-                    .foregroundColor(timerColor)
+                    .foregroundColor(isHoveringTimer ? themeManager.currentTheme.hoverColor: themeManager.currentTheme.textSecondary)
                     .buttonStyle(.plain)
                     .popover(isPresented: $showingTimerMenu, attachmentAnchor: .point(UnitPoint(x: 0.5, y: 0)), arrowEdge: .top) {
                             VStack(spacing: 0) {
@@ -688,8 +714,9 @@ struct ContentView: View {
                             lastClickTime = now
                         }
                     }
+                    .keyboardShortcut("s", modifiers: [.command])
                     .buttonStyle(.plain)
-                    .foregroundColor(timerColor)
+                    .foregroundColor(isHoveringTimer ? themeManager.currentTheme.hoverColor: themeManager.currentTheme.textSecondary)
                     .onHover { hovering in
                         isHoveringTimer = hovering
                         isHoveringBottomNav = hovering
@@ -727,7 +754,7 @@ struct ContentView: View {
                     showingChatMenu = true
                 }
                 .buttonStyle(.plain)
-                .foregroundColor(isHoveringChat ? .black : .gray)
+                .foregroundColor(isHoveringChat ? themeManager.currentTheme.hoverColor: themeManager.currentTheme.textSecondary)
                 .onHover { hovering in
                     isHoveringChat = hovering
                     isHoveringBottomNav = hovering
@@ -801,8 +828,9 @@ struct ContentView: View {
                         window.toggleFullScreen(nil)
                     }
                 }
+                .keyboardShortcut("f", modifiers: [.command])
                 .buttonStyle(.plain)
-                .foregroundColor(isHoveringFullscreen ? .black : .gray)
+                .foregroundColor(isHoveringFullscreen ? themeManager.currentTheme.hoverColor: themeManager.currentTheme.textSecondary)
                 .onHover { hovering in
                     isHoveringFullscreen = hovering
                     isHoveringBottomNav = hovering
@@ -822,8 +850,9 @@ struct ContentView: View {
                     Text("New Entry")
                         .font(.system(size: 13))
                 }
+                .keyboardShortcut("n", modifiers: [.command])
                 .buttonStyle(.plain)
-                .foregroundColor(isHoveringNewEntry ? .black : .gray)
+                .foregroundColor(isHoveringNewEntry ? themeManager.currentTheme.hoverColor: themeManager.currentTheme.textSecondary)
                 .onHover { hovering in
                     isHoveringNewEntry = hovering
                     isHoveringBottomNav = hovering
@@ -844,8 +873,9 @@ struct ContentView: View {
                     }
                 }) {
                     Image(systemName: "clock.arrow.circlepath")
-                        .foregroundColor(isHoveringClock ? .black : .gray)
+                        .foregroundColor(isHoveringClock ? themeManager.currentTheme.hoverColor: themeManager.currentTheme.textSecondary)
                 }
+                .keyboardShortcut("h", modifiers: [.command])
                 .buttonStyle(.plain)
                 .onHover { hovering in
                     isHoveringClock = hovering
@@ -864,7 +894,7 @@ struct ContentView: View {
             }
         }
         .padding()
-        .background(Color.white)
+        .background(themeManager.currentTheme.background)
         .opacity(bottomNavOpacity)
         .onHover { hovering in
             isHoveringBottomNav = hovering
