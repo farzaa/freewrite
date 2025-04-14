@@ -837,8 +837,10 @@ struct ContentView: View {
                             // Tags button
                             Button(action: {
                                 withAnimation(.easeInOut(duration: 0.2)) {
-                                    showingSidebar = true
-                                    showTagControls = true
+                                    showingSidebar.toggle()
+                                    if showingSidebar {
+                                        showTagControls = true
+                                    }
                                 }
                             }) {
                                 Image(systemName: "tag")
