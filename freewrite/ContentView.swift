@@ -132,6 +132,8 @@ struct ContentView: View {
     @State private var showingDeleteConfirmation = false
     @State private var isDarkMode: Bool = false // Add dark mode state
     @State private var isHoveringDarkMode: Bool = false // Add state for dark mode button hover
+    @State private var isHoveringWordCount: Bool = false // Add state for word count hover
+    @State private var isHoveringClose: Bool = false // Add state for close button hover
 
     let timer = Timer.publish(every: 1, on: .main, in: .common).autoconnect()
     let entryHeight: CGFloat = 40
@@ -453,6 +455,13 @@ struct ContentView: View {
             return .gray
         }
         return isHoveringTimer ? (isDarkMode ? .white : .black) : .gray
+    }
+    
+    var wordCount: String {
+        let words = text.trimmingCharacters(in: .whitespacesAndNewlines)
+            .components(separatedBy: .whitespacesAndNewlines)
+            .filter { !$0.isEmpty }
+        return "\(words.count) words"
     }
     
     var lineHeight: CGFloat {
@@ -875,6 +884,45 @@ struct ContentView: View {
                             .buttonStyle(.plain)
                             .onHover { hovering in
                                 isHoveringDarkMode = hovering
+                                isHoveringBottomNav = hovering
+                                if hovering {
+                                    NSCursor.pointingHand.push()
+                                } else {
+                                    NSCursor.pop()
+                                }
+                            }
+                            
+                            Text("•")
+                                .foregroundColor(.gray)
+                                
+                            // Word count
+                            Text(wordCount)
+                                .font(.system(size: 13))
+                                .foregroundColor(isHoveringWordCount ? (isDarkMode ? .white : .black) : .gray)
+                                .onHover { hovering in
+                                    isHoveringWordCount = hovering
+                                    isHoveringBottomNav = hovering
+                                    if hovering {
+                                        NSCursor.arrow.push()
+                                    } else {
+                                        NSCursor.pop()
+                                    }
+                                }
+                                
+                            Text("•")
+                                .foregroundColor(.gray)
+                                
+                            // Close button
+                            Button(action: {
+                                NSApplication.shared.terminate(nil)
+                            }) {
+                                Text("Close")
+                                    .font(.system(size: 13))
+                            }
+                            .buttonStyle(.plain)
+                            .foregroundColor(isHoveringClose ? (isDarkMode ? .white : .black) : .gray)
+                            .onHover { hovering in
+                                isHoveringClose = hovering
                                 isHoveringBottomNav = hovering
                                 if hovering {
                                     NSCursor.pointingHand.push()
