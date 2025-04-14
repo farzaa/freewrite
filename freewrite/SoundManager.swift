@@ -41,16 +41,7 @@ class SoundManager {
             print("Found sound URL in main bundle: \(soundURL)")
             loadSound(from: soundURL, for: type)
         } else {
-            // Try direct file path as last resort
-            let directPath = "/Users/shrivardhangoenka/Documents/Projects/freewrite/freewrite/Sounds/\(filename).mp3"
-            print("Sound not found in bundle, trying direct path: \(directPath)")
-            let fileURL = URL(fileURLWithPath: directPath)
-            if FileManager.default.fileExists(atPath: directPath) {
-                print("File exists at direct path")
-                loadSound(from: fileURL, for: type)
-            } else {
-                print("ERROR: Sound file \(filename) not found at any location!")
-            }
+            print("ERROR: Sound file \(filename) not found in bundle!")
         }
     }
     
@@ -79,14 +70,8 @@ class SoundManager {
             player.play()
         } else {
             // If still not available, use system sound as fallback
-            #if os(macOS)
             print("Using macOS system sound fallback")
             NSSound.beep()
-            #else
-            // Use iOS system sound
-            print("Using iOS system sound fallback")
-            AudioServicesPlaySystemSound(1104) // Standard system keyboard click
-            #endif
         }
     }
     
