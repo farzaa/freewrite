@@ -127,6 +127,10 @@ struct ContentView: View {
     @State private var showTagControls: Bool = false
     @State private var availableTags: Set<String> = []
     @State private var isHoveringTagButton: Bool = false
+
+    @State private var entryToDelete: HumanEntry? = nil
+    @State private var showingDeleteConfirmation = false
+
     let timer = Timer.publish(every: 1, on: .main, in: .common).autoconnect()
     let entryHeight: CGFloat = 40
     
@@ -1130,6 +1134,23 @@ struct ContentView: View {
         .frame(minWidth: 1100, minHeight: 600)
         .animation(.easeInOut(duration: 0.2), value: showingSidebar)
         .preferredColorScheme(.light)
+        .confirmationDialog(
+            "Are you sure you want to delete this entry?",
+            isPresented: $showingDeleteConfirmation,
+            titleVisibility: .visible
+        ) {
+            Button("Delete", role: .destructive) {
+                if let entry = entryToDelete {
+                    performDeleteEntry(entry: entry)
+                    entryToDelete = nil
+                }
+            }
+            Button("Cancel", role: .cancel) {
+                entryToDelete = nil
+            }
+        } message: {
+            Text("This action cannot be undone.")
+        }
         .onAppear {
             showingSidebar = false  // Hide sidebar by default
             loadExistingEntries()
@@ -1280,6 +1301,11 @@ struct ContentView: View {
     }
     
     private func deleteEntry(entry: HumanEntry) {
+        entryToDelete = entry
+        showingDeleteConfirmation = true
+    }
+    
+    private func performDeleteEntry(entry: HumanEntry) {
         // Delete the file from the filesystem
         let documentsDirectory = getDocumentsDirectory()
         let fileURL = documentsDirectory.appendingPathComponent(entry.filename)
