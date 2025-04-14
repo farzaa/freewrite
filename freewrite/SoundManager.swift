@@ -1,9 +1,7 @@
 import Foundation
 import AVFoundation
 import AudioToolbox
-#if os(macOS)
 import AppKit
-#endif
 
 class SoundManager {
     static let shared = SoundManager()
@@ -22,24 +20,7 @@ class SoundManager {
     var soundEnabled = true
     
     private init() {
-        setupAudioSession()
         prepareAllSounds()
-    }
-    
-    private func setupAudioSession() {
-        // AVAudioSession is iOS-specific, skip on macOS
-        #if os(iOS)
-        do {
-            let audioSession = AVAudioSession.sharedInstance()
-            try audioSession.setCategory(.ambient, mode: .default)
-            try audioSession.setActive(true)
-            print("Audio session set up successfully")
-        } catch {
-            print("Failed to set up audio session: \(error)")
-        }
-        #else
-        print("Audio session setup skipped (not needed on macOS)")
-        #endif
     }
     
     private func prepareAllSounds() {
