@@ -79,6 +79,9 @@ struct ContentView: View {
     @State private var isHoveringHistoryText = false
     @State private var isHoveringHistoryPath = false
     @State private var isHoveringHistoryArrow = false
+    @State private var showWordCount = false
+    @State private var wordCount = 0
+    @State private var characterCount = 0
     let timer = Timer.publish(every: 1, on: .main, in: .common).autoconnect()
     let entryHeight: CGFloat = 40
     
@@ -556,6 +559,10 @@ struct ContentView: View {
                                     lastClickTime = nil
                                 } else {
                                     timerIsRunning.toggle()
+                                    // Hide word count when starting a new timer session
+                                    if timerIsRunning {
+                                        showWordCount = false
+                                    }
                                     lastClickTime = now
                                 }
                             }
@@ -684,6 +691,18 @@ struct ContentView: View {
                             
                             Text("•")
                                 .foregroundColor(.gray)
+                            
+                            // Word and character count display
+                            if showWordCount {
+                                Text("\(wordCount) words | \(characterCount) chars")
+                                    .font(.system(size: 13))
+                                    .foregroundColor(.gray)
+                                    .padding(.horizontal, 4)
+                            }
+                            
+                            Text("•")
+                                .foregroundColor(.gray)
+                                .opacity(showWordCount ? 1.0 : 0.0)
                             
                             Button(action: {
                                 createNewEntry()
@@ -887,6 +906,9 @@ struct ContentView: View {
                 timeRemaining -= 1
             } else if timeRemaining == 0 {
                 timerIsRunning = false
+                // Calculate word and character count when timer ends
+                calculateWordAndCharacterCount()
+                showWordCount = true
                 if !isHoveringBottomNav {
                     withAnimation(.easeOut(duration: 1.0)) {
                         bottomNavOpacity = 1.0
@@ -1003,6 +1025,18 @@ struct ContentView: View {
            let url = URL(string: "https://claude.ai/new?q=" + encodedText) {
             NSWorkspace.shared.open(url)
         }
+    }
+    
+    // Calculate word and character count from the current text
+    private func calculateWordAndCharacterCount() {
+        let trimmedText = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        
+        // Calculate character count (excluding whitespace)
+        characterCount = trimmedText.count
+        
+        // Calculate word count
+        let components = trimmedText.components(separatedBy: .whitespacesAndNewlines)
+        wordCount = components.filter { !$0.isEmpty }.count
     }
     
     private func deleteEntry(entry: HumanEntry) {
