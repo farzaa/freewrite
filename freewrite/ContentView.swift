@@ -46,6 +46,15 @@ struct ContentView: View {
     @State private var entries: [HumanEntry] = []
     @State private var text: String = ""  // Remove initial welcome text since we'll handle it in createNewEntry
     
+    // Add new state variables for cursor tracking and padding
+    @State private var cursorPosition: CGFloat = 0
+    @State private var editorHeight: CGFloat = 0
+    @State private var scrollViewHeight: CGFloat = 0
+    @State private var bottomPadding: CGFloat = 0
+    @State private var isNearBottom: Bool = false
+    @State private var lastScrollPosition: CGFloat = 0
+    @State private var isScrolling: Bool = false
+    
     @State private var isFullscreen = false
     @State private var selectedFont: String = "Lato-Regular"
     @State private var currentRandomFont: String = ""
@@ -413,6 +422,7 @@ struct ContentView: View {
                     .frame(maxWidth: 650)
                     .id("\(selectedFont)-\(fontSize)-\(colorScheme)")
                     .padding(.bottom, bottomNavOpacity > 0 ? navHeight : 0)
+                    .padding(.bottom, bottomPadding) // Add dynamic bottom padding
                     .ignoresSafeArea()
                     .colorScheme(colorScheme)
                     .onAppear {
@@ -421,6 +431,25 @@ struct ContentView: View {
                             if let scrollView = NSApp.keyWindow?.contentView?.findSubview(ofType: NSScrollView.self) {
                                 scrollView.hasVerticalScroller = false
                                 scrollView.hasHorizontalScroller = false
+                                
+                                // Add notification observers
+                                NotificationCenter.default.addObserver(
+                                    forName: NSTextView.didChangeSelectionNotification,
+                                    object: nil,
+                                    queue: .main
+                                ) { _ in
+                                    updateCursorPosition()
+                                }
+                                
+                                // Add scroll view observer
+                                scrollView.contentView.postsBoundsChangedNotifications = true
+                                NotificationCenter.default.addObserver(
+                                    forName: NSView.boundsDidChangeNotification,
+                                    object: scrollView.contentView,
+                                    queue: .main
+                                ) { _ in
+                                    handleScroll()
+                                }
                             }
                         }
                     }
@@ -1074,6 +1103,72 @@ struct ContentView: View {
             }
         } catch {
             print("Error deleting file: \(error)")
+        }
+    }
+    
+    // Update the cursor tracking and padding methods
+    private func updateCursorPosition() {
+        guard let window = NSApp.keyWindow,
+              let scrollView = window.contentView?.findSubview(ofType: NSScrollView.self),
+              let textView = scrollView.findTextView() as? NSTextView else {
+            return
+        }
+        
+        // Get the visible rect of the scroll view
+        let visibleRect = scrollView.documentVisibleRect
+        
+        // Get the cursor position in the text view
+        let selectedRange = textView.selectedRange()
+        let cursorRect = textView.layoutManager?.boundingRect(forGlyphRange: NSRange(location: selectedRange.location, length: 0), in: textView.textContainer!)
+        
+        // Calculate cursor position relative to visible area
+        if let cursorRect = cursorRect {
+            let cursorY = cursorRect.minY - visibleRect.minY
+            let visibleHeight = visibleRect.height
+            let threshold = visibleHeight * 0.8 // 80% threshold
+            
+            // Update cursor position state
+            cursorPosition = cursorY
+            
+            // Check if cursor is near bottom
+            let wasNearBottom = isNearBottom
+            isNearBottom = cursorY > threshold
+            
+            // Only adjust padding if we're not currently scrolling
+            if !isScrolling {
+                withAnimation(.easeInOut(duration: 0.3)) {
+                    if isNearBottom {
+                        // Calculate padding based on how far past the threshold we are
+                        let excess = cursorY - threshold
+                        let maxPadding = visibleHeight * 0.7 // Maximum padding is 70% of visible height
+                        let paddingRatio = min(excess / (visibleHeight * 0.2), 1.0) // Normalize to 0-1
+                        bottomPadding = maxPadding * paddingRatio
+                    } else if !wasNearBottom {
+                        // Remove padding when moving away from bottom
+                        bottomPadding = 0
+                    }
+                }
+            }
+        }
+    }
+    
+    private func handleScroll() {
+        guard let window = NSApp.keyWindow,
+              let scrollView = window.contentView?.findSubview(ofType: NSScrollView.self) else {
+            return
+        }
+        
+        let currentScrollPosition = scrollView.contentView.bounds.origin.y
+        
+        // Detect if we're actively scrolling
+        isScrolling = abs(currentScrollPosition - lastScrollPosition) > 1
+        
+        // Update last scroll position
+        lastScrollPosition = currentScrollPosition
+        
+        // If we're not scrolling, update cursor position
+        if !isScrolling {
+            updateCursorPosition()
         }
     }
 }
