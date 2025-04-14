@@ -79,6 +79,9 @@ struct ContentView: View {
     @State private var isHoveringHistoryText = false
     @State private var isHoveringHistoryPath = false
     @State private var isHoveringHistoryArrow = false
+    
+    @Environment(\.colorScheme) var colorScheme
+
     let timer = Timer.publish(every: 1, on: .main, in: .common).autoconnect()
     let entryHeight: CGFloat = 40
     
@@ -123,9 +126,9 @@ struct ContentView: View {
     
     Keep it casual, dont say yo, help me make new connections i don't see, comfort, validate, challenge, all of it. dont be afraid to say a lot. format with markdown headings if needed.
 
-    do not just go through every single thing i say, and say it back to me. you need to proccess everythikng is say, make connections i don't see it, and deliver it all back to me as a story that makes me feel what you think i wanna feel. thats what the best therapists do.
+    do not just go through every single thing i say, and say it back to me. you need to proccess everything is say, make connections i don't see it, and deliver it all back to me as a story that makes me feel what you think i wanna feel. thats what the best therapists do.
 
-    ideally, you're style/tone should sound like the user themselves. it's as if the user is hearing their own tone but it should still feel different, because you have different things to say and don't just repeat back they say.
+    ideally, your style/tone should sound like the user themselves. it's as if the user is hearing their own tone but it should still feel different, because you have different things to say and don't just repeat back they say.
 
     else, start by saying, "hey, thanks for showing me this. my thoughts:"
         
@@ -369,8 +372,8 @@ struct ContentView: View {
         HStack(spacing: 0) {
             // Main content
             ZStack {
-                Color.white
-                    .ignoresSafeArea()
+                (colorScheme == .dark ? Color(NSColor.windowBackgroundColor) : Color.white)
+                        .ignoresSafeArea()
                 
                 TextEditor(text: Binding(
                     get: { text },
@@ -383,9 +386,9 @@ struct ContentView: View {
                         }
                     }
                 ))
-                    .background(Color.white)
+                    .background(colorScheme == .dark ? Color(NSColor.windowBackgroundColor) : Color.white)
                     .font(.custom(selectedFont, size: fontSize))
-                    .foregroundColor(Color(red: 0.20, green: 0.20, blue: 0.20))
+                    .foregroundColor(colorScheme == .dark ? Color(red: 0.70, green: 0.70, blue: 0.70) : Color(red: 0.20, green: 0.20, blue: 0.20))
                     .scrollContentBackground(.hidden)
                     .scrollIndicators(.never)
                     .lineSpacing(lineHeight)
@@ -393,7 +396,7 @@ struct ContentView: View {
                     .id("\(selectedFont)-\(fontSize)")
                     .padding(.bottom, bottomNavOpacity > 0 ? navHeight : 0)
                     .ignoresSafeArea()
-                    .colorScheme(.light)
+//                    .colorScheme(.light)
                     .onAppear {
                         placeholderText = placeholderOptions.randomElement() ?? "\n\nBegin writing"
                         DispatchQueue.main.async {
@@ -429,7 +432,8 @@ struct ContentView: View {
                                 }
                             }
                             .buttonStyle(.plain)
-                            .foregroundColor(isHoveringSize ? .black : .gray)
+                            .foregroundColor(isHoveringSize ?
+                                    (colorScheme == .dark ? .white : .black) : .gray)
                             .onHover { hovering in
                                 isHoveringSize = hovering
                                 isHoveringBottomNav = hovering
@@ -448,7 +452,8 @@ struct ContentView: View {
                                 currentRandomFont = ""
                             }
                             .buttonStyle(.plain)
-                            .foregroundColor(hoveredFont == "Lato" ? .black : .gray)
+                            .foregroundColor(hoveredFont == "Lato" ?
+                                    (colorScheme == .dark ? .white : .black) : .gray)
                             .onHover { hovering in
                                 hoveredFont = hovering ? "Lato" : nil
                                 isHoveringBottomNav = hovering
@@ -467,7 +472,8 @@ struct ContentView: View {
                                 currentRandomFont = ""
                             }
                             .buttonStyle(.plain)
-                            .foregroundColor(hoveredFont == "Arial" ? .black : .gray)
+                            .foregroundColor(hoveredFont == "Arial" ?
+                                    (colorScheme == .dark ? .white : .black) : .gray)
                             .onHover { hovering in
                                 hoveredFont = hovering ? "Arial" : nil
                                 isHoveringBottomNav = hovering
@@ -486,7 +492,8 @@ struct ContentView: View {
                                 currentRandomFont = ""
                             }
                             .buttonStyle(.plain)
-                            .foregroundColor(hoveredFont == "System" ? .black : .gray)
+                            .foregroundColor(hoveredFont == "System" ?
+                                    (colorScheme == .dark ? .white : .black) : .gray)
                             .onHover { hovering in
                                 hoveredFont = hovering ? "System" : nil
                                 isHoveringBottomNav = hovering
@@ -505,7 +512,9 @@ struct ContentView: View {
                                 currentRandomFont = ""
                             }
                             .buttonStyle(.plain)
-                            .foregroundColor(hoveredFont == "Serif" ? .black : .gray)
+                            .foregroundColor(hoveredFont == "Serif" ?
+                                    (colorScheme == .dark ? .white :
+                                        .black) : .gray)
                             .onHover { hovering in
                                 hoveredFont = hovering ? "Serif" : nil
                                 isHoveringBottomNav = hovering
@@ -526,7 +535,9 @@ struct ContentView: View {
                                 }
                             }
                             .buttonStyle(.plain)
-                            .foregroundColor(hoveredFont == "Random" ? .black : .gray)
+                            .foregroundColor(hoveredFont == "Random" ?
+                                    (colorScheme == .dark ? .white :
+                                        .black) : .gray)
                             .onHover { hovering in
                                 hoveredFont = hovering ? "Random" : nil
                                 isHoveringBottomNav = hovering
@@ -596,7 +607,9 @@ struct ContentView: View {
                                 showingChatMenu = true
                             }
                             .buttonStyle(.plain)
-                            .foregroundColor(isHoveringChat ? .black : .gray)
+                            .foregroundColor(isHoveringChat ?
+                                    (colorScheme == .dark ? .white :
+                                        .black) : .gray)
                             .onHover { hovering in
                                 isHoveringChat = hovering
                                 isHoveringBottomNav = hovering
@@ -671,7 +684,9 @@ struct ContentView: View {
                                 }
                             }
                             .buttonStyle(.plain)
-                            .foregroundColor(isHoveringFullscreen ? .black : .gray)
+                            .foregroundColor(isHoveringFullscreen ?
+                                    (colorScheme == .dark ? .white :
+                                        .black) : .gray)
                             .onHover { hovering in
                                 isHoveringFullscreen = hovering
                                 isHoveringBottomNav = hovering
@@ -692,7 +707,9 @@ struct ContentView: View {
                                     .font(.system(size: 13))
                             }
                             .buttonStyle(.plain)
-                            .foregroundColor(isHoveringNewEntry ? .black : .gray)
+                            .foregroundColor(isHoveringNewEntry ?
+                                    (colorScheme == .dark ? .white :
+                                        .black) : .gray)
                             .onHover { hovering in
                                 isHoveringNewEntry = hovering
                                 isHoveringBottomNav = hovering
@@ -713,7 +730,9 @@ struct ContentView: View {
                                 }
                             }) {
                                 Image(systemName: "clock.arrow.circlepath")
-                                    .foregroundColor(isHoveringClock ? .black : .gray)
+                                    .foregroundColor(isHoveringClock ?
+                                        (colorScheme == .dark ? .white :
+                                            .black) : .gray)
                             }
                             .buttonStyle(.plain)
                             .onHover { hovering in
@@ -733,7 +752,7 @@ struct ContentView: View {
                         }
                     }
                     .padding()
-                    .background(Color.white)
+                    .background(colorScheme == .dark ? Color(NSColor.windowBackgroundColor) : Color.white)
                     .opacity(bottomNavOpacity)
                     .onHover { hovering in
                         isHoveringBottomNav = hovering
