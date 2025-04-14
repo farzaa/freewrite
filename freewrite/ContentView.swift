@@ -52,6 +52,8 @@ struct ContentView: View {
     @State private var timeRemaining: Int = 900  // Changed to 900 seconds (15 minutes)
     @State private var timerIsRunning = false
     @State private var isHoveringTimer = false
+    @State private var isHoveringWordCount = false  // Add this state variable
+    @State private var showWordCount = true
     @State private var isHoveringFullscreen = false
     @State private var hoveredFont: String? = nil
     @State private var isHoveringSize = false
@@ -324,6 +326,10 @@ struct ContentView: View {
         }
     }
     
+    func wordCount() -> Int {
+           return text.split { $0.isWhitespace || $0.isNewline }.count
+    }
+    
     var randomButtonTitle: String {
         return currentRandomFont.isEmpty ? "Random" : "Random [\(currentRandomFont)]"
     }
@@ -587,6 +593,33 @@ struct ContentView: View {
                                     }
                                     return event
                                 }
+                            }
+                            
+                            Text("•")
+                                .foregroundColor(.gray)
+                            
+                            Button(action: {
+                                showWordCount.toggle()
+                            }) {
+                                // Display word count or char count based on the toggle state
+                                if showWordCount {
+                                    Text("\(wordCount()) words")
+                                } else {
+                                    Text("\(text.count) chars")
+                                }
+                            }
+                            .buttonStyle(.plain)
+                            .foregroundColor(isHoveringChat ? .black : .gray)
+                            .onHover { hovering in
+                                isHoveringWordCount = hovering
+                                if hovering {
+                                    NSCursor.pointingHand.push()
+                                } else {
+                                    NSCursor.pop()
+                                }
+                            }
+                            .onChange(of: text) { _ in
+                                // Auto update word/char count when text changes
                             }
                             
                             Text("•")
