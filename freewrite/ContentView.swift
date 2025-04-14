@@ -607,7 +607,7 @@ struct ContentView: View {
                                 }
                             }
                             .popover(isPresented: $showingChatMenu, attachmentAnchor: .point(UnitPoint(x: 0.5, y: 0)), arrowEdge: .top) {
-                                if text.trimmingCharacters(in: .whitespacesAndNewlines).hasPrefix("hi. my name is farza.") {
+                                if text.trimmingCharacters(in: .whitespacesAndNewlines).hasPrefix("Hi. Welcome to Freewrite :).") {
                                     Text("Yo. Sorry, you can't chat with the guide lol. Please write your own entry.")
                                         .font(.system(size: 14))
                                         .foregroundColor(.primary)
