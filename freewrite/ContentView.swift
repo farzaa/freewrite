@@ -729,12 +729,14 @@ struct ContentView: View {
                             Text("•")
                                 .foregroundColor(.gray)
                             
-                            // Embrace Mode toggle button (🚫)
-                            // Glows red if delete is pressed, black when active, and darkens on hover
+                            // Embrace Mode toggle button ("No Backspaces")
+                            // Disables backspace/delete while active
+                            // Glows red if delete is pressed, darkens on hover, and turns black when selected
                             Button(action: {
                                 embraceMode.toggle()
                             }) {
-                                Image(systemName: "nosign")
+                                Text("No Backspaces")
+                                    .font(.system(size: 13))
                                     .foregroundColor(
                                         embraceMode
                                             ? Color(red: 0.2 + (0.8 * deleteFlashProgress), green: 0, blue: 0)
