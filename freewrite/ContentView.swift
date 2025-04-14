@@ -8,6 +8,7 @@
 
 import SwiftUI
 import AppKit
+import AVFoundation
 
 struct HumanEntry: Identifiable {
     let id: UUID
@@ -79,6 +80,12 @@ struct ContentView: View {
     @State private var isHoveringHistoryText = false
     @State private var isHoveringHistoryPath = false
     @State private var isHoveringHistoryArrow = false
+    @State private var isHoveringSound = false
+    @State private var soundEnabled = true
+    
+    // For sound detection
+    @State private var previousText: String = ""
+    @State private var lastKeyPress = Date()
     let timer = Timer.publish(every: 1, on: .main, in: .common).autoconnect()
     let entryHeight: CGFloat = 40
     
@@ -375,11 +382,53 @@ struct ContentView: View {
                 TextEditor(text: Binding(
                     get: { text },
                     set: { newValue in
+                        let currentTime = Date()
+                        // Debounce to prevent multiple sound events
+                        let debounceTime = 0.05 // 50ms
+                        
+                        // Copy current text for comparison
+                        let oldText = text
+                        
                         // Ensure the text always starts with two newlines
                         if !newValue.hasPrefix("\n\n") {
                             text = "\n\n" + newValue.trimmingCharacters(in: .newlines)
                         } else {
                             text = newValue
+                        }
+                        
+                        // Skip sound if disabled
+                        guard soundEnabled && currentTime.timeIntervalSince(lastKeyPress) > debounceTime else {
+                            return
+                        }
+                        
+                        // Update timestamp
+                        lastKeyPress = currentTime
+                        
+                        // Determine what changed and play the appropriate sound
+                        if newValue.count > oldText.count {
+                            // Added character(s)
+                            
+                            // Count newlines to detect Return/Enter
+                            let oldLineCount = oldText.filter { $0 == "\n" }.count
+                            let newLineCount = newValue.filter { $0 == "\n" }.count
+                            
+                            if newLineCount > oldLineCount {
+                                // Enter/Return key press
+                                SoundManager.shared.playReturnSound()
+                            }
+                            // Check for added space
+                            else if newValue.count > 0 && oldText.count > 0 &&
+                                  (newValue.hasSuffix(" ") && !oldText.hasSuffix(" ")) {
+                                SoundManager.shared.playSpaceBarSound()
+                            }
+                            // Regular keystroke
+                            else {
+                                SoundManager.shared.playTypewriterSound()
+                            }
+                        }
+                        // Backspace/Delete
+                        else if newValue.count < oldText.count {
+                            SoundManager.shared.playBackspaceSound()
                         }
                     }
                 ))
@@ -686,6 +735,28 @@ struct ContentView: View {
                                 .foregroundColor(.gray)
                             
                             Button(action: {
+                                soundEnabled.toggle()
+                                SoundManager.shared.toggleSound()
+                            }) {
+                                Image(systemName: soundEnabled ? "speaker.wave.2.fill" : "speaker.slash.fill")
+                                    .font(.system(size: 13))
+                            }
+                            .buttonStyle(.plain)
+                            .foregroundColor(isHoveringSound ? .black : .gray)
+                            .onHover { hovering in
+                                isHoveringSound = hovering
+                                isHoveringBottomNav = hovering
+                                if hovering {
+                                    NSCursor.pointingHand.push()
+                                } else {
+                                    NSCursor.pop()
+                                }
+                            }
+                            
+                            Text("•")
+                                .foregroundColor(.gray)
+                            
+                            Button(action: {
                                 createNewEntry()
                             }) {
                                 Text("New Entry")
@@ -874,6 +945,9 @@ struct ContentView: View {
         .onAppear {
             showingSidebar = false  // Hide sidebar by default
             loadExistingEntries()
+            
+            // Sync sound state with sound manager
+            soundEnabled = SoundManager.shared.soundEnabled
         }
         .onChange(of: text) { _ in
             // Save current entry when text changes
@@ -899,6 +973,9 @@ struct ContentView: View {
         }
         .onReceive(NotificationCenter.default.publisher(for: NSWindow.willExitFullScreenNotification)) { _ in
             isFullscreen = false
+        }
+        .onChange(of: soundEnabled) { newValue in
+            SoundManager.shared.soundEnabled = newValue
         }
     }
     
