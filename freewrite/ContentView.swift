@@ -14,6 +14,7 @@ struct HumanEntry: Identifiable {
     let date: String
     let filename: String
     var previewText: String
+    var tags: [String]
     
     static func createNew() -> HumanEntry {
         let id = UUID()
@@ -30,7 +31,8 @@ struct HumanEntry: Identifiable {
             id: id,
             date: displayDate,
             filename: "[\(id)]-[\(dateString)].md",
-            previewText: ""
+            previewText: "",
+            tags: []
         )
     }
 }
@@ -39,6 +41,46 @@ struct HeartEmoji: Identifiable {
     let id = UUID()
     var position: CGPoint
     var offset: CGFloat = 0
+}
+
+struct TagView: View {
+    let tag: String
+    let isSelected: Bool
+    let onDelete: () -> Void
+    @State private var isHovering: Bool = false
+    
+    var body: some View {
+        HStack(spacing: 4) {
+            Text(tag)
+                .font(.system(size: 12))
+                .padding(.leading, 6)
+                .padding(.trailing, isHovering ? 2 : 6)
+                .padding(.vertical, 2)
+            
+            if isHovering {
+                Button(action: onDelete) {
+                    Image(systemName: "xmark")
+                        .font(.system(size: 8))
+                        .foregroundColor(.secondary)
+                        .frame(width: 14, height: 14)
+                        .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .padding(.trailing, 4)
+                .padding(.vertical, 2)
+                .transition(.opacity)
+            }
+        }
+        .background(
+            RoundedRectangle(cornerRadius: 4)
+                .fill(isSelected ? Color.gray.opacity(0.2) : (isHovering ? Color.gray.opacity(0.15) : Color.gray.opacity(0.1)))
+        )
+        .animation(.easeInOut(duration: 0.15), value: isHovering)
+        .foregroundColor(isHovering ? .primary : .secondary)
+        .onHover { hovering in
+            isHovering = hovering
+        }
+    }
 }
 
 struct ContentView: View {
@@ -79,8 +121,16 @@ struct ContentView: View {
     @State private var isHoveringHistoryText = false
     @State private var isHoveringHistoryPath = false
     @State private var isHoveringHistoryArrow = false
+    @State private var newTagText: String = ""
+    @State private var isAddingTag: Bool = false
+    @State private var selectedTags: Set<String> = []
+    @State private var showTagControls: Bool = false
+    @State private var availableTags: Set<String> = []
+    @State private var isHoveringTagButton: Bool = false
+
     @State private var entryToDelete: HumanEntry? = nil
     @State private var showingDeleteConfirmation = false
+
     let timer = Timer.publish(every: 1, on: .main, in: .common).autoconnect()
     let entryHeight: CGFloat = 40
     
@@ -97,6 +147,15 @@ struct ContentView: View {
         "\n\nStart with one sentence",
         "\n\nJust say it"
     ]
+    
+    // Metadata structure for entries
+    struct EntryMetadata: Codable {
+        var tags: [String]
+        
+        static func defaultMetadata() -> EntryMetadata {
+            return EntryMetadata(tags: [])
+        }
+    }
     
     // Add file manager and save timer
     private let fileManager = FileManager.default
@@ -151,6 +210,41 @@ struct ContentView: View {
         return documentsDirectory
     }
     
+    // Add function to get metadata file URL for an entry
+    private func getMetadataURL(for filename: String) -> URL {
+        return getDocumentsDirectory().appendingPathComponent(filename + ".metadata.json")
+    }
+    
+    // Add function to load metadata for an entry
+    private func loadMetadata(for entry: HumanEntry) -> EntryMetadata {
+        let metadataURL = getMetadataURL(for: entry.filename)
+        
+        do {
+            if fileManager.fileExists(atPath: metadataURL.path) {
+                let data = try Data(contentsOf: metadataURL)
+                let metadata = try JSONDecoder().decode(EntryMetadata.self, from: data)
+                return metadata
+            }
+        } catch {
+            print("Error loading metadata: \(error)")
+        }
+        
+        return EntryMetadata.defaultMetadata()
+    }
+    
+    // Add function to save metadata for an entry
+    private func saveMetadata(for entry: HumanEntry, metadata: EntryMetadata) {
+        let metadataURL = getMetadataURL(for: entry.filename)
+        
+        do {
+            let data = try JSONEncoder().encode(metadata)
+            try data.write(to: metadataURL, options: .atomic)
+            print("Successfully saved metadata for: \(entry.filename)")
+        } catch {
+            print("Error saving metadata: \(error)")
+        }
+    }
+    
     // Add function to save text
     private func saveText() {
         let documentsDirectory = getDocumentsDirectory()
@@ -187,16 +281,19 @@ struct ContentView: View {
         }
     }
     
-    // Add function to load existing entries
+    // Update loadExistingEntries to include tags
     private func loadExistingEntries() {
         let documentsDirectory = getDocumentsDirectory()
         print("Looking for entries in: \(documentsDirectory.path)")
         
         do {
             let fileURLs = try fileManager.contentsOfDirectory(at: documentsDirectory, includingPropertiesForKeys: nil)
-            let mdFiles = fileURLs.filter { $0.pathExtension == "md" }
+            let mdFiles = fileURLs.filter { $0.pathExtension == "md" && !$0.lastPathComponent.hasSuffix(".metadata.json") }
             
             print("Found \(mdFiles.count) .md files")
+            
+            // Collect all available tags
+            var allTags = Set<String>()
             
             // Process each file
             let entriesWithDates = mdFiles.compactMap { fileURL -> (entry: HumanEntry, date: Date, content: String)? in
@@ -233,12 +330,19 @@ struct ContentView: View {
                     dateFormatter.dateFormat = "MMM d"
                     let displayDate = dateFormatter.string(from: fileDate)
                     
+                    // Load metadata and tags
+                    let metadata = loadMetadata(for: HumanEntry(id: uuid, date: displayDate, filename: filename, previewText: "", tags: []))
+                    
+                    // Add tags to available tags
+                    metadata.tags.forEach { allTags.insert($0) }
+                    
                     return (
                         entry: HumanEntry(
                             id: uuid,
                             date: displayDate,
                             filename: filename,
-                            previewText: truncated
+                            previewText: truncated,
+                            tags: metadata.tags
                         ),
                         date: fileDate,
                         content: content  // Store the full content to check for welcome message
@@ -248,6 +352,9 @@ struct ContentView: View {
                     return nil
                 }
             }
+            
+            // Update available tags
+            availableTags = allTags
             
             // Sort and extract entries
             entries = entriesWithDates
@@ -727,6 +834,32 @@ struct ContentView: View {
                                     NSCursor.pop()
                                 }
                             }
+                            
+                            Text("•")
+                                .foregroundColor(.gray)
+                            
+                            // Tags button
+                            Button(action: {
+                                withAnimation(.easeInOut(duration: 0.2)) {
+                                    showingSidebar.toggle()
+                                    if showingSidebar {
+                                        showTagControls = true
+                                    }
+                                }
+                            }) {
+                                Image(systemName: "tag")
+                                    .foregroundColor(isHoveringTagButton ? .black : .gray)
+                            }
+                            .buttonStyle(.plain)
+                            .onHover { hovering in
+                                isHoveringTagButton = hovering
+                                isHoveringBottomNav = hovering
+                                if hovering {
+                                    NSCursor.pointingHand.push()
+                                } else {
+                                    NSCursor.pop()
+                                }
+                            }
                         }
                         .padding(8)
                         .cornerRadius(6)
@@ -788,10 +921,112 @@ struct ContentView: View {
                     
                     Divider()
                     
+                    // Tags filtering section
+                    VStack(alignment: .leading, spacing: 8) {
+                        HStack {
+                            Text("Tags")
+                                .font(.system(size: 13, weight: .medium))
+                            
+                            Spacer()
+                            
+                            Button(action: {
+                                showTagControls.toggle()
+                            }) {
+                                Image(systemName: showTagControls ? "minus" : "plus")
+                                    .font(.system(size: 10))
+                                    .foregroundColor(isHoveringTagButton ? .black : .gray)
+                            }
+                            .buttonStyle(.plain)
+                            .onHover { hovering in
+                                isHoveringTagButton = hovering
+                            }
+                        }
+                        .padding(.horizontal, 16)
+                        .padding(.top, 12)
+                        
+                        // Tag filter buttons - Replace ScrollView with FlowLayout
+                        FlowLayout(spacing: 6) {
+                            ForEach(Array(availableTags).sorted(), id: \.self) { tag in
+                                Button(action: {
+                                    if selectedTags.contains(tag) {
+                                        selectedTags.remove(tag)
+                                    } else {
+                                        selectedTags.insert(tag)
+                                    }
+                                }) {
+                                    Text(tag)
+                                        .font(.system(size: 12))
+                                        .padding(.horizontal, 8)
+                                        .padding(.vertical, 4)
+                                        .background(
+                                            RoundedRectangle(cornerRadius: 4)
+                                                .fill(selectedTags.contains(tag) ? Color.gray.opacity(0.3) : Color.gray.opacity(0.1))
+                                        )
+                                        .foregroundColor(.primary)
+                                }
+                                .buttonStyle(.plain)
+                            }
+                        }
+                        .padding(.horizontal, 16)
+                        .frame(maxWidth: .infinity)
+                        
+                        // Tag controls for current entry
+                        if showTagControls, let currentId = selectedEntryId, let index = entries.firstIndex(where: { $0.id == currentId }) {
+                            VStack(spacing: 6) {
+                                Divider()
+                                    .padding(.vertical, 4)
+                                
+                                // Title for tags section
+                                Text("Tags for this entry")
+                                    .font(.system(size: 12, weight: .medium))
+                                    .frame(maxWidth: .infinity, alignment: .leading)
+                                
+                                // Current entry tags
+                                FlowLayout(spacing: 6) {
+                                    ForEach(entries[index].tags.sorted(), id: \.self) { tag in
+                                        TagView(tag: tag, isSelected: false) {
+                                            removeTagFromCurrentEntry(tag)
+                                        }
+                                    }
+                                }
+                                .frame(maxWidth: .infinity)
+                                
+                                // Add new tag
+                                HStack {
+                                    TextField("New tag", text: $newTagText)
+                                        .textFieldStyle(RoundedBorderTextFieldStyle())
+                                        .font(.system(size: 12))
+                                        .onSubmit {
+                                            if !newTagText.isEmpty {
+                                                addTagToCurrentEntry(newTagText)
+                                                newTagText = ""
+                                            }
+                                        }
+                                    
+                                    Button(action: {
+                                        if !newTagText.isEmpty {
+                                            addTagToCurrentEntry(newTagText)
+                                            newTagText = ""
+                                        }
+                                    }) {
+                                        Image(systemName: "plus")
+                                            .font(.system(size: 10))
+                                    }
+                                    .buttonStyle(.plain)
+                                    .disabled(newTagText.isEmpty)
+                                }
+                            }
+                            .padding(.horizontal, 16)
+                            .padding(.bottom, 8)
+                        }
+                    }
+                    
+                    Divider()
+                    
                     // Entries List
                     ScrollView {
                         LazyVStack(spacing: 0) {
-                            ForEach(entries) { entry in
+                            ForEach(filterEntriesByTags()) { entry in
                                 Button(action: {
                                     if selectedEntryId != entry.id {
                                         // Save current entry before switching
@@ -804,38 +1039,64 @@ struct ContentView: View {
                                         loadEntry(entry: entry)
                                     }
                                 }) {
-                                    HStack {
-                                        VStack(alignment: .leading, spacing: 4) {
-                                            Text(entry.previewText)
-                                                .font(.system(size: 13))
-                                                .lineLimit(1)
-                                                .foregroundColor(.primary)
-                                            Text(entry.date)
-                                                .font(.system(size: 12))
-                                                .foregroundColor(.secondary)
+                                    VStack(alignment: .leading, spacing: 4) {
+                                        HStack {
+                                            VStack(alignment: .leading, spacing: 4) {
+                                                Text(entry.previewText)
+                                                    .font(.system(size: 13))
+                                                    .lineLimit(1)
+                                                    .foregroundColor(.primary)
+                                                Text(entry.date)
+                                                    .font(.system(size: 12))
+                                                    .foregroundColor(.secondary)
+                                            }
+                                            Spacer()
+                                            
+                                            // Trash icon that appears on hover
+                                            if hoveredEntryId == entry.id {
+                                                Button(action: {
+                                                    deleteEntry(entry: entry)
+                                                }) {
+                                                    Image(systemName: "trash")
+                                                        .font(.system(size: 11))
+                                                        .foregroundColor(hoveredTrashId == entry.id ? .red : .gray)
+                                                }
+                                                .buttonStyle(.plain)
+                                                .onHover { hovering in
+                                                    withAnimation(.easeInOut(duration: 0.2)) {
+                                                        hoveredTrashId = hovering ? entry.id : nil
+                                                    }
+                                                    if hovering {
+                                                        NSCursor.pointingHand.push()
+                                                    } else {
+                                                        NSCursor.pop()
+                                                    }
+                                                }
+                                            }
                                         }
-                                        Spacer()
                                         
-                                        // Trash icon that appears on hover
-                                        if hoveredEntryId == entry.id {
-                                            Button(action: {
-                                                deleteEntry(entry: entry)
-                                            }) {
-                                                Image(systemName: "trash")
-                                                    .font(.system(size: 11))
-                                                    .foregroundColor(hoveredTrashId == entry.id ? .red : .gray)
-                                            }
-                                            .buttonStyle(.plain)
-                                            .onHover { hovering in
-                                                withAnimation(.easeInOut(duration: 0.2)) {
-                                                    hoveredTrashId = hovering ? entry.id : nil
+                                        // Tags for the entry
+                                        if !entry.tags.isEmpty {
+                                            FlowLayout(spacing: 4) {
+                                                ForEach(entry.tags.sorted().prefix(3), id: \.self) { tag in
+                                                    Text(tag)
+                                                        .font(.system(size: 10))
+                                                        .padding(.horizontal, 4)
+                                                        .padding(.vertical, 2)
+                                                        .background(
+                                                            RoundedRectangle(cornerRadius: 2)
+                                                                .fill(Color.gray.opacity(0.1))
+                                                        )
+                                                        .foregroundColor(.secondary)
                                                 }
-                                                if hovering {
-                                                    NSCursor.pointingHand.push()
-                                                } else {
-                                                    NSCursor.pop()
+                                                
+                                                if entry.tags.count > 3 {
+                                                    Text("+\(entry.tags.count - 3)")
+                                                        .font(.system(size: 10))
+                                                        .foregroundColor(.secondary)
                                                 }
                                             }
+                                            .frame(maxWidth: .infinity, alignment: .leading)
                                         }
                                     }
                                     .frame(maxWidth: .infinity)
@@ -858,7 +1119,7 @@ struct ContentView: View {
                                 }
                                 .help("Click to select this entry")  // Add tooltip
                                 
-                                if entry.id != entries.last?.id {
+                                if entry.id != filterEntriesByTags().last?.id {
                                     Divider()
                                 }
                             }
@@ -958,6 +1219,13 @@ struct ContentView: View {
         do {
             try text.write(to: fileURL, atomically: true, encoding: .utf8)
             print("Successfully saved entry: \(entry.filename)")
+            
+            // Save metadata
+            if let index = entries.firstIndex(where: { $0.id == entry.id }) {
+                let metadata = EntryMetadata(tags: entries[index].tags)
+                saveMetadata(for: entry, metadata: metadata)
+            }
+            
             updatePreviewText(for: entry)  // Update preview after saving
         } catch {
             print("Error saving entry: \(error)")
@@ -972,6 +1240,14 @@ struct ContentView: View {
             if fileManager.fileExists(atPath: fileURL.path) {
                 text = try String(contentsOf: fileURL, encoding: .utf8)
                 print("Successfully loaded entry: \(entry.filename)")
+                
+                // Load metadata for the entry
+                let metadata = loadMetadata(for: entry)
+                
+                // Update entry tags in the entries array
+                if let index = entries.firstIndex(where: { $0.id == entry.id }) {
+                    entries[index].tags = metadata.tags
+                }
             }
         } catch {
             print("Error loading entry: \(error)")
@@ -1033,13 +1309,28 @@ struct ContentView: View {
         // Delete the file from the filesystem
         let documentsDirectory = getDocumentsDirectory()
         let fileURL = documentsDirectory.appendingPathComponent(entry.filename)
+        let metadataURL = getMetadataURL(for: entry.filename)
         
         do {
             try fileManager.removeItem(at: fileURL)
             print("Successfully deleted file: \(entry.filename)")
             
+            // Delete metadata file if it exists
+            if fileManager.fileExists(atPath: metadataURL.path) {
+                try fileManager.removeItem(at: metadataURL)
+                print("Successfully deleted metadata file for: \(entry.filename)")
+            }
+            
             // Remove the entry from the entries array
             if let index = entries.firstIndex(where: { $0.id == entry.id }) {
+                // Remove tags from available tags if they're not used in other entries
+                for tag in entries[index].tags {
+                    let isTagUsedElsewhere = entries.filter { $0.id != entry.id }.contains { $0.tags.contains(tag) }
+                    if !isTagUsedElsewhere {
+                        availableTags.remove(tag)
+                    }
+                }
+                
                 entries.remove(at: index)
                 
                 // If the deleted entry was selected, select the first entry or create a new one
@@ -1054,6 +1345,49 @@ struct ContentView: View {
             }
         } catch {
             print("Error deleting file: \(error)")
+        }
+    }
+    
+    private func addTagToCurrentEntry(_ tag: String) {
+        guard let currentId = selectedEntryId,
+              let index = entries.firstIndex(where: { $0.id == currentId }),
+              !tag.isEmpty,
+              !entries[index].tags.contains(tag) else {
+            return
+        }
+        
+        // Add tag to entry
+        entries[index].tags.append(tag)
+        
+        // Add to available tags if not present
+        availableTags.insert(tag)
+        
+        // Save metadata
+        let metadata = EntryMetadata(tags: entries[index].tags)
+        saveMetadata(for: entries[index], metadata: metadata)
+    }
+    
+    private func removeTagFromCurrentEntry(_ tag: String) {
+        guard let currentId = selectedEntryId,
+              let index = entries.firstIndex(where: { $0.id == currentId }) else {
+            return
+        }
+        
+        // Remove tag from entry
+        entries[index].tags.removeAll { $0 == tag }
+        
+        // Save metadata
+        let metadata = EntryMetadata(tags: entries[index].tags)
+        saveMetadata(for: entries[index], metadata: metadata)
+    }
+    
+    private func filterEntriesByTags() -> [HumanEntry] {
+        guard !selectedTags.isEmpty else {
+            return entries
+        }
+        
+        return entries.filter { entry in
+            !Set(entry.tags).isDisjoint(with: selectedTags)
         }
     }
 }
@@ -1095,6 +1429,81 @@ extension NSView {
     }
 }
 
+// Add FlowLayout for wrapping tags
+struct FlowLayout: Layout {
+    var spacing: CGFloat
+    var alignment: HorizontalAlignment = .leading
+    
+    func sizeThatFits(
+        proposal: ProposedViewSize,
+        subviews: Subviews,
+        cache: inout Void
+    ) -> CGSize {
+        let maxWidth = proposal.width ?? .infinity
+        let sizes = subviews.map { $0.sizeThatFits(.unspecified) }
+        
+        var rowWidths: [CGFloat] = [0]
+        var rowHeights: [CGFloat] = [0]
+        var currentRow = 0
+        
+        // Calculate rows and their dimensions
+        for size in sizes {
+            if rowWidths[currentRow] + size.width + (rowWidths[currentRow] > 0 ? spacing : 0) <= maxWidth {
+                // Add to current row
+                rowWidths[currentRow] += size.width + (rowWidths[currentRow] > 0 ? spacing : 0)
+                rowHeights[currentRow] = max(rowHeights[currentRow], size.height)
+            } else {
+                // Start new row
+                currentRow += 1
+                rowWidths.append(size.width)
+                rowHeights.append(size.height)
+            }
+        }
+        
+        // Calculate total height with spacing between rows
+        let totalHeight = rowHeights.reduce(0, +) + CGFloat(max(0, rowHeights.count - 1)) * spacing
+        
+        return CGSize(width: maxWidth, height: totalHeight)
+    }
+    
+    func placeSubviews(
+        in bounds: CGRect,
+        proposal: ProposedViewSize,
+        subviews: Subviews,
+        cache: inout Void
+    ) {
+        let sizes = subviews.map { $0.sizeThatFits(.unspecified) }
+        let maxWidth = bounds.width
+        
+        var x = bounds.minX
+        var y = bounds.minY
+        var rowHeight: CGFloat = 0
+        
+        // Place each subview
+        for (index, subview) in subviews.enumerated() {
+            let size = sizes[index]
+            
+            // Check if we need to move to next row
+            if x + size.width > bounds.maxX && x > bounds.minX {
+                y += rowHeight + spacing
+                x = bounds.minX
+                rowHeight = 0
+            }
+            
+            // Place the view
+            subview.place(
+                at: CGPoint(x: x, y: y),
+                proposal: ProposedViewSize(size)
+            )
+            
+            // Update position and row height
+            x += size.width + spacing
+            rowHeight = max(rowHeight, size.height)
+        }
+    }
+}
+
 #Preview {
     ContentView()
 }
+
