@@ -727,13 +727,16 @@ struct ContentView: View {
                                 .opacity(showWordCount ? 1.0 : 0.0)
                             
                             Button(action: {
+                                // Hide word count when creating a new entry
+                                showWordCount = false
                                 createNewEntry()
                             }) {
                                 Text("New Entry")
                                     .font(.system(size: 13))
                             }
                             .buttonStyle(.plain)
-                            .foregroundColor(isHoveringNewEntry ? textHoverColor : textColor)
+                            .foregroundColor(timerIsRunning ? Color.gray.opacity(0.5) : (isHoveringNewEntry ? textHoverColor : textColor))
+                            .disabled(timerIsRunning) // Disable the button while timer is running
                             .onHover { hovering in
                                 isHoveringNewEntry = hovering
                                 isHoveringBottomNav = hovering
@@ -1059,6 +1062,9 @@ struct ContentView: View {
     }
     
     private func createNewEntry() {
+        // Hide word count when creating a new entry
+        showWordCount = false
+        
         let newEntry = HumanEntry.createNew()
         entries.insert(newEntry, at: 0) // Add to the beginning
         selectedEntryId = newEntry.id
