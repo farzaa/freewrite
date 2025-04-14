@@ -53,6 +53,11 @@ struct ContentView: View {
     @State private var timerIsRunning = false
     @State private var isHoveringTimer = false
     @State private var isHoveringFullscreen = false
+    @State private var rageMode = false
+    @State private var isHoveringRageMode = false
+    @State private var rageTimerRunning: Timer? = nil
+    @State private var rageCountdown = 10  // Countdown for Rage Mode
+    @State private var textColor = Color(red: 0.20, green: 0.20, blue: 0.20)  // Default text color
     @State private var hoveredFont: String? = nil
     @State private var isHoveringSize = false
     @State private var fontSize: CGFloat = 18
@@ -324,6 +329,39 @@ struct ContentView: View {
         }
     }
     
+    func monitorTyping() {
+        if rageMode {
+            startRageTimer()
+        }
+    }
+
+    func startRageTimer() {
+        // Cancel any existing timer before starting a new one
+        rageTimerRunning?.invalidate()
+        rageCountdown = 10
+        textColor = Color(red: 0.20, green: 0.20, blue: 0.20) // Reset to default text color
+        
+        rageTimerRunning = Timer.scheduledTimer(withTimeInterval: 1, repeats: true) { _ in
+            updateCountdown()
+        }
+    }
+
+    func updateCountdown() {
+        if rageMode {
+            if rageCountdown > 0 {
+                if rageCountdown == 6 {
+                    textColor = .red
+                }
+                rageCountdown -= 1
+            } else {
+                // Time's up, clear the text hehehe
+                text = ""
+                textColor = Color(red: 0.20, green: 0.20, blue: 0.20)
+                rageTimerRunning?.invalidate()
+            }
+        }
+    }
+    
     var randomButtonTitle: String {
         return currentRandomFont.isEmpty ? "Random" : "Random [\(currentRandomFont)]"
     }
@@ -381,11 +419,12 @@ struct ContentView: View {
                         } else {
                             text = newValue
                         }
+                        monitorTyping()
                     }
                 ))
                     .background(Color.white)
                     .font(.custom(selectedFont, size: fontSize))
-                    .foregroundColor(Color(red: 0.20, green: 0.20, blue: 0.20))
+                    .foregroundColor(textColor)
                     .scrollContentBackground(.hidden)
                     .scrollIndicators(.never)
                     .lineSpacing(lineHeight)
@@ -659,6 +698,27 @@ struct ContentView: View {
                                     .background(Color(NSColor.controlBackgroundColor))
                                     .cornerRadius(8)
                                     .shadow(color: Color.black.opacity(0.1), radius: 4, y: 2)
+                                }
+                            }
+                            
+                            Text("•")
+                                .foregroundColor(.gray)
+                            
+                            Button(rageMode ? "RAGE MODE: \(rageCountdown)" : "Enable Rage Mode") {
+                                rageMode.toggle()
+                                if rageMode {
+                                    startRageTimer() // Start timer immediately if RAGE mode is toggled on
+                                }
+                            }
+                            .buttonStyle(.plain)
+                            .foregroundColor(isHoveringRageMode ? .black : rageMode ?
+                                .red : .gray)
+                            .onHover { hovering in
+                                isHoveringRageMode = hovering
+                                if hovering {
+                                    NSCursor.pointingHand.push()
+                                } else {
+                                    NSCursor.pop()
                                 }
                             }
                             
