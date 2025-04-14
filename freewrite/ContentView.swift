@@ -578,6 +578,12 @@ struct ContentView: View {
                                     // Hide word count when starting a new timer session
                                     if timerIsRunning {
                                         showWordCount = false
+                                        // Ensure bottom nav fades out when starting a new session
+                                        if !isHoveringBottomNav {
+                                            withAnimation(.easeIn(duration: 1.0)) {
+                                                bottomNavOpacity = 0.0
+                                            }
+                                        }
                                     }
                                     lastClickTime = now
                                 }
@@ -978,6 +984,8 @@ struct ContentView: View {
                 // Calculate word and character count when timer ends
                 calculateWordAndCharacterCount()
                 showWordCount = true
+                // Reset timeRemaining for the next session
+                timeRemaining = 900
                 if !isHoveringBottomNav {
                     withAnimation(.easeOut(duration: 1.0)) {
                         bottomNavOpacity = 1.0
