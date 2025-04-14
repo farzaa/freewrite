@@ -819,8 +819,7 @@ struct ContentView: View {
                                         // Trash icon that appears on hover
                                         if hoveredEntryId == entry.id {
                                             Button(action: {
-                                                entryToDelete = entry
-                                                showingDeleteConfirmation = true
+                                                deleteEntry(entry: entry)
                                             }) {
                                                 Image(systemName: "trash")
                                                     .font(.system(size: 11))
@@ -882,9 +881,12 @@ struct ContentView: View {
             Button("Delete", role: .destructive) {
                 if let entry = entryToDelete {
                     performDeleteEntry(entry: entry)
+                    entryToDelete = nil
                 }
             }
-            Button("Cancel", role: .cancel) {}
+            Button("Cancel", role: .cancel) {
+                entryToDelete = nil
+            }
         } message: {
             Text("This action cannot be undone.")
         }
