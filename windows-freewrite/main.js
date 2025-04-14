@@ -32,8 +32,6 @@ function createWindow() {
   
   // Wait until the content is ready, then show window
   mainWindow.once('ready-to-show', () => {
-    // Set fullscreen before showing to prevent flash
-    mainWindow.setFullScreen(true);
     mainWindow.show();
   });
   
