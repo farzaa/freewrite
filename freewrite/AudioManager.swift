@@ -17,22 +17,19 @@ class AudioManager {
     }
     
     private func setupKeyboardSound() {
-        if let soundURL = Bundle.main.url(forResource: "cherry_black", withExtension: "mp3") {
+        if let soundURL = Bundle.main.url(forResource: "crystal_purple", withExtension: "mp3") {
             loadSound(from: soundURL)
         }
     }
     
-    private func loadSound(from url: URL) -> Bool {
+    private func loadSound(from url: URL) -> Void {
         do {
             soundData = try Data(contentsOf: url)
-            return true
-        } catch {
-            return false
-        }
+        } catch {}
     }
     
     private func loadKeyDefinitions() {
-        if let configURL = Bundle.main.url(forResource: "cherry_black_config", withExtension: "json") {
+        if let configURL = Bundle.main.url(forResource: "crystal_purple_config", withExtension: "json") {
             loadConfig(from: configURL)
         }
     }
@@ -51,9 +48,7 @@ class AudioManager {
                     }
                 }
             }
-        } catch {
-            // Silently fail
-        }
+        } catch {}
     }
     
     func toggleSound() {
