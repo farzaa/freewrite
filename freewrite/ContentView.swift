@@ -84,6 +84,8 @@ struct ContentView: View {
     @State private var isHoveringHistoryArrow = false
     @State private var colorScheme: ColorScheme = .light // Add state for color scheme
     @State private var isHoveringThemeToggle = false // Add state for theme toggle hover
+    @State private var toDeleteEntryId: UUID?
+
     let timer = Timer.publish(every: 1, on: .main, in: .common).autoconnect()
     let entryHeight: CGFloat = 40
     
@@ -829,101 +831,112 @@ struct ContentView: View {
                     ScrollView {
                         LazyVStack(spacing: 0) {
                             ForEach(entries) { entry in
-                                Button(action: {
-                                    if selectedEntryId != entry.id {
-                                        // Save current entry before switching
-                                        if let currentId = selectedEntryId,
-                                           let currentEntry = entries.first(where: { $0.id == currentId }) {
-                                            saveEntry(entry: currentEntry)
+                                if toDeleteEntryId == entry.id {
+                                    DeleteConfirmationView(onConfirm: {
+                                        deleteEntry(entry: entry)
+                                        toDeleteEntryId = nil
+                                    }, onCancel: {
+                                        toDeleteEntryId = nil
+                                    })
+                                } else {
+                                    Button(action: {
+                                        if selectedEntryId != entry.id {
+                                            // Save current entry before switching
+                                            if let currentId = selectedEntryId,
+                                               let currentEntry = entries.first(where: { $0.id == currentId }) {
+                                                saveEntry(entry: currentEntry)
+                                            }
+                                            
+                                            selectedEntryId = entry.id
+                                            loadEntry(entry: entry)
                                         }
-                                        
-                                        selectedEntryId = entry.id
-                                        loadEntry(entry: entry)
-                                    }
-                                }) {
-                                    HStack(alignment: .top) {
-                                        VStack(alignment: .leading, spacing: 4) {
-                                            HStack {
-                                                Text(entry.previewText)
-                                                    .font(.system(size: 13))
-                                                    .lineLimit(1)
-                                                    .foregroundColor(.primary)
-                                                
-                                                Spacer()
-                                                
-                                                // Export/Trash icons that appear on hover
-                                                if hoveredEntryId == entry.id {
-                                                    HStack(spacing: 8) {
-                                                        // Export PDF button
-                                                        Button(action: {
-                                                            exportEntryAsPDF(entry: entry)
-                                                        }) {
-                                                            Image(systemName: "arrow.down.circle")
-                                                                .font(.system(size: 11))
-                                                                .foregroundColor(hoveredExportId == entry.id ? 
-                                                                    (colorScheme == .light ? .black : .white) : 
-                                                                    (colorScheme == .light ? .gray : .gray.opacity(0.8)))
-                                                        }
-                                                        .buttonStyle(.plain)
-                                                        .help("Export entry as PDF")
-                                                        .onHover { hovering in
-                                                            withAnimation(.easeInOut(duration: 0.2)) {
-                                                                hoveredExportId = hovering ? entry.id : nil
+                                    }) {
+                                        HStack(alignment: .top) {
+                                            VStack(alignment: .leading, spacing: 4) {
+                                                HStack {
+                                                    Text(entry.previewText)
+                                                        .font(.system(size: 13))
+                                                        .lineLimit(1)
+                                                        .foregroundColor(.primary)
+                                                    
+                                                    Spacer()
+                                                    
+                                                    // Export/Trash icons that appear on hover
+                                                    if hoveredEntryId == entry.id {
+                                                        HStack(spacing: 8) {
+                                                            // Export PDF button
+                                                            Button(action: {
+                                                                exportEntryAsPDF(entry: entry)
+                                                            }) {
+                                                                Image(systemName: "arrow.down.circle")
+                                                                    .font(.system(size: 11))
+                                                                    .foregroundColor(hoveredExportId == entry.id ?
+                                                                                     (colorScheme == .light ? .black : .white) :
+                                                                                        (colorScheme == .light ? .gray : .gray.opacity(0.8)))
                                                             }
-                                                            if hovering {
-                                                                NSCursor.pointingHand.push()
-                                                            } else {
-                                                                NSCursor.pop()
+                                                            .buttonStyle(.plain)
+                                                            .help("Export entry as PDF")
+                                                            .onHover { hovering in
+                                                                withAnimation(.easeInOut(duration: 0.2)) {
+                                                                    hoveredExportId = hovering ? entry.id : nil
+                                                                }
+                                                                if hovering {
+                                                                    NSCursor.pointingHand.push()
+                                                                } else {
+                                                                    NSCursor.pop()
+                                                                }
                                                             }
-                                                        }
-                                                        
-                                                        // Trash icon
-                                                        Button(action: {
-                                                            deleteEntry(entry: entry)
-                                                        }) {
-                                                            Image(systemName: "trash")
-                                                                .font(.system(size: 11))
-                                                                .foregroundColor(hoveredTrashId == entry.id ? .red : .gray)
-                                                        }
-                                                        .buttonStyle(.plain)
-                                                        .onHover { hovering in
-                                                            withAnimation(.easeInOut(duration: 0.2)) {
-                                                                hoveredTrashId = hovering ? entry.id : nil
+                                                            
+                                                            // Trash icon
+                                                            Button(action: {
+                                                                if entry.id != entries.last?.id {
+                                                                    toDeleteEntryId = entry.id
+                                                                }
+                                                            }) {
+                                                                Image(systemName: "trash")
+                                                                    .font(.system(size: 11))
+                                                                    .foregroundColor(hoveredTrashId == entry.id ? .red : .gray)
                                                             }
-                                                            if hovering {
-                                                                NSCursor.pointingHand.push()
-                                                            } else {
-                                                                NSCursor.pop()
+                                                            .buttonStyle(.plain)
+                                                            .onHover { hovering in
+                                                                withAnimation(.easeInOut(duration: 0.2)) {
+                                                                    hoveredTrashId = hovering ? entry.id : nil
+                                                                }
+                                                                if hovering {
+                                                                    NSCursor.pointingHand.push()
+                                                                } else {
+                                                                    NSCursor.pop()
+                                                                }
                                                             }
                                                         }
                                                     }
                                                 }
+                                                
+                                                Text(entry.date)
+                                                    .font(.system(size: 12))
+                                                    .foregroundColor(.secondary)
                                             }
-                                            
-                                            Text(entry.date)
-                                                .font(.system(size: 12))
-                                                .foregroundColor(.secondary)
+                                        }
+                                        .frame(maxWidth: .infinity)
+                                        .padding(.horizontal, 16)
+                                        .padding(.vertical, 8)
+                                        .background(
+                                            RoundedRectangle(cornerRadius: 4)
+                                                .fill(backgroundColor(for: entry))
+                                        )
+                                    }
+                                    .buttonStyle(PlainButtonStyle())
+                                    .contentShape(Rectangle())
+                                    .onHover { hovering in
+                                        withAnimation(.easeInOut(duration: 0.2)) {
+                                            hoveredEntryId = hovering ? entry.id : nil
                                         }
                                     }
-                                    .frame(maxWidth: .infinity)
-                                    .padding(.horizontal, 16)
-                                    .padding(.vertical, 8)
-                                    .background(
-                                        RoundedRectangle(cornerRadius: 4)
-                                            .fill(backgroundColor(for: entry))
-                                    )
-                                }
-                                .buttonStyle(PlainButtonStyle())
-                                .contentShape(Rectangle())
-                                .onHover { hovering in
-                                    withAnimation(.easeInOut(duration: 0.2)) {
-                                        hoveredEntryId = hovering ? entry.id : nil
+                                    .onAppear {
+                                        NSCursor.pop()  // Reset cursor when button appears
                                     }
+                                    .help("Click to select this entry")  // Add tooltip
                                 }
-                                .onAppear {
-                                    NSCursor.pop()  // Reset cursor when button appears
-                                }
-                                .help("Click to select this entry")  // Add tooltip
                                 
                                 if entry.id != entries.last?.id {
                                     Divider()
