@@ -84,6 +84,9 @@ struct ContentView: View {
     @State private var isHoveringHistoryArrow = false
     @State private var colorScheme: ColorScheme = .light // Add state for color scheme
     @State private var isHoveringThemeToggle = false // Add state for theme toggle hover
+    // backspace-limiter
+    @State private var disableBackspace: Bool = true  // Default to enabled
+    @State private var isHoveringBackspaceToggle: Bool = false  // For hover effect
     let timer = Timer.publish(every: 1, on: .main, in: .common).autoconnect()
     let entryHeight: CGFloat = 40
     
@@ -154,6 +157,17 @@ struct ContentView: View {
         // Load saved color scheme preference
         let savedScheme = UserDefaults.standard.string(forKey: "colorScheme") ?? "light"
         _colorScheme = State(initialValue: savedScheme == "dark" ? .dark : .light)
+        // Load backspace limiter preference
+        if UserDefaults.standard.object(forKey: "disableBackspace") == nil {
+            // First launch - set default to true (backspace disabled)
+            _disableBackspace = State(initialValue: true)
+            // Save the default
+            UserDefaults.standard.set(true, forKey: "disableBackspace")
+        } else {
+            // Use saved preference
+            let savedBackspaceDisabled = UserDefaults.standard.bool(forKey: "disableBackspace")
+            _disableBackspace = State(initialValue: savedBackspaceDisabled)
+        }
     }
     
     // Modify getDocumentsDirectory to use cached value
@@ -418,6 +432,21 @@ struct ContentView: View {
                     .onAppear {
                         placeholderText = placeholderOptions.randomElement() ?? "\n\nBegin writing"
                         // Removed findSubview code which was causing errors
+
+                        // Add local monitor for keyDown events backspace-limiter
+                        // NSEvent monitor: safe to install here since ContentView appears once.
+                        // If view lifecycle changes, make sure this doesn't install multiple times.
+                        NSEvent.addLocalMonitorForEvents(matching: .keyDown) { event in
+                            // Check if backspace limiter is enabled and the key is backspace (keyCode 51)
+                            if self.disableBackspace && event.keyCode == 51 {
+                                // Play system beep as feedback
+                                // NSSound.beep()
+                                // Return nil to consume the event and prevent backspace
+                                return nil
+                            }
+                            // Otherwise, pass the event through
+                            return event
+                        }
                     }
                     .overlay(
                         ZStack(alignment: .topLeading) {
@@ -721,7 +750,34 @@ struct ContentView: View {
                             
                             Text("•")
                                 .foregroundColor(.gray)
-                            
+                                
+                            // backspace-limiter
+                            Button(action: {
+                                disableBackspace.toggle()
+                                // Save preference
+                                UserDefaults.standard.set(disableBackspace, forKey: "disableBackspace")
+                            }) {
+                                HStack(spacing: 4) {
+                                    // delete icon filled when backspace allowed
+                                    Image(systemName: disableBackspace ? "delete.left" : "delete.left.fill")
+                                        .font(.system(size: 13))
+                                }
+                            }
+                            .buttonStyle(.plain)
+                            .foregroundColor(isHoveringBackspaceToggle ? textHoverColor : textColor)
+                            .onHover { hovering in
+                                isHoveringBackspaceToggle = hovering
+                                isHoveringBottomNav = hovering
+                                if hovering {
+                                    NSCursor.pointingHand.push()
+                                } else {
+                                    NSCursor.pop()
+                                }
+                            }
+
+                            Text("•")
+                                .foregroundColor(.gray)
+
                             // Theme toggle button
                             Button(action: {
                                 colorScheme = colorScheme == .light ? .dark : .light
