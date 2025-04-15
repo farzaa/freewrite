@@ -8,6 +8,8 @@
 
 import SwiftUI
 import AppKit
+import UniformTypeIdentifiers
+import PDFKit
 
 struct HumanEntry: Identifiable {
     let id: UUID
@@ -72,6 +74,7 @@ struct ContentView: View {
     @State private var chatMenuAnchor: CGPoint = .zero
     @State private var showingSidebar = false  // Add this state variable
     @State private var hoveredTrashId: UUID? = nil
+    @State private var hoveredExportId: UUID? = nil
     @State private var placeholderText: String = ""  // Add this line
     @State private var isHoveringNewEntry = false
     @State private var isHoveringClock = false
@@ -80,7 +83,9 @@ struct ContentView: View {
     @State private var isHoveringHistoryPath = false
     @State private var isHoveringHistoryArrow = false
     @State private var isHoveringSound = false
-    @State private var isSoundEnabled = false  // Changed to false by default
+    @State private var isSoundEnabled = false
+    @State private var colorScheme: ColorScheme = .light // Add state for color scheme
+    @State private var isHoveringThemeToggle = false // Add state for theme toggle hover
     let timer = Timer.publish(every: 1, on: .main, in: .common).autoconnect()
     let entryHeight: CGFloat = 40
     
@@ -145,6 +150,13 @@ struct ContentView: View {
 
     Here's my journal entry:
     """
+    
+    // Initialize with saved theme preference if available
+    init() {
+        // Load saved color scheme preference
+        let savedScheme = UserDefaults.standard.string(forKey: "colorScheme") ?? "light"
+        _colorScheme = State(initialValue: savedScheme == "dark" ? .dark : .light)
+    }
     
     // Modify getDocumentsDirectory to use cached value
     private func getDocumentsDirectory() -> URL {
@@ -340,15 +352,16 @@ struct ContentView: View {
     }
     
     var timerColor: Color {
-        if timerIsRunning && !isHoveringTimer {
-            return .gray
+        if timerIsRunning {
+            return isHoveringTimer ? (colorScheme == .light ? .black : .white) : .gray.opacity(0.8)
+        } else {
+            return isHoveringTimer ? (colorScheme == .light ? .black : .white) : (colorScheme == .light ? .gray : .gray.opacity(0.8))
         }
-        return isHoveringTimer ? .black : .gray
     }
     
     var lineHeight: CGFloat {
         let font = NSFont(name: selectedFont, size: fontSize) ?? .systemFont(ofSize: fontSize)
-        let defaultLineHeight = font.defaultLineHeight()
+        let defaultLineHeight = getLineHeight(font: font)
         return (fontSize * 1.5) - defaultLineHeight
     }
     
@@ -357,21 +370,29 @@ struct ContentView: View {
     }
     
     var placeholderOffset: CGFloat {
-        let font = NSFont(name: selectedFont, size: fontSize) ?? .systemFont(ofSize: fontSize)
-        let defaultLineHeight = font.defaultLineHeight()
-        // Account for two newlines plus a small adjustment for visual alignment
-        // return (defaultLineHeight * 2) + 2
-        return fontSize / 2 
+        // Instead of using calculated line height, use a simple offset
+        return fontSize / 2
+    }
+    
+    // Add a color utility computed property
+    var popoverBackgroundColor: Color {
+        return colorScheme == .light ? Color(NSColor.controlBackgroundColor) : Color(NSColor.darkGray)
+    }
+    
+    var popoverTextColor: Color {
+        return colorScheme == .light ? Color.primary : Color.white
     }
     
     var body: some View {
-        let buttonBackground = Color.white
+        let buttonBackground = colorScheme == .light ? Color.white : Color.black
         let navHeight: CGFloat = 68
+        let textColor = colorScheme == .light ? Color.gray : Color.gray.opacity(0.8)
+        let textHoverColor = colorScheme == .light ? Color.black : Color.white
         
         HStack(spacing: 0) {
             // Main content
             ZStack {
-                Color.white
+                Color(colorScheme == .light ? .white : .black)
                     .ignoresSafeArea()
                 
                 TextEditor(text: Binding(
@@ -397,32 +418,27 @@ struct ContentView: View {
                         }
                     }
                 ))
-                    .background(Color.white)
+                    .background(Color(colorScheme == .light ? .white : .black))
                     .font(.custom(selectedFont, size: fontSize))
-                    .foregroundColor(Color(red: 0.20, green: 0.20, blue: 0.20))
+                    .foregroundColor(colorScheme == .light ? Color(red: 0.20, green: 0.20, blue: 0.20) : Color(red: 0.9, green: 0.9, blue: 0.9))
                     .scrollContentBackground(.hidden)
                     .scrollIndicators(.never)
                     .lineSpacing(lineHeight)
                     .frame(maxWidth: 650)
-                    .id("\(selectedFont)-\(fontSize)")
+                    .id("\(selectedFont)-\(fontSize)-\(colorScheme)")
                     .padding(.bottom, bottomNavOpacity > 0 ? navHeight : 0)
                     .ignoresSafeArea()
-                    .colorScheme(.light)
+                    .colorScheme(colorScheme)
                     .onAppear {
                         placeholderText = placeholderOptions.randomElement() ?? "\n\nBegin writing"
-                        DispatchQueue.main.async {
-                            if let scrollView = NSApp.keyWindow?.contentView?.findSubview(ofType: NSScrollView.self) {
-                                scrollView.hasVerticalScroller = false
-                                scrollView.hasHorizontalScroller = false
-                            }
-                        }
+                        // Removed findSubview code which was causing errors
                     }
                     .overlay(
                         ZStack(alignment: .topLeading) {
                             if text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
                                 Text(placeholderText)
                                     .font(.custom(selectedFont, size: fontSize))
-                                    .foregroundColor(.gray.opacity(0.5))
+                                    .foregroundColor(colorScheme == .light ? .gray.opacity(0.5) : .gray.opacity(0.6))
                                     // .padding(.top, 8)
                                     // .padding(.leading, 8)
                                     .allowsHitTesting(false)
@@ -443,7 +459,7 @@ struct ContentView: View {
                                 }
                             }
                             .buttonStyle(.plain)
-                            .foregroundColor(isHoveringSize ? .black : .gray)
+                            .foregroundColor(isHoveringSize ? textHoverColor : textColor)
                             .onHover { hovering in
                                 isHoveringSize = hovering
                                 isHoveringBottomNav = hovering
@@ -462,7 +478,7 @@ struct ContentView: View {
                                 currentRandomFont = ""
                             }
                             .buttonStyle(.plain)
-                            .foregroundColor(hoveredFont == "Lato" ? .black : .gray)
+                            .foregroundColor(hoveredFont == "Lato" ? textHoverColor : textColor)
                             .onHover { hovering in
                                 hoveredFont = hovering ? "Lato" : nil
                                 isHoveringBottomNav = hovering
@@ -481,7 +497,7 @@ struct ContentView: View {
                                 currentRandomFont = ""
                             }
                             .buttonStyle(.plain)
-                            .foregroundColor(hoveredFont == "Arial" ? .black : .gray)
+                            .foregroundColor(hoveredFont == "Arial" ? textHoverColor : textColor)
                             .onHover { hovering in
                                 hoveredFont = hovering ? "Arial" : nil
                                 isHoveringBottomNav = hovering
@@ -500,7 +516,7 @@ struct ContentView: View {
                                 currentRandomFont = ""
                             }
                             .buttonStyle(.plain)
-                            .foregroundColor(hoveredFont == "System" ? .black : .gray)
+                            .foregroundColor(hoveredFont == "System" ? textHoverColor : textColor)
                             .onHover { hovering in
                                 hoveredFont = hovering ? "System" : nil
                                 isHoveringBottomNav = hovering
@@ -519,7 +535,7 @@ struct ContentView: View {
                                 currentRandomFont = ""
                             }
                             .buttonStyle(.plain)
-                            .foregroundColor(hoveredFont == "Serif" ? .black : .gray)
+                            .foregroundColor(hoveredFont == "Serif" ? textHoverColor : textColor)
                             .onHover { hovering in
                                 hoveredFont = hovering ? "Serif" : nil
                                 isHoveringBottomNav = hovering
@@ -540,7 +556,7 @@ struct ContentView: View {
                                 }
                             }
                             .buttonStyle(.plain)
-                            .foregroundColor(hoveredFont == "Random" ? .black : .gray)
+                            .foregroundColor(hoveredFont == "Random" ? textHoverColor : textColor)
                             .onHover { hovering in
                                 hoveredFont = hovering ? "Random" : nil
                                 isHoveringBottomNav = hovering
@@ -632,7 +648,7 @@ struct ContentView: View {
                                 showingChatMenu = true
                             }
                             .buttonStyle(.plain)
-                            .foregroundColor(isHoveringChat ? .black : .gray)
+                            .foregroundColor(isHoveringChat ? textHoverColor : textColor)
                             .onHover { hovering in
                                 isHoveringChat = hovering
                                 isHoveringBottomNav = hovering
@@ -646,21 +662,21 @@ struct ContentView: View {
                                 if text.trimmingCharacters(in: .whitespacesAndNewlines).hasPrefix("hi. my name is farza.") {
                                     Text("Yo. Sorry, you can't chat with the guide lol. Please write your own entry.")
                                         .font(.system(size: 14))
-                                        .foregroundColor(.primary)
+                                        .foregroundColor(popoverTextColor)
                                         .frame(width: 250)
                                         .padding(.horizontal, 12)
                                         .padding(.vertical, 8)
-                                        .background(Color(NSColor.controlBackgroundColor))
+                                        .background(popoverBackgroundColor)
                                         .cornerRadius(8)
                                         .shadow(color: Color.black.opacity(0.1), radius: 4, y: 2)
                                 } else if text.count < 350 {
                                     Text("Please free write for at minimum 5 minutes first. Then click this. Trust.")
                                         .font(.system(size: 14))
-                                        .foregroundColor(.primary)
+                                        .foregroundColor(popoverTextColor)
                                         .frame(width: 250)
                                         .padding(.horizontal, 12)
                                         .padding(.vertical, 8)
-                                        .background(Color(NSColor.controlBackgroundColor))
+                                        .background(popoverBackgroundColor)
                                         .cornerRadius(8)
                                         .shadow(color: Color.black.opacity(0.1), radius: 4, y: 2)
                                 } else {
@@ -675,7 +691,7 @@ struct ContentView: View {
                                                 .padding(.vertical, 8)
                                         }
                                         .buttonStyle(.plain)
-                                        .foregroundColor(.primary)
+                                        .foregroundColor(popoverTextColor)
                                         
                                         Divider()
                                         
@@ -689,10 +705,10 @@ struct ContentView: View {
                                                 .padding(.vertical, 8)
                                         }
                                         .buttonStyle(.plain)
-                                        .foregroundColor(.primary)
+                                        .foregroundColor(popoverTextColor)
                                     }
                                     .frame(width: 120)
-                                    .background(Color(NSColor.controlBackgroundColor))
+                                    .background(popoverBackgroundColor)
                                     .cornerRadius(8)
                                     .shadow(color: Color.black.opacity(0.1), radius: 4, y: 2)
                                 }
@@ -707,7 +723,7 @@ struct ContentView: View {
                                 }
                             }
                             .buttonStyle(.plain)
-                            .foregroundColor(isHoveringFullscreen ? .black : .gray)
+                            .foregroundColor(isHoveringFullscreen ? textHoverColor : textColor)
                             .onHover { hovering in
                                 isHoveringFullscreen = hovering
                                 isHoveringBottomNav = hovering
@@ -728,7 +744,7 @@ struct ContentView: View {
                                     .font(.system(size: 13))
                             }
                             .buttonStyle(.plain)
-                            .foregroundColor(isHoveringNewEntry ? .black : .gray)
+                            .foregroundColor(isHoveringNewEntry ? textHoverColor : textColor)
                             .onHover { hovering in
                                 isHoveringNewEntry = hovering
                                 isHoveringBottomNav = hovering
@@ -742,6 +758,29 @@ struct ContentView: View {
                             Text("•")
                                 .foregroundColor(.gray)
                             
+                            // Theme toggle button
+                            Button(action: {
+                                colorScheme = colorScheme == .light ? .dark : .light
+                                // Save preference
+                                UserDefaults.standard.set(colorScheme == .light ? "light" : "dark", forKey: "colorScheme")
+                            }) {
+                                Image(systemName: colorScheme == .light ? "moon.fill" : "sun.max.fill")
+                                    .foregroundColor(isHoveringThemeToggle ? textHoverColor : textColor)
+                            }
+                            .buttonStyle(.plain)
+                            .onHover { hovering in
+                                isHoveringThemeToggle = hovering
+                                isHoveringBottomNav = hovering
+                                if hovering {
+                                    NSCursor.pointingHand.push()
+                                } else {
+                                    NSCursor.pop()
+                                }
+                            }
+
+                            Text("•")
+                                .foregroundColor(.gray)
+                            
                             // Version history button
                             Button(action: {
                                 withAnimation(.easeInOut(duration: 0.2)) {
@@ -749,7 +788,7 @@ struct ContentView: View {
                                 }
                             }) {
                                 Image(systemName: "clock.arrow.circlepath")
-                                    .foregroundColor(isHoveringClock ? .black : .gray)
+                                    .foregroundColor(isHoveringClock ? textHoverColor : textColor)
                             }
                             .buttonStyle(.plain)
                             .onHover { hovering in
@@ -769,7 +808,7 @@ struct ContentView: View {
                         }
                     }
                     .padding()
-                    .background(Color.white)
+                    .background(Color(colorScheme == .light ? .white : .black))
                     .opacity(bottomNavOpacity)
                     .onHover { hovering in
                         isHoveringBottomNav = hovering
@@ -800,10 +839,10 @@ struct ContentView: View {
                                 HStack(spacing: 4) {
                                     Text("History")
                                         .font(.system(size: 13))
-                                        .foregroundColor(isHoveringHistory ? .black : .secondary)
+                                        .foregroundColor(isHoveringHistory ? textHoverColor : textColor)
                                     Image(systemName: "arrow.up.right")
                                         .font(.system(size: 10))
-                                        .foregroundColor(isHoveringHistory ? .black : .secondary)
+                                        .foregroundColor(isHoveringHistory ? textHoverColor : textColor)
                                 }
                                 Text(getDocumentsDirectory().path)
                                     .font(.system(size: 10))
@@ -838,38 +877,68 @@ struct ContentView: View {
                                         loadEntry(entry: entry)
                                     }
                                 }) {
-                                    HStack {
+                                    HStack(alignment: .top) {
                                         VStack(alignment: .leading, spacing: 4) {
-                                            Text(entry.previewText)
-                                                .font(.system(size: 13))
-                                                .lineLimit(1)
-                                                .foregroundColor(.primary)
+                                            HStack {
+                                                Text(entry.previewText)
+                                                    .font(.system(size: 13))
+                                                    .lineLimit(1)
+                                                    .foregroundColor(.primary)
+                                                
+                                                Spacer()
+                                                
+                                                // Export/Trash icons that appear on hover
+                                                if hoveredEntryId == entry.id {
+                                                    HStack(spacing: 8) {
+                                                        // Export PDF button
+                                                        Button(action: {
+                                                            exportEntryAsPDF(entry: entry)
+                                                        }) {
+                                                            Image(systemName: "arrow.down.circle")
+                                                                .font(.system(size: 11))
+                                                                .foregroundColor(hoveredExportId == entry.id ? 
+                                                                    (colorScheme == .light ? .black : .white) : 
+                                                                    (colorScheme == .light ? .gray : .gray.opacity(0.8)))
+                                                        }
+                                                        .buttonStyle(.plain)
+                                                        .help("Export entry as PDF")
+                                                        .onHover { hovering in
+                                                            withAnimation(.easeInOut(duration: 0.2)) {
+                                                                hoveredExportId = hovering ? entry.id : nil
+                                                            }
+                                                            if hovering {
+                                                                NSCursor.pointingHand.push()
+                                                            } else {
+                                                                NSCursor.pop()
+                                                            }
+                                                        }
+                                                        
+                                                        // Trash icon
+                                                        Button(action: {
+                                                            deleteEntry(entry: entry)
+                                                        }) {
+                                                            Image(systemName: "trash")
+                                                                .font(.system(size: 11))
+                                                                .foregroundColor(hoveredTrashId == entry.id ? .red : .gray)
+                                                        }
+                                                        .buttonStyle(.plain)
+                                                        .onHover { hovering in
+                                                            withAnimation(.easeInOut(duration: 0.2)) {
+                                                                hoveredTrashId = hovering ? entry.id : nil
+                                                            }
+                                                            if hovering {
+                                                                NSCursor.pointingHand.push()
+                                                            } else {
+                                                                NSCursor.pop()
+                                                            }
+                                                        }
+                                                    }
+                                                }
+                                            }
+                                            
                                             Text(entry.date)
                                                 .font(.system(size: 12))
                                                 .foregroundColor(.secondary)
-                                        }
-                                        Spacer()
-                                        
-                                        // Trash icon that appears on hover
-                                        if hoveredEntryId == entry.id {
-                                            Button(action: {
-                                                deleteEntry(entry: entry)
-                                            }) {
-                                                Image(systemName: "trash")
-                                                    .font(.system(size: 11))
-                                                    .foregroundColor(hoveredTrashId == entry.id ? .red : .gray)
-                                            }
-                                            .buttonStyle(.plain)
-                                            .onHover { hovering in
-                                                withAnimation(.easeInOut(duration: 0.2)) {
-                                                    hoveredTrashId = hovering ? entry.id : nil
-                                                }
-                                                if hovering {
-                                                    NSCursor.pointingHand.push()
-                                                } else {
-                                                    NSCursor.pop()
-                                                }
-                                            }
                                         }
                                     }
                                     .frame(maxWidth: .infinity)
@@ -901,12 +970,12 @@ struct ContentView: View {
                     .scrollIndicators(.never)
                 }
                 .frame(width: 200)
-                .background(Color(NSColor.controlBackgroundColor))
+                .background(Color(colorScheme == .light ? .white : NSColor.black))
             }
         }
         .frame(minWidth: 1100, minHeight: 600)
         .animation(.easeInOut(duration: 0.2), value: showingSidebar)
-        .preferredColorScheme(.light)
+        .preferredColorScheme(colorScheme)
         .onAppear {
             showingSidebar = false  // Hide sidebar by default
             loadExistingEntries()
@@ -1068,6 +1137,176 @@ struct ContentView: View {
             print("Error deleting file: \(error)")
         }
     }
+    
+    // Extract a title from entry content for PDF export
+    private func extractTitleFromContent(_ content: String, date: String) -> String {
+        // Clean up content by removing leading/trailing whitespace and newlines
+        let trimmedContent = content.trimmingCharacters(in: .whitespacesAndNewlines)
+        
+        // If content is empty, just use the date
+        if trimmedContent.isEmpty {
+            return "Entry \(date)"
+        }
+        
+        // Split content into words, ignoring newlines and removing punctuation
+        let words = trimmedContent
+            .replacingOccurrences(of: "\n", with: " ")
+            .components(separatedBy: .whitespaces)
+            .filter { !$0.isEmpty }
+            .map { word in
+                word.trimmingCharacters(in: CharacterSet(charactersIn: ".,!?;:\"'()[]{}<>"))
+                    .lowercased()
+            }
+            .filter { !$0.isEmpty }
+        
+        // If we have at least 4 words, use them
+        if words.count >= 4 {
+            return "\(words[0])-\(words[1])-\(words[2])-\(words[3])"
+        }
+        
+        // If we have fewer than 4 words, use what we have
+        if !words.isEmpty {
+            return words.joined(separator: "-")
+        }
+        
+        // Fallback to date if no words found
+        return "Entry \(date)"
+    }
+    
+    private func exportEntryAsPDF(entry: HumanEntry) {
+        // First make sure the current entry is saved
+        if selectedEntryId == entry.id {
+            saveEntry(entry: entry)
+        }
+        
+        // Get entry content
+        let documentsDirectory = getDocumentsDirectory()
+        let fileURL = documentsDirectory.appendingPathComponent(entry.filename)
+        
+        do {
+            // Read the content of the entry
+            let entryContent = try String(contentsOf: fileURL, encoding: .utf8)
+            
+            // Extract a title from the entry content and add .pdf extension
+            let suggestedFilename = extractTitleFromContent(entryContent, date: entry.date) + ".pdf"
+            
+            // Create save panel
+            let savePanel = NSSavePanel()
+            savePanel.allowedContentTypes = [UTType.pdf]
+            savePanel.nameFieldStringValue = suggestedFilename
+            savePanel.isExtensionHidden = false  // Make sure extension is visible
+            
+            // Show save dialog
+            if savePanel.runModal() == .OK, let url = savePanel.url {
+                // Create PDF data
+                if let pdfData = createPDFFromText(text: entryContent) {
+                    try pdfData.write(to: url)
+                    print("Successfully exported PDF to: \(url.path)")
+                }
+            }
+        } catch {
+            print("Error in PDF export: \(error)")
+        }
+    }
+    
+    private func createPDFFromText(text: String) -> Data? {
+        // Letter size page dimensions
+        let pageWidth: CGFloat = 612.0  // 8.5 x 72
+        let pageHeight: CGFloat = 792.0 // 11 x 72
+        let margin: CGFloat = 72.0      // 1-inch margins
+        
+        // Calculate content area
+        let contentRect = CGRect(
+            x: margin,
+            y: margin,
+            width: pageWidth - (margin * 2),
+            height: pageHeight - (margin * 2)
+        )
+        
+        // Create PDF data container
+        let pdfData = NSMutableData()
+        
+        // Configure text formatting attributes
+        let paragraphStyle = NSMutableParagraphStyle()
+        paragraphStyle.lineSpacing = lineHeight
+        
+        let font = NSFont(name: selectedFont, size: fontSize) ?? .systemFont(ofSize: fontSize)
+        let textAttributes: [NSAttributedString.Key: Any] = [
+            .font: font,
+            .foregroundColor: NSColor(red: 0.20, green: 0.20, blue: 0.20, alpha: 1.0),
+            .paragraphStyle: paragraphStyle
+        ]
+        
+        // Trim the initial newlines before creating the PDF
+        let trimmedText = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        
+        // Create the attributed string with formatting
+        let attributedString = NSAttributedString(string: trimmedText, attributes: textAttributes)
+        
+        // Create a Core Text framesetter for text layout
+        let framesetter = CTFramesetterCreateWithAttributedString(attributedString)
+        
+        // Create a PDF context with the data consumer
+        guard let pdfContext = CGContext(consumer: CGDataConsumer(data: pdfData as CFMutableData)!, mediaBox: nil, nil) else {
+            print("Failed to create PDF context")
+            return nil
+        }
+        
+        // Track position within text
+        var currentRange = CFRange(location: 0, length: 0)
+        var pageIndex = 0
+        
+        // Create a path for the text frame
+        let framePath = CGMutablePath()
+        framePath.addRect(contentRect)
+        
+        // Continue creating pages until all text is processed
+        while currentRange.location < attributedString.length {
+            // Begin a new PDF page
+            pdfContext.beginPage(mediaBox: nil)
+            
+            // Fill the page with white background
+            pdfContext.setFillColor(NSColor.white.cgColor)
+            pdfContext.fill(CGRect(x: 0, y: 0, width: pageWidth, height: pageHeight))
+            
+            // Create a frame for this page's text
+            let frame = CTFramesetterCreateFrame(
+                framesetter, 
+                currentRange, 
+                framePath, 
+                nil
+            )
+            
+            // Draw the text frame
+            CTFrameDraw(frame, pdfContext)
+            
+            // Get the range of text that was actually displayed in this frame
+            let visibleRange = CTFrameGetVisibleStringRange(frame)
+            
+            // Move to the next block of text for the next page
+            currentRange.location += visibleRange.length
+            
+            // Finish the page
+            pdfContext.endPage()
+            pageIndex += 1
+            
+            // Safety check - don't allow infinite loops
+            if pageIndex > 1000 {
+                print("Safety limit reached - stopping PDF generation")
+                break
+            }
+        }
+        
+        // Finalize the PDF document
+        pdfContext.closePDF()
+        
+        return pdfData as Data
+    }
+}
+
+// Helper function to calculate line height
+func getLineHeight(font: NSFont) -> CGFloat {
+    return font.ascender - font.descender + font.leading
 }
 
 // Add helper extension to find NSTextView
@@ -1085,14 +1324,7 @@ extension NSView {
     }
 }
 
-// Helper extension to get default line height
-extension NSFont {
-    func defaultLineHeight() -> CGFloat {
-        return self.ascender - self.descender + self.leading
-    }
-}
-
-// Add helper extension at the bottom of the file
+// Add helper extension for finding subviews of a specific type
 extension NSView {
     func findSubview<T: NSView>(ofType type: T.Type) -> T? {
         if let typedSelf = self as? T {
