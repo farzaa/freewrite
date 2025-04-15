@@ -49,7 +49,7 @@ struct ContentView: View {
     @State private var text: String = ""  // Remove initial welcome text since we'll handle it in createNewEntry
     
     @State private var isFullscreen = false
-    @State private var selectedFont: String = "Lato-Regular"
+    @State private var selectedFont: String = UserDefaults.standard.string(forKey: "selectedFont") ?? "Lato-Regular"
     @State private var currentRandomFont: String = ""
     @State private var timeRemaining: Int = 900  // Changed to 900 seconds (15 minutes)
     @State private var timerIsRunning = false
@@ -57,7 +57,7 @@ struct ContentView: View {
     @State private var isHoveringFullscreen = false
     @State private var hoveredFont: String? = nil
     @State private var isHoveringSize = false
-    @State private var fontSize: CGFloat = 18
+    @State private var fontSize: CGFloat = UserDefaults.standard.float(forKey: "fontSize") > 0 ? CGFloat(UserDefaults.standard.float(forKey: "fontSize")) : 18
     @State private var blinkCount = 0
     @State private var isBlinking = false
     @State private var opacity: Double = 1.0
@@ -445,6 +445,7 @@ struct ContentView: View {
                                 if let currentIndex = fontSizes.firstIndex(of: fontSize) {
                                     let nextIndex = (currentIndex + 1) % fontSizes.count
                                     fontSize = fontSizes[nextIndex]
+                                    UserDefaults.standard.set(Float(fontSize), forKey: "fontSize")
                                 }
                             }
                             .buttonStyle(.plain)
@@ -465,6 +466,7 @@ struct ContentView: View {
                             Button("Lato") {
                                 selectedFont = "Lato-Regular"
                                 currentRandomFont = ""
+                                UserDefaults.standard.set("Lato-Regular", forKey: "selectedFont")
                             }
                             .buttonStyle(.plain)
                             .foregroundColor(hoveredFont == "Lato" ? textHoverColor : textColor)
@@ -484,6 +486,7 @@ struct ContentView: View {
                             Button("Arial") {
                                 selectedFont = "Arial"
                                 currentRandomFont = ""
+                                UserDefaults.standard.set("Arial", forKey: "selectedFont")
                             }
                             .buttonStyle(.plain)
                             .foregroundColor(hoveredFont == "Arial" ? textHoverColor : textColor)
@@ -503,6 +506,7 @@ struct ContentView: View {
                             Button("System") {
                                 selectedFont = ".AppleSystemUIFont"
                                 currentRandomFont = ""
+                                UserDefaults.standard.set(".AppleSystemUIFont", forKey: "selectedFont")
                             }
                             .buttonStyle(.plain)
                             .foregroundColor(hoveredFont == "System" ? textHoverColor : textColor)
@@ -522,6 +526,7 @@ struct ContentView: View {
                             Button("Serif") {
                                 selectedFont = "Times New Roman"
                                 currentRandomFont = ""
+                                UserDefaults.standard.set("Times New Roman", forKey: "selectedFont")
                             }
                             .buttonStyle(.plain)
                             .foregroundColor(hoveredFont == "Serif" ? textHoverColor : textColor)
@@ -542,6 +547,7 @@ struct ContentView: View {
                                 if let randomFont = availableFonts.randomElement() {
                                     selectedFont = randomFont
                                     currentRandomFont = randomFont
+                                    UserDefaults.standard.set(randomFont, forKey: "selectedFont")
                                 }
                             }
                             .buttonStyle(.plain)
