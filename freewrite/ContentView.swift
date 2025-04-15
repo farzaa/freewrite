@@ -85,6 +85,8 @@ struct ContentView: View {
     @State private var showWordCount = false
     @State private var wordCount = 0
     @State private var characterCount = 0
+    @State private var isHoveringSound = false
+    @State private var isSoundEnabled = false
     @State private var colorScheme: ColorScheme = .light // Add state for color scheme
     @State private var isHoveringThemeToggle = false // Add state for theme toggle hover
     let timer = Timer.publish(every: 1, on: .main, in: .common).autoconnect()
@@ -399,6 +401,18 @@ struct ContentView: View {
                 TextEditor(text: Binding(
                     get: { text },
                     set: { newValue in
+                        // Play keyboard sound when text changes
+                        if newValue.count != text.count {
+                            // Get the key that was pressed
+                            if let event = NSApp.currentEvent, event.type == .keyDown {
+                                let keyCode = String(event.keyCode)
+                                AudioManager.shared.playKeyboardSound(forKey: keyCode)
+                            } else {
+                                // Fallback to default sound if we can't determine the key
+                                AudioManager.shared.playKeyboardSound()
+                            }
+                        }
+                        
                         // Ensure the text always starts with two newlines
                         if !newValue.hasPrefix("\n\n") {
                             text = "\n\n" + newValue.trimmingCharacters(in: .newlines)
@@ -572,6 +586,28 @@ struct ContentView: View {
                         
                         // Utility buttons (moved to right)
                         HStack(spacing: 8) {
+                            Button(action: {
+                                AudioManager.shared.toggleSound()
+                                isSoundEnabled.toggle()  // Update state immediately
+                            }) {
+                                Image(systemName: isSoundEnabled ? "speaker.wave.2.fill" : "speaker.slash.fill")
+                                    .frame(width: 20, height: 16)  // Fixed frame size for both icons
+                            }
+                            .buttonStyle(.plain)
+                            .foregroundColor(isHoveringSound ? .black : .gray)
+                            .onHover { hovering in
+                                isHoveringSound = hovering
+                                isHoveringBottomNav = hovering
+                                if hovering {
+                                    NSCursor.pointingHand.push()
+                                } else {
+                                    NSCursor.pop()
+                                }
+                            }
+                            
+                            Text("•")
+                                .foregroundColor(.gray)
+                            
                             Button(timerButtonTitle) {
                                 let now = Date()
                                 if let lastClick = lastClickTime,
