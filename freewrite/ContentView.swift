@@ -455,6 +455,21 @@ struct ContentView: View {
                                     NSCursor.pop()
                                 }
                             }
+                            .onAppear {
+                                NSEvent.addLocalMonitorForEvents(matching: .scrollWheel) { event in
+                                    if isHoveringSize {
+                                        let scrollBuffer = event.deltaY * 0.25
+                                        
+                                        if abs(scrollBuffer) >= 0.1 {
+                                            NSHapticFeedbackManager.defaultPerformer.perform(.generic, performanceTime: .now)
+                                            let direction = -scrollBuffer > 0 ? 2 : -2
+                                            let newSize = fontSize + CGFloat(direction)
+                                            fontSize = min(max(newSize, 12), 32)  // Limit font size between 12 and 32
+                                        }
+                                    }
+                                    return event
+                                }
+                            }
                             
                             Text("•")
                                 .foregroundColor(.gray)
