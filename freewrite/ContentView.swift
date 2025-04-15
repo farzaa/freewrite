@@ -10,6 +10,197 @@ import SwiftUI
 import AppKit
 import UniformTypeIdentifiers
 import PDFKit
+import Combine
+
+// Custom NSViewRepresentable wrapper for TextEditor that enables auto-scrolling
+struct AutoScrollTextEditor: NSViewRepresentable {
+    @Binding var text: String
+    var font: NSFont
+    var lineSpacing: CGFloat
+    var foregroundColor: NSColor
+    var backgroundColor: NSColor
+    
+    // Last scroll position tracking to prevent jumping
+    @State private var lastCursorRect: CGRect = .zero
+    @State private var lastScrollTime: Date? = nil
+    
+    func makeNSView(context: Context) -> NSScrollView {
+        let scrollView = NSTextView.scrollableTextView()
+        let textView = scrollView.documentView as! NSTextView
+        
+        // Configure text view
+        textView.delegate = context.coordinator
+        textView.font = font
+        textView.isRichText = false
+        textView.backgroundColor = backgroundColor
+        textView.textColor = foregroundColor
+        textView.drawsBackground = true
+        textView.isEditable = true
+        textView.isSelectable = true
+        textView.allowsUndo = true
+        textView.textContainerInset = NSSize(width: 5, height: 5)
+        
+        // Set paragraph style with line spacing
+        let paragraphStyle = NSMutableParagraphStyle()
+        paragraphStyle.lineSpacing = lineSpacing
+        textView.defaultParagraphStyle = paragraphStyle
+        
+        // Customize scrollbar appearance
+        scrollView.drawsBackground = false
+        scrollView.hasVerticalScroller = true
+        scrollView.hasHorizontalScroller = false
+        scrollView.autohidesScrollers = false
+        scrollView.scrollerStyle = .overlay
+        
+        // Make scroller more subtle
+        if let verticalScroller = scrollView.verticalScroller {
+            // Reduce width (works with the overlay scroller style)
+            verticalScroller.controlSize = .small
+            
+            // Set semi-transparency
+            verticalScroller.alphaValue = 0.5
+            
+            // Setup tracking area for hover effect
+            let trackingArea = NSTrackingArea(
+                rect: verticalScroller.bounds,
+                options: [.mouseEnteredAndExited, .activeAlways, .inVisibleRect],
+                owner: context.coordinator,
+                userInfo: ["scroller": verticalScroller]
+            )
+            verticalScroller.addTrackingArea(trackingArea)
+        }
+        
+        return scrollView
+    }
+    
+    func updateNSView(_ scrollView: NSScrollView, context: Context) {
+        let textView = scrollView.documentView as! NSTextView
+        
+        // Only update text if it differs to avoid cursor jumping
+        if textView.string != text {
+            let selectedRanges = textView.selectedRanges
+            textView.string = text
+            
+            // Restore selection if possible
+            if let lastSelectedRange = selectedRanges.first as? NSRange,
+               lastSelectedRange.location < textView.string.count {
+                textView.selectedRanges = selectedRanges
+            }
+        }
+        
+        // Update styling
+        textView.font = font
+        textView.textColor = foregroundColor
+        textView.backgroundColor = backgroundColor
+        
+        let paragraphStyle = NSMutableParagraphStyle()
+        paragraphStyle.lineSpacing = lineSpacing
+        textView.defaultParagraphStyle = paragraphStyle
+    }
+    
+    func makeCoordinator() -> Coordinator {
+        Coordinator(self)
+    }
+    
+    class Coordinator: NSObject, NSTextViewDelegate {
+        var parent: AutoScrollTextEditor
+        
+        init(_ parent: AutoScrollTextEditor) {
+            self.parent = parent
+        }
+        
+        func textDidChange(_ notification: Notification) {
+            guard let textView = notification.object as? NSTextView else { return }
+            parent.text = textView.string
+            
+            // Check if we need to auto-scroll
+            handleAutoScroll(textView: textView)
+        }
+        
+        func textViewDidChangeSelection(_ notification: Notification) {
+            guard let textView = notification.object as? NSTextView else { return }
+            
+            // Auto-scroll when selection changes (cursor moves)
+            handleAutoScroll(textView: textView)
+        }
+        
+        // Mouse tracking for scroller hover effects
+        func mouseEntered(with event: NSEvent) {
+            if let trackingArea = event.trackingArea,
+               let scroller = trackingArea.userInfo?["scroller"] as? NSScroller {
+                NSAnimationContext.runAnimationGroup({ context in
+                    context.duration = 0.2
+                    scroller.animator().alphaValue = 0.9
+                })
+            }
+        }
+        
+        func mouseExited(with event: NSEvent) {
+            if let trackingArea = event.trackingArea,
+               let scroller = trackingArea.userInfo?["scroller"] as? NSScroller {
+                NSAnimationContext.runAnimationGroup({ context in
+                    context.duration = 0.2
+                    scroller.animator().alphaValue = 0.5
+                })
+            }
+        }
+        
+        private func handleAutoScroll(textView: NSTextView) {
+            guard let scrollView = textView.enclosingScrollView else { return }
+            
+            // Get current cursor position
+            if let selectedRange = textView.selectedRanges.first as? NSRange,
+               selectedRange.length == 0 {
+                
+                // Debounce rapid scroll events
+                let now = Date()
+                if let lastTime = parent.lastScrollTime, now.timeIntervalSince(lastTime) < 0.1 {
+                    return
+                }
+                parent.lastScrollTime = now
+                
+                // Get cursor rect in text container coordinates
+                let cursorRect = textView.layoutManager?.boundingRect(
+                    forGlyphRange: NSRange(location: selectedRange.location, length: 1),
+                    in: textView.textContainer!
+                ) ?? .zero
+                
+                parent.lastCursorRect = cursorRect
+                
+                // Convert cursor rect to view coordinates
+                // Add the text container inset to get proper view coordinates
+                let cursorRectInView = NSRect(
+                    x: cursorRect.origin.x + textView.textContainerInset.width,
+                    y: cursorRect.origin.y + textView.textContainerInset.height,
+                    width: cursorRect.width,
+                    height: cursorRect.height
+                )
+                
+                // Get visible rect
+                let visibleRect = scrollView.contentView.bounds
+                let visibleHeight = visibleRect.height
+                
+                // Check if cursor is near bottom (80% of visible area)
+                let threshold = visibleHeight * 0.8
+                
+                if cursorRectInView.maxY > visibleRect.origin.y + threshold {
+                    // Calculate the point to scroll to (about half the visible height above cursor)
+                    let scrollPoint = CGPoint(
+                        x: visibleRect.origin.x,
+                        y: max(0, cursorRectInView.maxY - (visibleHeight * 0.5))
+                    )
+                    
+                    // Smooth scroll
+                    NSAnimationContext.runAnimationGroup({ context in
+                        context.duration = 0.2
+                        context.timingFunction = CAMediaTimingFunction(name: .easeOut)
+                        scrollView.contentView.animator().setBoundsOrigin(scrollPoint)
+                    })
+                }
+            }
+        }
+    }
+}
 
 struct HumanEntry: Identifiable {
     let id: UUID
@@ -393,32 +584,34 @@ struct ContentView: View {
                 Color(colorScheme == .light ? .white : .black)
                     .ignoresSafeArea()
                 
-                TextEditor(text: Binding(
-                    get: { text },
-                    set: { newValue in
-                        // Ensure the text always starts with two newlines
-                        if !newValue.hasPrefix("\n\n") {
-                            text = "\n\n" + newValue.trimmingCharacters(in: .newlines)
-                        } else {
-                            text = newValue
+                // Using custom AutoScrollTextEditor which implements auto-scrolling feature
+                AutoScrollTextEditor(
+                    text: Binding(
+                        get: { text },
+                        set: { newValue in
+                            // Ensure the text always starts with two newlines
+                            if !newValue.hasPrefix("\n\n") {
+                                text = "\n\n" + newValue.trimmingCharacters(in: .newlines)
+                            } else {
+                                text = newValue
+                            }
                         }
-                    }
-                ))
-                    .background(Color(colorScheme == .light ? .white : .black))
-                    .font(.custom(selectedFont, size: fontSize))
-                    .foregroundColor(colorScheme == .light ? Color(red: 0.20, green: 0.20, blue: 0.20) : Color(red: 0.9, green: 0.9, blue: 0.9))
-                    .scrollContentBackground(.hidden)
-                    .scrollIndicators(.never)
-                    .lineSpacing(lineHeight)
-                    .frame(maxWidth: 650)
-                    .id("\(selectedFont)-\(fontSize)-\(colorScheme)")
-                    .padding(.bottom, bottomNavOpacity > 0 ? navHeight : 0)
-                    .ignoresSafeArea()
-                    .colorScheme(colorScheme)
-                    .onAppear {
-                        placeholderText = placeholderOptions.randomElement() ?? "\n\nBegin writing"
-                        // Removed findSubview code which was causing errors
-                    }
+                    ),
+                    font: NSFont(name: selectedFont, size: fontSize) ?? .systemFont(ofSize: fontSize),
+                    lineSpacing: lineHeight,
+                    foregroundColor: colorScheme == .light ? 
+                        NSColor(red: 0.20, green: 0.20, blue: 0.20, alpha: 1.0) : 
+                        NSColor(red: 0.9, green: 0.9, blue: 0.9, alpha: 1.0),
+                    backgroundColor: colorScheme == .light ? .white : .black
+                )
+                .frame(maxWidth: 650)
+                .id("\(selectedFont)-\(fontSize)-\(colorScheme)")
+                .padding(.top, isFullscreen ? 60 : 0)  // Add top padding in full-screen mode
+                .padding(.bottom, isFullscreen ? 60 : (bottomNavOpacity > 0 ? navHeight : 0))  // Bottom padding with consideration for the nav bar
+                .ignoresSafeArea()
+                .onAppear {
+                    placeholderText = placeholderOptions.randomElement() ?? "\n\nBegin writing"
+                }
                     .overlay(
                         ZStack(alignment: .topLeading) {
                             if text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
