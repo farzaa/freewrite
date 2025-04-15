@@ -8,6 +8,7 @@
 
 import SwiftUI
 import AppKit
+import AVFoundation
 import UniformTypeIdentifiers
 import PDFKit
 
@@ -49,7 +50,7 @@ struct ContentView: View {
     @State private var text: String = ""  // Remove initial welcome text since we'll handle it in createNewEntry
     
     @State private var isFullscreen = false
-    @State private var selectedFont: String = "Lato-Regular"
+    @State private var selectedFont: String = UserDefaults.standard.string(forKey: "selectedFont") ?? "Lato-Regular"
     @State private var currentRandomFont: String = ""
     @State private var timeRemaining: Int = 900  // Changed to 900 seconds (15 minutes)
     @State private var timerIsRunning = false
@@ -57,7 +58,7 @@ struct ContentView: View {
     @State private var isHoveringFullscreen = false
     @State private var hoveredFont: String? = nil
     @State private var isHoveringSize = false
-    @State private var fontSize: CGFloat = 18
+    @State private var fontSize: CGFloat = UserDefaults.standard.float(forKey: "fontSize") > 0 ? CGFloat(UserDefaults.standard.float(forKey: "fontSize")) : 18
     @State private var blinkCount = 0
     @State private var isBlinking = false
     @State private var opacity: Double = 1.0
@@ -82,6 +83,11 @@ struct ContentView: View {
     @State private var isHoveringHistoryText = false
     @State private var isHoveringHistoryPath = false
     @State private var isHoveringHistoryArrow = false
+    @State private var showWordCount = false
+    @State private var wordCount = 0
+    @State private var characterCount = 0
+    @State private var isHoveringSound = false
+    @State private var isSoundEnabled = false
     @State private var colorScheme: ColorScheme = .light // Add state for color scheme
     @State private var isHoveringThemeToggle = false // Add state for theme toggle hover
     let timer = Timer.publish(every: 1, on: .main, in: .common).autoconnect()
@@ -396,6 +402,18 @@ struct ContentView: View {
                 TextEditor(text: Binding(
                     get: { text },
                     set: { newValue in
+                        // Play keyboard sound when text changes
+                        if newValue.count != text.count {
+                            // Get the key that was pressed
+                            if let event = NSApp.currentEvent, event.type == .keyDown {
+                                let keyCode = String(event.keyCode)
+                                AudioManager.shared.playKeyboardSound(forKey: keyCode)
+                            } else {
+                                // Fallback to default sound if we can't determine the key
+                                AudioManager.shared.playKeyboardSound()
+                            }
+                        }
+                        
                         // Ensure the text always starts with two newlines
                         if !newValue.hasPrefix("\n\n") {
                             text = "\n\n" + newValue.trimmingCharacters(in: .newlines)
@@ -442,6 +460,7 @@ struct ContentView: View {
                                 if let currentIndex = fontSizes.firstIndex(of: fontSize) {
                                     let nextIndex = (currentIndex + 1) % fontSizes.count
                                     fontSize = fontSizes[nextIndex]
+                                    UserDefaults.standard.set(Float(fontSize), forKey: "fontSize")
                                 }
                             }
                             .buttonStyle(.plain)
@@ -462,6 +481,7 @@ struct ContentView: View {
                             Button("Lato") {
                                 selectedFont = "Lato-Regular"
                                 currentRandomFont = ""
+                                UserDefaults.standard.set("Lato-Regular", forKey: "selectedFont")
                             }
                             .buttonStyle(.plain)
                             .foregroundColor(hoveredFont == "Lato" ? textHoverColor : textColor)
@@ -481,6 +501,7 @@ struct ContentView: View {
                             Button("Arial") {
                                 selectedFont = "Arial"
                                 currentRandomFont = ""
+                                UserDefaults.standard.set("Arial", forKey: "selectedFont")
                             }
                             .buttonStyle(.plain)
                             .foregroundColor(hoveredFont == "Arial" ? textHoverColor : textColor)
@@ -500,6 +521,7 @@ struct ContentView: View {
                             Button("System") {
                                 selectedFont = ".AppleSystemUIFont"
                                 currentRandomFont = ""
+                                UserDefaults.standard.set(".AppleSystemUIFont", forKey: "selectedFont")
                             }
                             .buttonStyle(.plain)
                             .foregroundColor(hoveredFont == "System" ? textHoverColor : textColor)
@@ -519,6 +541,7 @@ struct ContentView: View {
                             Button("Serif") {
                                 selectedFont = "Times New Roman"
                                 currentRandomFont = ""
+                                UserDefaults.standard.set("Times New Roman", forKey: "selectedFont")
                             }
                             .buttonStyle(.plain)
                             .foregroundColor(hoveredFont == "Serif" ? textHoverColor : textColor)
@@ -539,6 +562,7 @@ struct ContentView: View {
                                 if let randomFont = availableFonts.randomElement() {
                                     selectedFont = randomFont
                                     currentRandomFont = randomFont
+                                    UserDefaults.standard.set(randomFont, forKey: "selectedFont")
                                 }
                             }
                             .buttonStyle(.plain)
@@ -563,6 +587,28 @@ struct ContentView: View {
                         
                         // Utility buttons (moved to right)
                         HStack(spacing: 8) {
+                            Button(action: {
+                                AudioManager.shared.toggleSound()
+                                isSoundEnabled.toggle()  // Update state immediately
+                            }) {
+                                Image(systemName: isSoundEnabled ? "speaker.wave.2.fill" : "speaker.slash.fill")
+                                    .frame(width: 20, height: 16)  // Fixed frame size for both icons
+                            }
+                            .buttonStyle(.plain)
+                            .foregroundColor(isHoveringSound ? .black : .gray)
+                            .onHover { hovering in
+                                isHoveringSound = hovering
+                                isHoveringBottomNav = hovering
+                                if hovering {
+                                    NSCursor.pointingHand.push()
+                                } else {
+                                    NSCursor.pop()
+                                }
+                            }
+                            
+                            Text("•")
+                                .foregroundColor(.gray)
+                            
                             Button(timerButtonTitle) {
                                 let now = Date()
                                 if let lastClick = lastClickTime,
@@ -572,6 +618,16 @@ struct ContentView: View {
                                     lastClickTime = nil
                                 } else {
                                     timerIsRunning.toggle()
+                                    // Hide word count when starting a new timer session
+                                    if timerIsRunning {
+                                        showWordCount = false
+                                        // Ensure bottom nav fades out when starting a new session
+                                        if !isHoveringBottomNav {
+                                            withAnimation(.easeIn(duration: 1.0)) {
+                                                bottomNavOpacity = 0.0
+                                            }
+                                        }
+                                    }
                                     lastClickTime = now
                                 }
                             }
@@ -701,14 +757,29 @@ struct ContentView: View {
                             Text("•")
                                 .foregroundColor(.gray)
                             
+                            // Word and character count display
+                            if showWordCount {
+                                Text("\(wordCount) words | \(characterCount) chars")
+                                    .font(.system(size: 13))
+                                    .foregroundColor(.gray)
+                                    .padding(.horizontal, 4)
+                            }
+                            
+                            Text("•")
+                                .foregroundColor(.gray)
+                                .opacity(showWordCount ? 1.0 : 0.0)
+                            
                             Button(action: {
+                                // Hide word count when creating a new entry
+                                showWordCount = false
                                 createNewEntry()
                             }) {
                                 Text("New Entry")
                                     .font(.system(size: 13))
                             }
                             .buttonStyle(.plain)
-                            .foregroundColor(isHoveringNewEntry ? textHoverColor : textColor)
+                            .foregroundColor(timerIsRunning ? Color.gray.opacity(0.5) : (isHoveringNewEntry ? textHoverColor : textColor))
+                            .disabled(timerIsRunning) // Disable the button while timer is running
                             .onHover { hovering in
                                 isHoveringNewEntry = hovering
                                 isHoveringBottomNav = hovering
@@ -956,6 +1027,11 @@ struct ContentView: View {
                 timeRemaining -= 1
             } else if timeRemaining == 0 {
                 timerIsRunning = false
+                // Calculate word and character count when timer ends
+                calculateWordAndCharacterCount()
+                showWordCount = true
+                // Reset timeRemaining for the next session
+                timeRemaining = 900
                 if !isHoveringBottomNav {
                     withAnimation(.easeOut(duration: 1.0)) {
                         bottomNavOpacity = 1.0
@@ -1029,6 +1105,9 @@ struct ContentView: View {
     }
     
     private func createNewEntry() {
+        // Hide word count when creating a new entry
+        showWordCount = false
+        
         let newEntry = HumanEntry.createNew()
         entries.insert(newEntry, at: 0) // Add to the beginning
         selectedEntryId = newEntry.id
@@ -1072,6 +1151,18 @@ struct ContentView: View {
            let url = URL(string: "https://claude.ai/new?q=" + encodedText) {
             NSWorkspace.shared.open(url)
         }
+    }
+    
+    // Calculate word and character count from the current text
+    private func calculateWordAndCharacterCount() {
+        let trimmedText = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        
+        // Calculate character count (excluding whitespace)
+        characterCount = trimmedText.count
+        
+        // Calculate word count
+        let components = trimmedText.components(separatedBy: .whitespacesAndNewlines)
+        wordCount = components.filter { !$0.isEmpty }.count
     }
     
     private func deleteEntry(entry: HumanEntry) {
