@@ -19,6 +19,8 @@ class AudioManager {
     private func setupKeyboardSound() {
         if let soundURL = Bundle.main.url(forResource: "crystal_purple", withExtension: "mp3") {
             loadSound(from: soundURL)
+        } else {
+            print("Failed to load crystal_purple.mp3")
         }
     }
     
@@ -31,6 +33,8 @@ class AudioManager {
     private func loadKeyDefinitions() {
         if let configURL = Bundle.main.url(forResource: "crystal_purple_config", withExtension: "json") {
             loadConfig(from: configURL)
+        } else {
+            print("Failed to load crystal_purple_config.json")
         }
     }
     
@@ -47,8 +51,13 @@ class AudioManager {
                         keySoundMap[key] = KeySound(startTime: startTime, duration: duration)
                     }
                 }
+                print("Successfully loaded \(keySoundMap.count) key sounds")
+            } else {
+                print("Failed to parse defines from config")
             }
-        } catch {}
+        } catch {
+            print("Error loading config: \(error)")
+        }
     }
     
     func toggleSound() {
