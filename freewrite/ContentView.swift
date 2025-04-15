@@ -84,7 +84,7 @@ struct ContentView: View {
     @State private var isHoveringHistoryArrow = false
     @State private var colorScheme: ColorScheme = .light // Add state for color scheme
     @State private var isHoveringThemeToggle = false // Add state for theme toggle hover
-    @State private var toDeleteEntryID: UUID?
+    @State private var toDeleteEntryId: UUID?
 
     let timer = Timer.publish(every: 1, on: .main, in: .common).autoconnect()
     let entryHeight: CGFloat = 40
@@ -831,12 +831,12 @@ struct ContentView: View {
                     ScrollView {
                         LazyVStack(spacing: 0) {
                             ForEach(entries) { entry in
-                                if toDeleteEntryID == entry.id {
+                                if toDeleteEntryId == entry.id {
                                     DeleteConfirmationView(onConfirm: {
                                         deleteEntry(entry: entry)
-                                        toDeleteEntryID = nil
+                                        toDeleteEntryId = nil
                                     }, onCancel: {
-                                        toDeleteEntryID = nil
+                                        toDeleteEntryId = nil
                                     })
                                 } else {
                                     Button(action: {
@@ -890,7 +890,7 @@ struct ContentView: View {
                                                             // Trash icon
                                                             Button(action: {
                                                                 if entry.id != entries.last?.id {
-                                                                    toDeleteEntryID = entry.id
+                                                                    toDeleteEntryId = entry.id
                                                                 }
                                                             }) {
                                                                 Image(systemName: "trash")
