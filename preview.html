@@ -1,0 +1,203 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Freewrite Word Count Feature</title>
+    <style>
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, 'Open Sans', 'Helvetica Neue', sans-serif;
+            line-height: 1.6;
+            color: #333;
+            max-width: 800px;
+            margin: 0 auto;
+            padding: 20px;
+        }
+        pre {
+            background-color: #f5f5f5;
+            padding: 15px;
+            border-radius: 5px;
+            overflow-x: auto;
+            font-family: 'Menlo', 'Monaco', 'Courier New', monospace;
+            font-size: 14px;
+        }
+        .highlight {
+            background-color: #ffffd0;
+        }
+        h1, h2, h3 {
+            color: #333;
+        }
+        .feature-demo {
+            border: 1px solid #ddd;
+            border-radius: 8px;
+            padding: 20px;
+            margin: 20px 0;
+            background-color: #f9f9f9;
+        }
+        .timer-section {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            margin-bottom: 20px;
+        }
+        .timer-button {
+            padding: 5px 10px;
+            background-color: #f0f0f0;
+            border-radius: 4px;
+            cursor: pointer;
+        }
+        .separator {
+            color: gray;
+        }
+        .word-count {
+            color: gray;
+            font-size: 13px;
+            padding: 0 4px;
+        }
+        .hidden {
+            display: none;
+        }
+        .text-area {
+            width: 100%;
+            height: 200px;
+            padding: 10px;
+            margin-bottom: 20px;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+            font-family: 'Lato', sans-serif;
+            font-size: 16px;
+        }
+    </style>
+</head>
+<body>
+    <h1>Freewrite Word Count Feature</h1>
+    <p>I've added a word and character count feature to the Freewrite app that appears after the timer session completes. Here's a visual demonstration of how it works:</p>
+
+    <div class="feature-demo">
+        <h3>Interactive Demo</h3>
+        <textarea class="text-area" id="freewrite-area" placeholder="Begin writing..."></textarea>
+        
+        <div class="timer-section">
+            <span class="timer-button" id="timer-button">15:00</span>
+            <span class="separator">•</span>
+            <span class="word-count hidden" id="word-count">0 words | 0 chars</span>
+            <span class="separator hidden" id="second-separator">•</span>
+            <span>New Entry</span>
+        </div>
+        
+        <p><em>Click the timer to start/stop. When the timer ends (set to 5 seconds for this demo), the word count will appear.</em></p>
+    </div>
+
+    <h2>Code Changes</h2>
+    <p>Here are the key code changes I made to implement this feature:</p>
+
+    <h3>1. Added State Variables</h3>
+    <pre>
+@State private var showWordCount = false
+@State private var wordCount = 0
+@State private var characterCount = 0</pre>
+
+    <h3>2. Added Word Count Calculation Function</h3>
+    <pre>
+// Calculate word and character count from the current text
+private func calculateWordAndCharacterCount() {
+    let trimmedText = text.trimmingCharacters(in: .whitespacesAndNewlines)
+    
+    // Calculate character count (excluding whitespace)
+    characterCount = trimmedText.count
+    
+    // Calculate word count
+    let components = trimmedText.components(separatedBy: .whitespacesAndNewlines)
+    wordCount = components.filter { !$0.isEmpty }.count
+}</pre>
+
+    <h3>3. Added UI Elements to Display the Count</h3>
+    <pre>
+// Word and character count display
+if showWordCount {
+    Text("\(wordCount) words | \(characterCount) chars")
+        .font(.system(size: 13))
+        .foregroundColor(.gray)
+        .padding(.horizontal, 4)
+}
+
+Text("•")
+    .foregroundColor(.gray)
+    .opacity(showWordCount ? 1.0 : 0.0)</pre>
+
+    <h3>4. Calculate and Show Count When Timer Ends</h3>
+    <pre>
+} else if timeRemaining == 0 {
+    timerIsRunning = false
+    <span class="highlight">// Calculate word and character count when timer ends
+    calculateWordAndCharacterCount()
+    showWordCount = true</span>
+    if !isHoveringBottomNav {
+        withAnimation(.easeOut(duration: 1.0)) {
+            bottomNavOpacity = 1.0
+        }
+    }
+}</pre>
+
+    <h3>5. Hide Count When Starting a New Timer</h3>
+    <pre>
+} else {
+    timerIsRunning.toggle()
+    <span class="highlight">// Hide word count when starting a new timer session
+    if timerIsRunning {
+        showWordCount = false
+    }</span>
+    lastClickTime = now
+}</pre>
+
+    <script>
+        // Simple demo functionality
+        document.addEventListener('DOMContentLoaded', function() {
+            const timerButton = document.getElementById('timer-button');
+            const wordCountElement = document.getElementById('word-count');
+            const secondSeparator = document.getElementById('second-separator');
+            const textArea = document.getElementById('freewrite-area');
+            
+            let timerRunning = false;
+            let timeRemaining = 5; // 5 seconds for demo purposes
+            let timerInterval;
+            
+            timerButton.addEventListener('click', function() {
+                if (timerRunning) {
+                    // Stop timer
+                    clearInterval(timerInterval);
+                    timerRunning = false;
+                    timerButton.textContent = '15:00';
+                    timeRemaining = 5;
+                } else {
+                    // Start timer
+                    timerRunning = true;
+                    wordCountElement.classList.add('hidden');
+                    secondSeparator.classList.add('hidden');
+                    
+                    timerInterval = setInterval(function() {
+                        timeRemaining--;
+                        timerButton.textContent = `0:0${timeRemaining}`;
+                        
+                        if (timeRemaining <= 0) {
+                            clearInterval(timerInterval);
+                            timerRunning = false;
+                            timerButton.textContent = '15:00';
+                            timeRemaining = 5;
+                            
+                            // Calculate and show word count
+                            const text = textArea.value.trim();
+                            const charCount = text.length;
+                            const wordCount = text ? text.split(/\s+/).filter(word => word.length > 0).length : 0;
+                            
+                            wordCountElement.textContent = `${wordCount} words | ${charCount} chars`;
+                            wordCountElement.classList.remove('hidden');
+                            secondSeparator.classList.remove('hidden');
+                        }
+                    }, 1000);
+                }
+            });
+        });
+    </script>
+</body>
+</html>
