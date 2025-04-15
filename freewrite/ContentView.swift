@@ -8,6 +8,7 @@
 
 import SwiftUI
 import AppKit
+import AVFoundation
 import UniformTypeIdentifiers
 import PDFKit
 

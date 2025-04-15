@@ -1,0 +1,86 @@
+From 1a7b2c88ea43403d9161a1e91ca72ebce85257e0 Mon Sep 17 00:00:00 2001
+From: Kastrah <abdulkhaliqakinwunmi@gmail.com>
+Date: Mon, 14 Apr 2025 17:39:24 +0100
+Subject: [PATCH] Add word and character count feature that displays after
+ timer completion
+
+---
+ freewrite/ContentView.swift | 34 ++++++++++++++++++++++++++++++++++
+ 1 file changed, 34 insertions(+)
+
+diff --git a/freewrite/ContentView.swift b/freewrite/ContentView.swift
+index 319994b..7df787f 100644
+--- a/freewrite/ContentView.swift
++++ b/freewrite/ContentView.swift
+@@ -79,6 +79,9 @@ struct ContentView: View {
+     @State private var isHoveringHistoryText = false
+     @State private var isHoveringHistoryPath = false
+     @State private var isHoveringHistoryArrow = false
++    @State private var showWordCount = false
++    @State private var wordCount = 0
++    @State private var characterCount = 0
+     let timer = Timer.publish(every: 1, on: .main, in: .common).autoconnect()
+     let entryHeight: CGFloat = 40
+     
+@@ -556,6 +559,10 @@ struct ContentView: View {
+                                     lastClickTime = nil
+                                 } else {
+                                     timerIsRunning.toggle()
++                                    // Hide word count when starting a new timer session
++                                    if timerIsRunning {
++                                        showWordCount = false
++                                    }
+                                     lastClickTime = now
+                                 }
+                             }
+@@ -685,6 +692,18 @@ struct ContentView: View {
+                             Text("•")
+                                 .foregroundColor(.gray)
+                             
++                            // Word and character count display
++                            if showWordCount {
++                                Text("\(wordCount) words | \(characterCount) chars")
++                                    .font(.system(size: 13))
++                                    .foregroundColor(.gray)
++                                    .padding(.horizontal, 4)
++                            }
++                            
++                            Text("•")
++                                .foregroundColor(.gray)
++                                .opacity(showWordCount ? 1.0 : 0.0)
++                            
+                             Button(action: {
+                                 createNewEntry()
+                             }) {
+@@ -887,6 +906,9 @@ struct ContentView: View {
+                 timeRemaining -= 1
+             } else if timeRemaining == 0 {
+                 timerIsRunning = false
++                // Calculate word and character count when timer ends
++                calculateWordAndCharacterCount()
++                showWordCount = true
+                 if !isHoveringBottomNav {
+                     withAnimation(.easeOut(duration: 1.0)) {
+                         bottomNavOpacity = 1.0
+@@ -1005,6 +1027,18 @@ struct ContentView: View {
+         }
+     }
+     
++    // Calculate word and character count from the current text
++    private func calculateWordAndCharacterCount() {
++        let trimmedText = text.trimmingCharacters(in: .whitespacesAndNewlines)
++        
++        // Calculate character count (excluding whitespace)
++        characterCount = trimmedText.count
++        
++        // Calculate word count
++        let components = trimmedText.components(separatedBy: .whitespacesAndNewlines)
++        wordCount = components.filter { !$0.isEmpty }.count
++    }
++    
+     private func deleteEntry(entry: HumanEntry) {
+         // Delete the file from the filesystem
+         let documentsDirectory = getDocumentsDirectory()
+-- 
+2.39.5 (Apple Git-154)
+
