@@ -464,7 +464,7 @@ struct ContentView: View {
                                             NSHapticFeedbackManager.defaultPerformer.perform(.generic, performanceTime: .now)
                                             let direction = -scrollBuffer > 0 ? 2 : -2
                                             let newSize = fontSize + CGFloat(direction)
-                                            fontSize = min(max(newSize, 12), 32)  // Limit font size between 12 and 32
+                                            fontSize = min(max(newSize, 16), 26)  // Limit font size between 16 and 26
                                         }
                                     }
                                     return event
