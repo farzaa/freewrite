@@ -860,7 +860,9 @@ struct ContentView: View {
                                                         }) {
                                                             Image(systemName: "arrow.down.circle")
                                                                 .font(.system(size: 11))
-                                                                .foregroundColor(hoveredExportId == entry.id ? .black : .gray)
+                                                                .foregroundColor(hoveredExportId == entry.id ? 
+                                                                    (colorScheme == .light ? .black : .white) : 
+                                                                    (colorScheme == .light ? .gray : .gray.opacity(0.8)))
                                                         }
                                                         .buttonStyle(.plain)
                                                         .help("Export entry as PDF")
