@@ -27,6 +27,47 @@
   font-style: italic;
 }
 
+:root {
+  --bg-color: #ffffff;
+  --text-color: rgb(51, 51, 51);
+  --sidebar-bg: #ffffff;
+  --sidebar-shadow: rgba(0, 0, 0, 0.1);
+  --placeholder-color: rgba(0, 0, 0, 0.3);
+  --entry-hover-bg: rgba(0, 0, 0, 0.05);
+  --entry-selected-bg: rgba(0, 0, 0, 0.1);
+  --entry-preview-color: #666;
+  --separator-color: rgba(0, 0, 0, 0.1);
+  --scrollbar-color: rgba(0, 0, 0, 0.1);
+  --toolbar-bg: #ffffff;
+  --toolbar-border: rgba(0, 0, 0, 0.05);
+  --popup-bg: #ffffff;
+  --popup-border: rgba(0, 0, 0, 0.1);
+  --control-hover: rgba(0, 0, 0, 0.07);
+  --control-text: rgba(0, 0, 0, 0.6);
+  --control-text-hover: rgba(0, 0, 0, 0.9);
+  --control-separator: rgba(0, 0, 0, 0.3);
+}
+
+[data-theme="dark"] {
+  --bg-color: #1e1e1e;
+  --sidebar-bg: #252525;
+  --sidebar-shadow: rgba(0, 0, 0, 0.3);
+  --entry-hover-bg: rgba(255, 255, 255, 0.05);
+  --entry-selected-bg: rgba(255, 255, 255, 0.1);
+  --scrollbar-color: rgba(255, 255, 255, 0.2);
+  --toolbar-bg: #1e1e1e;
+  --toolbar-border: rgba(255, 255, 255, 0.05);
+  --popup-bg: #252525;
+  --popup-border: rgba(255, 255, 255, 0.1);
+  --control-hover: rgba(255, 255, 255, 0.1);
+  --text-color: #ffffff;
+  --placeholder-color: rgba(255, 255, 255, 0.3);
+  --entry-preview-color: rgba(255, 255, 255, 0.6);
+  --control-text: rgba(255, 255, 255, 0.6);
+  --control-text-hover: rgba(255, 255, 255, 0.9);
+  --control-separator: rgba(255, 255, 255, 0.3);
+}
+
 * {
   margin: 0;
   padding: 0;
@@ -37,9 +78,10 @@
 body, html {
   height: 100%;
   font-family: 'Lato-Regular', Arial, sans-serif;
-  background-color: white;
+  background-color: var(--bg-color);
   overflow: hidden;
-  color: rgb(51, 51, 51);
+  color: var(--text-color);
+  transition: background-color 0.3s ease, color 0.3s ease;
 }
 
 .app-container {
@@ -56,10 +98,10 @@ body, html {
   top: 0;
   width: 250px;
   height: 100%;
-  background-color: white;
-  box-shadow: -2px 0 10px rgba(0, 0, 0, 0.1);
+  background-color: var(--sidebar-bg);
+  box-shadow: -2px 0 10px var(--sidebar-shadow);
   z-index: 1000;
-  transition: transform 0.3s ease;
+  transition: transform 0.3s ease, background-color 0.3s ease;
   overflow-y: auto;
 }
 
@@ -100,11 +142,11 @@ body, html {
 }
 
 .entry-item:hover {
-  background-color: rgba(0, 0, 0, 0.05);
+  background-color: var(--entry-hover-bg);
 }
 
 .entry-item.selected {
-  background-color: rgba(0, 0, 0, 0.1);
+  background-color: var(--entry-selected-bg);
 }
 
 .entry-date {
@@ -114,7 +156,7 @@ body, html {
 
 .entry-preview {
   font-size: 12px;
-  color: #666;
+  color: var(--entry-preview-color);
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -146,7 +188,7 @@ body, html {
   flex-direction: column;
   height: 100%;
   position: relative;
-  background-color: white;
+  background-color: var(--bg-color);
   border-radius: 0;
   box-shadow: none;
   overflow: hidden;
@@ -174,13 +216,14 @@ body, html {
   line-height: 1.6;
   background-color: transparent;
   font-family: 'Lato-Regular', Arial, sans-serif;
-  color: rgb(51, 51, 51);
+  color: var(--text-color);
   overflow-y: auto;
-  caret-color: black;
+  caret-color: var(--text-color);
   max-width: 800px;
   margin: 0 auto;
-  scrollbar-width: thin; /* For Firefox */
-  scrollbar-color: rgba(0, 0, 0, 0.1) transparent; /* For Firefox */
+  scrollbar-width: thin;
+  scrollbar-color: var(--scrollbar-color) transparent;
+  transition: color 0.3s ease;
 }
 
 .placeholder {
@@ -189,9 +232,10 @@ body, html {
   top: 50%;
   transform: translate(-50%, -50%);
   pointer-events: none;
-  color: rgba(0, 0, 0, 0.3);
+  color: var(--placeholder-color);
   font-size: 18px;
   font-family: 'Lato-Regular', Arial, sans-serif;
+  transition: color 0.3s ease;
 }
 
 /* Bottom toolbar */
@@ -200,9 +244,9 @@ body, html {
   justify-content: space-between;
   align-items: center;
   padding: 15px 20px;
-  background-color: white;
-  border-top: 1px solid rgba(0, 0, 0, 0.05);
-  color: rgba(0, 0, 0, 0.6);
+  background-color: var(--toolbar-bg);
+  border-top: 1px solid var(--toolbar-border);
+  color: var(--control-text);
   font-size: 13px;
   user-select: none;
 }
@@ -217,23 +261,24 @@ body, html {
   transition: color 0.2s;
   display: flex;
   align-items: center;
+  color: var(--control-text);
 }
 
 .control-item:hover {
-  color: rgba(0, 0, 0, 0.9);
+  color: var(--control-text-hover);
 }
 
 .control-separator {
   margin: 0 5px;
-  color: rgba(0, 0, 0, 0.3);
+  color: var(--control-separator);
 }
 
 /* Popup styles */
 .popup {
   position: absolute;
   display: none;
-  background-color: white;
-  border: 1px solid rgba(0, 0, 0, 0.1);
+  background-color: var(--popup-bg);
+  border: 1px solid var(--popup-border);
   border-radius: 4px;
   box-shadow: 0 2px 10px rgba(0, 0, 0, 0.1);
   z-index: 1000;
@@ -259,10 +304,22 @@ body, html {
   cursor: pointer;
   font-size: 14px;
   transition: background-color 0.2s;
+  color: var(--control-text);
 }
 
 .size-option:hover {
-  background-color: rgba(0, 0, 0, 0.05);
+  background-color: var(--control-hover);
+  color: var(--control-text-hover);
+}
+
+/* Override for dark mode */
+[data-theme="dark"] .size-option {
+  color: rgba(255, 255, 255, 0.9);
+}
+
+[data-theme="dark"] .size-option:hover {
+  background-color: rgba(255, 255, 255, 0.1);
+  color: #ffffff;
 }
 
 /* Fullscreen mode */
@@ -292,8 +349,8 @@ body.timer-complete .editor {
 /* Chat popup styles */
 .chat-popup {
   position: absolute;
-  background-color: white;
-  border: 1px solid rgba(0, 0, 0, 0.1);
+  background-color: var(--popup-bg);
+  border: 1px solid var(--popup-border);
   border-radius: 4px;
   box-shadow: 0 4px 15px rgba(0, 0, 0, 0.15);
   z-index: 1000;
@@ -313,17 +370,17 @@ body.timer-complete .editor {
   cursor: pointer;
   font-size: 14px;
   transition: background-color 0.2s;
-  color: rgba(0, 0, 0, 0.8);
+  color: var(--control-text);
 }
 
 .chat-option:hover {
-  background-color: rgba(0, 0, 0, 0.05);
-  color: rgba(0, 0, 0, 1);
+  background-color: var(--control-hover);
+  color: var(--control-text-hover);
 }
 
 .chat-divider {
   height: 1px;
-  background-color: rgba(0, 0, 0, 0.1);
+  background-color: var(--popup-border);
   margin: 0;
 }
 
@@ -335,8 +392,8 @@ body.timer-complete .editor {
 }
 
 #chat-btn:hover {
-  background-color: rgba(0, 0, 0, 0.07);
-  color: rgba(0, 0, 0, 1);
+  background-color: var(--control-hover);
+  color: var(--control-text-hover);
 }
 
 /* ESC tip styles */
@@ -364,10 +421,8 @@ body.timer-complete .editor {
 }
 
 .editor::-webkit-scrollbar-thumb {
-  background-color: rgba(0, 0, 0, 0.1);
-  border-radius: 3px;
-  opacity: 0;
-  transition: opacity 0.3s ease;
+  background-color: var(--scrollbar-color);
+  border-radius: 4px;
 }
 
 .editor:hover::-webkit-scrollbar-thumb {
@@ -384,10 +439,64 @@ body.timer-complete .editor {
 }
 
 .sidebar::-webkit-scrollbar-thumb {
-  background-color: rgba(0, 0, 0, 0.1);
-  border-radius: 2px;
+  background-color: var(--scrollbar-color);
+  border-radius: 4px;
 }
 
 .sidebar:hover::-webkit-scrollbar-thumb {
   background-color: rgba(0, 0, 0, 0.2);
+}
+
+/* Override timer styles for dark mode */
+[data-theme="dark"] body.timer-running .editor {
+  color: #ffffff;
+}
+
+[data-theme="dark"] body.timer-complete .editor {
+  color: rgba(255, 255, 255, 0.3);
+}
+
+.custom-alert {
+  position: fixed;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  background-color: var(--popup-bg);
+  border: 1px solid var(--popup-border);
+  border-radius: 4px;
+  padding: 20px;
+  box-shadow: 0 4px 15px rgba(0, 0, 0, 0.15);
+  z-index: 2000;
+  text-align: center;
+  min-width: 300px;
+}
+
+.custom-alert-message {
+  margin-bottom: 20px;
+  color: var(--text-color);
+}
+
+.custom-alert-button {
+  background: none;
+  border: 1px solid var(--popup-border);
+  padding: 8px 20px;
+  border-radius: 4px;
+  cursor: pointer;
+  color: var(--text-color);
+  transition: all 0.2s;
+}
+
+.custom-alert-button:hover {
+  background-color: var(--control-hover);
+  color: var(--control-text-hover);
+}
+
+.custom-alert-overlay {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background-color: rgba(0, 0, 0, 0.5);
+  z-index: 1999;
 } 

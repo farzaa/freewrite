@@ -8,9 +8,8 @@ This is a Windows port of the original macOS app, converted to Electron.
 
 ### Quick Install (Pre-built)
 
-1. Download the latest release from the releases page: [Setup](https://drive.google.com/file/d/1sX-2tbzzgBXZzaR8aNIzoxxPNaEvzrQe/view?usp=sharing) - [Portable version](https://drive.google.com/file/d/1ZyPE-ciM2IuoNcw0Oohv7KkUEAi4WF5e/view?usp=sharing)
-
-2. Run
+1. Download the latest release from the releases page
+2. Unzip and Run
 
 ### Building from Source
 
@@ -31,6 +30,18 @@ This is a Windows port of the original macOS app, converted to Electron.
    npm run build
    ```
 5. Find the executable in the `dist` folder
+
+#### Dev Mode
+
+1. Clone this repository
+2. Install dependencies:
+   ```
+   npm install
+   ```
+3. Start the app:
+   ```
+   npm run start
+   ```
 
 ## Usage
 

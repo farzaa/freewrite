@@ -9,6 +9,7 @@ const systemFontButton = document.getElementById('system-font-btn');
 const serifFontButton = document.getElementById('serif-font-btn');
 const randomFontButton = document.getElementById('random-font-btn');
 const timerButton = document.getElementById('timer-btn');
+const themeButton = document.getElementById('theme-btn');
 const fullscreenButton = document.getElementById('fullscreen-btn');
 const newEntryButton = document.getElementById('new-entry-btn');
 const chatButton = document.getElementById('chat-btn');
@@ -17,6 +18,9 @@ const entriesList = document.getElementById('entries-list');
 const fontSizePopup = document.getElementById('font-size-popup');
 const sidebar = document.getElementById('sidebar');
 const closeSidebarButton = document.getElementById('close-sidebar-btn');
+
+// Create audio object for button click sound
+const buttonSound = new Audio('https://pomofocus.io/audios/general/button.wav');
 
 // State variables
 let selectedFont = 'Lato-Regular';
@@ -80,6 +84,7 @@ const fonts = {
 document.addEventListener('DOMContentLoaded', () => {
     loadEntries();
     initializeEventListeners();
+    initializeTheme();
     
     // Set random placeholder
     placeholder.textContent = placeholderOptions[Math.floor(Math.random() * placeholderOptions.length)];
@@ -116,6 +121,10 @@ function initializeEventListeners() {
     
     editor.addEventListener('focus', () => {
         updatePlaceholderVisibility();
+    });
+    
+    editor.addEventListener('blur', () => {
+        saveCurrentEntry(); // Save when editor loses focus
     });
     
     // Font size button
@@ -190,6 +199,17 @@ function initializeEventListeners() {
             ipcRenderer.send('handle-escape');
         }
     });
+    
+    // Theme button
+    themeButton.addEventListener('click', toggleTheme);
+    
+    // Add window unload handler to save before closing
+    window.addEventListener('beforeunload', () => {
+        saveCurrentEntry();
+    });
+    
+    // Save periodically (every 30 seconds)
+    setInterval(saveCurrentEntry, 30000);
 }
 
 // Update placeholder visibility
@@ -245,6 +265,9 @@ function setFontSize(size) {
 
 // Toggle timer
 function toggleTimer() {
+    // Play button sound
+    buttonSound.play().catch(err => console.log('Error playing sound:', err));
+    
     if (timerIsRunning) {
         // Stop timer
         clearInterval(timerInterval);
@@ -369,6 +392,11 @@ function renderEntries() {
 
 // Load an entry into the editor
 function loadEntry(entry) {
+    // Save current entry before loading new one
+    if (selectedEntry && selectedEntry.id !== entry.id) {
+        saveCurrentEntry();
+    }
+    
     selectedEntry = entry;
     
     // Load content
@@ -453,12 +481,15 @@ ipcRenderer.on('welcome-message-loaded', (event, data) => {
 function saveCurrentEntry() {
     if (!selectedEntry) return;
     
+    console.log('Saving entry:', selectedEntry.filename); // Debug log
+    
     // Update preview text
     const content = editor.value;
     const preview = content.replace(/\n/g, ' ').trim();
     const truncated = preview.length > 30 ? preview.substring(0, 30) + '...' : preview;
     
     selectedEntry.previewText = truncated;
+    selectedEntry.content = content; // Cache the content
     
     // Save to file
     ipcRenderer.send('save-entry', {
@@ -479,12 +510,53 @@ function generateUUID() {
     });
 }
 
+// Show custom alert
+function showCustomAlert(message, callback) {
+    const overlay = document.createElement('div');
+    overlay.className = 'custom-alert-overlay';
+    
+    const alertBox = document.createElement('div');
+    alertBox.className = 'custom-alert';
+    
+    alertBox.innerHTML = `
+        <div class="custom-alert-message">${message}</div>
+        <button class="custom-alert-button">OK</button>
+    `;
+    
+    document.body.appendChild(overlay);
+    document.body.appendChild(alertBox);
+    
+    const okButton = alertBox.querySelector('.custom-alert-button');
+    
+    const closeAlert = () => {
+        document.body.removeChild(overlay);
+        document.body.removeChild(alertBox);
+        if (callback) callback();
+    };
+    
+    okButton.addEventListener('click', closeAlert);
+    okButton.focus();
+    
+    // Also close on Enter or Escape
+    alertBox.addEventListener('keydown', (e) => {
+        if (e.key === 'Enter' || e.key === 'Escape') {
+            e.preventDefault();
+            closeAlert();
+        }
+    });
+}
+
 // Toggle chat menu
 function toggleChatMenu() {
+    console.log('Chat menu toggled');
+    
     // Check if popup already exists and remove it if it does
     const existingPopup = document.querySelector('.chat-popup');
     if (existingPopup) {
+        console.log('Removing existing popup');
         document.body.removeChild(existingPopup);
+        console.log('Setting focus to editor after removing popup');
+        editor.focus();
         return; // Exit function to toggle off
     }
     
@@ -493,23 +565,36 @@ function toggleChatMenu() {
     
     if (entryText.startsWith("Hi. My name is Farza.") || 
         entryText.startsWith("hi. my name is farza.")) {
-        alert("Sorry, you can't chat with the guide. Please write your own entry.");
+        showCustomAlert("Sorry, you can't chat with the guide. Please write your own entry.", () => {
+            console.log('Setting focus after Farza alert');
+            editor.focus();
+            // Force cursor to end
+            const len = editor.value.length;
+            editor.setSelectionRange(len, len);
+        });
         return;
     }
     
     if (entryText.length < 350) {
-        alert("Please free write for at minimum 5 minutes first. Then click this. Trust.");
+        showCustomAlert("Please free write for at minimum 5 minutes first. Then click this. Trust.", () => {
+            console.log('Setting focus after length alert');
+            editor.focus();
+            // Force cursor to end
+            const len = editor.value.length;
+            editor.setSelectionRange(len, len);
+        });
         return;
     }
     
     // Create and show popup
     const popup = document.createElement('div');
     popup.className = 'chat-popup';
+    popup.setAttribute('tabindex', '-1'); // Prevent popup from being focusable
     popup.innerHTML = `
         <div class="chat-popup-content">
-            <button id="chatgpt-btn" class="chat-option">ChatGPT</button>
+            <button id="chatgpt-btn" class="chat-option" tabindex="0">ChatGPT</button>
             <div class="chat-divider"></div>
-            <button id="claude-btn" class="chat-option">Claude</button>
+            <button id="claude-btn" class="chat-option" tabindex="0">Claude</button>
         </div>
     `;
     
@@ -519,27 +604,47 @@ function toggleChatMenu() {
     
     // Add to DOM first so we can measure it
     document.body.appendChild(popup);
+    console.log('Popup added to DOM');
     
     // Always position popup above the button
     popup.style.top = `${rect.top - popup.offsetHeight - 10}px`;
     popup.style.left = `${rect.left}px`;
     
     // Add event listeners
-    document.getElementById('chatgpt-btn').addEventListener('click', () => {
+    document.getElementById('chatgpt-btn').addEventListener('click', (e) => {
+        console.log('ChatGPT button clicked');
+        e.preventDefault();
+        e.stopPropagation();
         document.body.removeChild(popup);
+        editor.focus();
         openChatGPT();
     });
     
-    document.getElementById('claude-btn').addEventListener('click', () => {
+    document.getElementById('claude-btn').addEventListener('click', (e) => {
+        console.log('Claude button clicked');
+        e.preventDefault();
+        e.stopPropagation();
         document.body.removeChild(popup);
+        editor.focus();
         openClaude();
     });
     
     // Close when clicking outside
     const closePopup = (e) => {
         if (!popup.contains(e.target) && e.target !== chatButton) {
+            console.log('Closing popup from outside click');
+            e.preventDefault();
+            e.stopPropagation();
             document.body.removeChild(popup);
             document.removeEventListener('click', closePopup);
+            
+            requestAnimationFrame(() => {
+                console.log('Attempting to restore focus after popup close');
+                editor.focus();
+                // Force the cursor to the end
+                const len = editor.value.length;
+                editor.setSelectionRange(len, len);
+            });
         }
     };
     
@@ -547,6 +652,10 @@ function toggleChatMenu() {
     setTimeout(() => {
         document.addEventListener('click', closePopup);
     }, 100);
+    
+    // Ensure editor maintains focus
+    console.log('Setting initial focus to editor');
+    editor.focus();
 }
 
 // Open ChatGPT with the journal entry
@@ -569,4 +678,34 @@ function openClaude() {
     ipcRenderer.send('open-external-url', {
         url: 'https://claude.ai/new?q=' + encodeURIComponent(fullText)
     });
-} 
+}
+
+// Theme functions
+function initializeTheme() {
+    const savedTheme = localStorage.getItem('theme') || 'light';
+    document.documentElement.setAttribute('data-theme', savedTheme);
+    updateThemeButton(savedTheme);
+}
+
+function toggleTheme() {
+    const currentTheme = document.documentElement.getAttribute('data-theme');
+    const newTheme = currentTheme === 'dark' ? 'light' : 'dark';
+    
+    document.documentElement.setAttribute('data-theme', newTheme);
+    localStorage.setItem('theme', newTheme);
+    updateThemeButton(newTheme);
+}
+
+function updateThemeButton(theme) {
+    themeButton.textContent = theme === 'dark' ? 'Light Mode' : 'Dark Mode';
+}
+
+// Also add focus tracking to the editor globally
+editor.addEventListener('focus', () => {
+    console.log('Editor focused (global)');
+});
+
+editor.addEventListener('blur', () => {
+    console.log('Editor lost focus (global)');
+    console.log('Active element:', document.activeElement);
+}); 
