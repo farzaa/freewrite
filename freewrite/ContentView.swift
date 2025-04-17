@@ -1058,7 +1058,7 @@ struct ContentView: View {
         let trimmedText = text.trimmingCharacters(in: .whitespacesAndNewlines)
         let fullText = aiChatPrompt + "\n\n" + trimmedText
         
-        if let encodedText = fullText.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed),
+        if let encodedText = fullText.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed)?.replacingOccurrences(of: "&", with: "%26"),
            let url = URL(string: "https://chat.openai.com/?m=" + encodedText) {
             NSWorkspace.shared.open(url)
         }
@@ -1068,7 +1068,7 @@ struct ContentView: View {
         let trimmedText = text.trimmingCharacters(in: .whitespacesAndNewlines)
         let fullText = claudePrompt + "\n\n" + trimmedText
         
-        if let encodedText = fullText.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed),
+        if let encodedText = fullText.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed)?.replacingOccurrences(of: "&", with: "%26"),
            let url = URL(string: "https://claude.ai/new?q=" + encodedText) {
             NSWorkspace.shared.open(url)
         }
