@@ -11,38 +11,6 @@ import AppKit
 import UniformTypeIdentifiers
 import PDFKit
 
-struct HumanEntry: Identifiable {
-    let id: UUID
-    let date: String
-    let filename: String
-    var previewText: String
-    
-    static func createNew() -> HumanEntry {
-        let id = UUID()
-        let now = Date()
-        let dateFormatter = DateFormatter()
-        dateFormatter.dateFormat = "yyyy-MM-dd-HH-mm-ss"
-        let dateString = dateFormatter.string(from: now)
-        
-        // For display
-        dateFormatter.dateFormat = "MMM d"
-        let displayDate = dateFormatter.string(from: now)
-        
-        return HumanEntry(
-            id: id,
-            date: displayDate,
-            filename: "[\(id)]-[\(dateString)].md",
-            previewText: ""
-        )
-    }
-}
-
-struct HeartEmoji: Identifiable {
-    let id = UUID()
-    var position: CGPoint
-    var offset: CGFloat = 0
-}
-
 struct ContentView: View {
     private let headerString = "\n\n"
     @State private var entries: [HumanEntry] = []
