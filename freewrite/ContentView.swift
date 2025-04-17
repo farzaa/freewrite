@@ -84,6 +84,8 @@ struct ContentView: View {
     @State private var isHoveringHistoryArrow = false
     @State private var colorScheme: ColorScheme = .light // Add state for color scheme
     @State private var isHoveringThemeToggle = false // Add state for theme toggle hover
+    @State private var showTutorial = false  // Add this line
+    @AppStorage("hasSeenTutorial") private var hasSeenTutorial = false  // Add this line
     let timer = Timer.publish(every: 1, on: .main, in: .common).autoconnect()
     let entryHeight: CGFloat = 40
     
@@ -943,6 +945,12 @@ struct ContentView: View {
         .onAppear {
             showingSidebar = false  // Hide sidebar by default
             loadExistingEntries()
+            if !hasSeenTutorial {
+                showTutorial = true
+            }
+        }
+        .sheet(isPresented: $showTutorial) {
+            TutorialView(isPresented: $showTutorial, hasSeenTutorial: $hasSeenTutorial)
         }
         .onChange(of: text) { _ in
             // Save current entry when text changes
@@ -1300,6 +1308,76 @@ extension NSView {
             }
         }
         return nil
+    }
+}
+
+struct TutorialView: View {
+    @Binding var isPresented: Bool
+    @Binding var hasSeenTutorial: Bool
+    
+    var body: some View {
+        VStack(spacing: 20) {
+            Text("Welcome to Freewrite")
+                .font(.title)
+                .fontWeight(.bold)
+            
+            VStack(alignment: .leading, spacing: 15) {
+                TutorialStep(number: 1, text: "Think of a topic to write about (e.g., a breakup, work struggle, new idea)")
+                TutorialStep(number: 2, text: "Click fullscreen for distraction-free writing")
+                TutorialStep(number: 3, text: "Set your timer (scroll to adjust duration)")
+                TutorialStep(number: 4, text: "Start writing! No backspaces allowed - just keep typing")
+            }
+            .padding()
+            
+            Text("Remember:")
+                .font(.headline)
+            
+            VStack(alignment: .leading, spacing: 10) {
+                BulletPoint(text: "No backspaces or spelling corrections")
+                BulletPoint(text: "Short breaks (5-10s) are okay")
+                BulletPoint(text: "Let your mind wander freely")
+                BulletPoint(text: "Trust your thoughts - no judgment!")
+            }
+            .padding()
+            
+            Button("Got it!") {
+                hasSeenTutorial = true
+                isPresented = false
+            }
+            .buttonStyle(.borderedProminent)
+            .padding()
+        }
+        .frame(width: 500)
+        .padding()
+        .background(Color(NSColor.windowBackgroundColor))
+        .cornerRadius(12)
+        .shadow(radius: 10)
+    }
+}
+
+struct TutorialStep: View {
+    let number: Int
+    let text: String
+    
+    var body: some View {
+        HStack(alignment: .top) {
+            Text("\(number).")
+                .fontWeight(.bold)
+                .frame(width: 25, alignment: .leading)
+            Text(text)
+        }
+    }
+}
+
+struct BulletPoint: View {
+    let text: String
+    
+    var body: some View {
+        HStack(alignment: .top) {
+            Text("•")
+                .frame(width: 20, alignment: .leading)
+            Text(text)
+        }
     }
 }
 
