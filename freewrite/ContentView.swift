@@ -82,10 +82,21 @@ struct ContentView: View {
     @State private var isHoveringHistoryText = false
     @State private var isHoveringHistoryPath = false
     @State private var isHoveringHistoryArrow = false
-    @State private var colorScheme: ColorScheme = .light // Add state for color scheme
     @State private var isHoveringThemeToggle = false // Add state for theme toggle hover
     let timer = Timer.publish(every: 1, on: .main, in: .common).autoconnect()
     let entryHeight: CGFloat = 40
+    
+    @AppStorage("colorScheme") private var colorSchemeString: String = "auto"
+    @Environment(\.colorScheme) private var systemColorScheme
+    @State private var showingThemePopover = false
+    @State private var refreshID = UUID()
+    private var currentColorScheme: ColorScheme {
+        switch colorSchemeString {
+        case "light": return .light
+        case "dark": return .dark
+        default: return systemColorScheme
+        }
+    }
     
     let availableFonts = NSFontManager.shared.availableFontFamilies
     let standardFonts = ["Lato-Regular", "Arial", ".AppleSystemUIFont", "Times New Roman"]
@@ -148,13 +159,6 @@ struct ContentView: View {
 
     Here's my journal entry:
     """
-    
-    // Initialize with saved theme preference if available
-    init() {
-        // Load saved color scheme preference
-        let savedScheme = UserDefaults.standard.string(forKey: "colorScheme") ?? "light"
-        _colorScheme = State(initialValue: savedScheme == "dark" ? .dark : .light)
-    }
     
     // Modify getDocumentsDirectory to use cached value
     private func getDocumentsDirectory() -> URL {
@@ -351,9 +355,9 @@ struct ContentView: View {
     
     var timerColor: Color {
         if timerIsRunning {
-            return isHoveringTimer ? (colorScheme == .light ? .black : .white) : .gray.opacity(0.8)
+            return isHoveringTimer ? (currentColorScheme == .light ? .black : .white) : .gray.opacity(0.8)
         } else {
-            return isHoveringTimer ? (colorScheme == .light ? .black : .white) : (colorScheme == .light ? .gray : .gray.opacity(0.8))
+            return isHoveringTimer ? (currentColorScheme == .light ? .black : .white) : (currentColorScheme == .light ? .gray : .gray.opacity(0.8))
         }
     }
     
@@ -372,25 +376,24 @@ struct ContentView: View {
         return fontSize / 2
     }
     
-    // Add a color utility computed property
     var popoverBackgroundColor: Color {
-        return colorScheme == .light ? Color(NSColor.controlBackgroundColor) : Color(NSColor.darkGray)
+        return currentColorScheme == .light ? Color(NSColor.controlBackgroundColor) : Color(NSColor.darkGray)
     }
     
     var popoverTextColor: Color {
-        return colorScheme == .light ? Color.primary : Color.white
+        return currentColorScheme == .light ? Color.primary : Color.white
     }
     
     var body: some View {
-        let buttonBackground = colorScheme == .light ? Color.white : Color.black
+        let buttonBackground = currentColorScheme == .light ? Color.white : Color.black
         let navHeight: CGFloat = 68
-        let textColor = colorScheme == .light ? Color.gray : Color.gray.opacity(0.8)
-        let textHoverColor = colorScheme == .light ? Color.black : Color.white
+        let textColor = currentColorScheme == .light ? Color.gray : Color.gray.opacity(0.8)
+        let textHoverColor = currentColorScheme == .light ? Color.black : Color.white
         
         HStack(spacing: 0) {
             // Main content
             ZStack {
-                Color(colorScheme == .light ? .white : .black)
+                Color(currentColorScheme == .light ? .white : .black)
                     .ignoresSafeArea()
                 
                 TextEditor(text: Binding(
@@ -404,17 +407,16 @@ struct ContentView: View {
                         }
                     }
                 ))
-                    .background(Color(colorScheme == .light ? .white : .black))
                     .font(.custom(selectedFont, size: fontSize))
-                    .foregroundColor(colorScheme == .light ? Color(red: 0.20, green: 0.20, blue: 0.20) : Color(red: 0.9, green: 0.9, blue: 0.9))
+                    .foregroundColor(currentColorScheme == .light ? Color(red: 0.20, green: 0.20, blue: 0.20) : Color(red: 0.9, green: 0.9, blue: 0.9))
                     .scrollContentBackground(.hidden)
                     .scrollIndicators(.never)
                     .lineSpacing(lineHeight)
                     .frame(maxWidth: 650)
-                    .id("\(selectedFont)-\(fontSize)-\(colorScheme)")
+                    .id("\(selectedFont)-\(fontSize)-\(currentColorScheme)")
                     .padding(.bottom, bottomNavOpacity > 0 ? navHeight : 0)
                     .ignoresSafeArea()
-                    .colorScheme(colorScheme)
+                    .colorScheme(currentColorScheme)
                     .onAppear {
                         placeholderText = placeholderOptions.randomElement() ?? "\n\nBegin writing"
                         // Removed findSubview code which was causing errors
@@ -424,7 +426,7 @@ struct ContentView: View {
                             if text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
                                 Text(placeholderText)
                                     .font(.custom(selectedFont, size: fontSize))
-                                    .foregroundColor(colorScheme == .light ? .gray.opacity(0.5) : .gray.opacity(0.6))
+                                    .foregroundColor(currentColorScheme == .light ? .gray.opacity(0.5) : .gray.opacity(0.6))
                                     // .padding(.top, 8)
                                     // .padding(.leading, 8)
                                     .allowsHitTesting(false)
@@ -630,7 +632,6 @@ struct ContentView: View {
                                         .frame(width: 250)
                                         .padding(.horizontal, 12)
                                         .padding(.vertical, 8)
-                                        .background(popoverBackgroundColor)
                                         .cornerRadius(8)
                                         .shadow(color: Color.black.opacity(0.1), radius: 4, y: 2)
                                 } else if text.count < 350 {
@@ -640,7 +641,6 @@ struct ContentView: View {
                                         .frame(width: 250)
                                         .padding(.horizontal, 12)
                                         .padding(.vertical, 8)
-                                        .background(popoverBackgroundColor)
                                         .cornerRadius(8)
                                         .shadow(color: Color.black.opacity(0.1), radius: 4, y: 2)
                                 } else {
@@ -672,7 +672,6 @@ struct ContentView: View {
                                         .foregroundColor(popoverTextColor)
                                     }
                                     .frame(width: 120)
-                                    .background(popoverBackgroundColor)
                                     .cornerRadius(8)
                                     .shadow(color: Color.black.opacity(0.1), radius: 4, y: 2)
                                 }
@@ -724,12 +723,13 @@ struct ContentView: View {
                             
                             // Theme toggle button
                             Button(action: {
-                                colorScheme = colorScheme == .light ? .dark : .light
-                                // Save preference
-                                UserDefaults.standard.set(colorScheme == .light ? "light" : "dark", forKey: "colorScheme")
+                                showingThemePopover = true
                             }) {
-                                Image(systemName: colorScheme == .light ? "moon.fill" : "sun.max.fill")
+                                let theme = AppColorScheme(rawValue: colorSchemeString) ?? .auto
+                                Image(systemName: theme.systemImage)
+                                    .frame(width: 18) // If you remove this, there will be flickering in the width of the bar.
                                     .foregroundColor(isHoveringThemeToggle ? textHoverColor : textColor)
+                                    .animation(.easeInOut(duration: 0.3), value: colorSchemeString)
                             }
                             .buttonStyle(.plain)
                             .onHover { hovering in
@@ -740,6 +740,38 @@ struct ContentView: View {
                                 } else {
                                     NSCursor.pop()
                                 }
+                            }
+                            .popover(isPresented: $showingThemePopover, attachmentAnchor: .point(UnitPoint(x: 0.5, y: 0)), arrowEdge: .top) {
+                                VStack(spacing: 0) {
+                                    ForEach(["light", "dark", "auto"], id: \.self) { themeValue in
+                                        let theme = AppColorScheme(rawValue: themeValue) ?? .auto
+                                        Button(action: {
+                                            withAnimation(.easeInOut(duration: 0.3)) {
+                                                colorSchemeString = themeValue
+                                            }
+                                            showingThemePopover = false
+                                        }) {
+                                            HStack {
+                                                Image(systemName: theme.systemImage)
+                                                    .frame(width: 20)
+                                                Text(theme.displayName)
+                                                    .frame(maxWidth: .infinity, alignment: .leading)
+                                            }
+                                            .padding(.horizontal, 12)
+                                            .padding(.vertical, 8)
+                                            .cornerRadius(4)
+                                        }
+                                        .buttonStyle(.plain)
+                                        .foregroundColor(popoverTextColor)
+                                        
+                                        if themeValue != "auto" {
+                                            Divider()
+                                        }
+                                    }
+                                }
+                                .background(popoverBackgroundColor)
+                                .cornerRadius(8)
+                                .shadow(color: Color.black.opacity(0.1), radius: 4, y: 2)
                             }
 
                             Text("•")
@@ -772,7 +804,6 @@ struct ContentView: View {
                         }
                     }
                     .padding()
-                    .background(Color(colorScheme == .light ? .white : .black))
                     .opacity(bottomNavOpacity)
                     .onHover { hovering in
                         isHoveringBottomNav = hovering
@@ -861,8 +892,8 @@ struct ContentView: View {
                                                             Image(systemName: "arrow.down.circle")
                                                                 .font(.system(size: 11))
                                                                 .foregroundColor(hoveredExportId == entry.id ? 
-                                                                    (colorScheme == .light ? .black : .white) : 
-                                                                    (colorScheme == .light ? .gray : .gray.opacity(0.8)))
+                                                                    (currentColorScheme == .light ? .black : .white) :
+                                                                    (currentColorScheme == .light ? .gray : .gray.opacity(0.8)))
                                                         }
                                                         .buttonStyle(.plain)
                                                         .help("Export entry as PDF")
@@ -934,12 +965,12 @@ struct ContentView: View {
                     .scrollIndicators(.never)
                 }
                 .frame(width: 200)
-                .background(Color(colorScheme == .light ? .white : NSColor.black))
             }
         }
         .frame(minWidth: 1100, minHeight: 600)
         .animation(.easeInOut(duration: 0.2), value: showingSidebar)
-        .preferredColorScheme(colorScheme)
+        .animation(.easeInOut(duration: 0.3), value: currentColorScheme) // MARK : this sets the light/dark mode transition time
+        .preferredColorScheme(currentColorScheme)
         .onAppear {
             showingSidebar = false  // Hide sidebar by default
             loadExistingEntries()
