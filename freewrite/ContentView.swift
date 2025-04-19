@@ -84,6 +84,9 @@ struct ContentView: View {
     @State private var isHoveringHistoryArrow = false
     @State private var colorScheme: ColorScheme = .light // Add state for color scheme
     @State private var isHoveringThemeToggle = false // Add state for theme toggle hover
+    @State private var isTyping = false // Add state to track typing activity
+    @State private var typingTimer: Timer? = nil // Add timer to detect typing pauses
+    @State private var scrollWheelMonitorAdded = false // Track if scroll wheel monitor was added
     let timer = Timer.publish(every: 1, on: .main, in: .common).autoconnect()
     let entryHeight: CGFloat = 40
     
@@ -351,7 +354,7 @@ struct ContentView: View {
     
     var timerColor: Color {
         if timerIsRunning {
-            return isHoveringTimer ? (colorScheme == .light ? .black : .white) : .gray.opacity(0.8)
+            return isHoveringTimer ? (colorScheme == .light ? .black : .white) : .red
         } else {
             return isHoveringTimer ? (colorScheme == .light ? .black : .white) : (colorScheme == .light ? .gray : .gray.opacity(0.8))
         }
@@ -402,6 +405,23 @@ struct ContentView: View {
                         } else {
                             text = newValue
                         }
+                        
+                        // Detect typing and hide navigation
+                        if !isTyping {
+                            isTyping = true
+                            if !isHoveringBottomNav {
+                                withAnimation(.easeIn(duration: 0.3)) {
+                                    bottomNavOpacity = 0.0
+                                }
+                            }
+                        }
+                        
+                        // Reset typing timer
+                        typingTimer?.invalidate()
+                        typingTimer = Timer.scheduledTimer(withTimeInterval: 1.5, repeats: false) { timer in
+                            isTyping = false
+                            timer.invalidate()
+                        }
                     }
                 ))
                     .background(Color(colorScheme == .light ? .white : .black))
@@ -432,6 +452,75 @@ struct ContentView: View {
                             }
                         }, alignment: .topLeading
                     )
+                
+                // Floating timer when toolbar is hidden
+                if timerIsRunning && bottomNavOpacity < 0.5 {
+                    VStack {
+                        Spacer()
+                        HStack {
+                            Spacer()
+                            Button(timerButtonTitle) {
+                                let now = Date()
+                                if let lastClick = lastClickTime,
+                                   now.timeIntervalSince(lastClick) < 0.3 {
+                                    timeRemaining = 900
+                                    timerIsRunning = false
+                                    lastClickTime = nil
+                                } else {
+                                    timerIsRunning.toggle()
+                                    lastClickTime = now
+                                    withAnimation(.easeOut(duration: 0.2)) {
+                                        bottomNavOpacity = 1.0
+                                    }
+                                }
+                            }
+                            .buttonStyle(.plain)
+                            .foregroundColor(timerColor)
+                            .padding(8)
+                            .background(
+                                RoundedRectangle(cornerRadius: 5)
+                                    .fill(Color(colorScheme == .light ? .white : .black).opacity(0.7))
+                                    .shadow(color: Color.black.opacity(0.1), radius: 2, x: 0, y: 1)
+                            )
+                            .onHover { hovering in
+                                isHoveringTimer = hovering
+                                isHoveringBottomNav = hovering
+                                if hovering {
+                                    NSCursor.pointingHand.push()
+                                    withAnimation(.easeOut(duration: 0.2)) {
+                                        bottomNavOpacity = 1.0
+                                    }
+                                } else {
+                                    NSCursor.pop()
+                                }
+                            }
+                            // Use a unique state variable to ensure the event monitor is only added once
+                            .onAppear {
+                                if !scrollWheelMonitorAdded {
+                                    scrollWheelMonitorAdded = true
+                                    NSEvent.addLocalMonitorForEvents(matching: .scrollWheel) { event in
+                                        if isHoveringTimer {
+                                            let scrollBuffer = event.deltaY * 0.25
+                                            
+                                            if abs(scrollBuffer) >= 0.1 {
+                                                let currentMinutes = timeRemaining / 60
+                                                NSHapticFeedbackManager.defaultPerformer.perform(.generic, performanceTime: .now)
+                                                let direction = -scrollBuffer > 0 ? 5 : -5
+                                                let newMinutes = currentMinutes + direction
+                                                let roundedMinutes = (newMinutes / 5) * 5
+                                                let newTime = roundedMinutes * 60
+                                                timeRemaining = min(max(newTime, 0), 2700)
+                                            }
+                                        }
+                                        return event
+                                    }
+                                }
+                            }
+                        }
+                        .padding(.trailing, 16)
+                        .padding(.bottom, 12)
+                    }
+                }
                 
                 VStack {
                     Spacer()
@@ -584,24 +673,6 @@ struct ContentView: View {
                                     NSCursor.pointingHand.push()
                                 } else {
                                     NSCursor.pop()
-                                }
-                            }
-                            .onAppear {
-                                NSEvent.addLocalMonitorForEvents(matching: .scrollWheel) { event in
-                                    if isHoveringTimer {
-                                        let scrollBuffer = event.deltaY * 0.25
-                                        
-                                        if abs(scrollBuffer) >= 0.1 {
-                                            let currentMinutes = timeRemaining / 60
-                                            NSHapticFeedbackManager.defaultPerformer.perform(.generic, performanceTime: .now)
-                                            let direction = -scrollBuffer > 0 ? 5 : -5
-                                            let newMinutes = currentMinutes + direction
-                                            let roundedMinutes = (newMinutes / 5) * 5
-                                            let newTime = roundedMinutes * 60
-                                            timeRemaining = min(max(newTime, 0), 2700)
-                                        }
-                                    }
-                                    return event
                                 }
                             }
                             
@@ -769,6 +840,16 @@ struct ContentView: View {
                         .cornerRadius(6)
                         .onHover { hovering in
                             isHoveringBottomNav = hovering
+                            if hovering {
+                                withAnimation(.easeOut(duration: 0.2)) {
+                                    bottomNavOpacity = 1.0
+                                }
+                            } else if timerIsRunning || isTyping {
+                                withAnimation(.easeIn(duration: 1.0)) {
+                                    bottomNavOpacity = 0.0
+                                }
+                                NSCursor.pop() // Restore default cursor when nav disappears
+                            }
                         }
                     }
                     .padding()
@@ -780,10 +861,11 @@ struct ContentView: View {
                             withAnimation(.easeOut(duration: 0.2)) {
                                 bottomNavOpacity = 1.0
                             }
-                        } else if timerIsRunning {
+                        } else if timerIsRunning || isTyping {
                             withAnimation(.easeIn(duration: 1.0)) {
                                 bottomNavOpacity = 0.0
                             }
+                            NSCursor.pop() // Restore default cursor when nav disappears
                         }
                     }
                 }
@@ -956,6 +1038,7 @@ struct ContentView: View {
                 timeRemaining -= 1
             } else if timeRemaining == 0 {
                 timerIsRunning = false
+                isTyping = false // Reset typing state when timer ends
                 if !isHoveringBottomNav {
                     withAnimation(.easeOut(duration: 1.0)) {
                         bottomNavOpacity = 1.0
@@ -968,6 +1051,11 @@ struct ContentView: View {
         }
         .onReceive(NotificationCenter.default.publisher(for: NSWindow.willExitFullScreenNotification)) { _ in
             isFullscreen = false
+        }
+        .onDisappear {
+            // Clean up timers when view disappears
+            typingTimer?.invalidate()
+            typingTimer = nil
         }
     }
     
