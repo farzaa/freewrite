@@ -11,6 +11,8 @@ import SwiftUI
 struct freewriteApp: App {
     @NSApplicationDelegateAdaptor(AppDelegate.self) var appDelegate
     @AppStorage("colorScheme") private var colorSchemeString: String = "light"
+    @StateObject private var settings = AppSettings()
+    @StateObject private var viewModel: FreewriteViewModel = FreewriteViewModel()
     
     init() {
         // Register Lato font
@@ -21,9 +23,10 @@ struct freewriteApp: App {
      
     var body: some Scene {
         WindowGroup {
-            ContentView()
+            ContentView(viewModel: viewModel)
                 .toolbar(.hidden, for: .windowToolbar)
                 .preferredColorScheme(colorSchemeString == "dark" ? .dark : .light)
+                .environmentObject(settings)
         }
         .windowStyle(.hiddenTitleBar)
         .defaultSize(width: 1100, height: 600)
@@ -46,3 +49,19 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         }
     }
 } 
+
+
+class AppSettings: ObservableObject {
+    @Published var colorScheme: ColorScheme = .light
+    
+    init() {
+        // Load saved color scheme preference
+        let savedScheme = UserDefaults.standard.string(forKey: "colorScheme") ?? "light"
+        colorScheme = savedScheme == "dark" ? .dark : .light
+    }
+    
+    func updateColorScheme(_ scheme: ColorScheme) {
+        UserDefaults.standard.set(scheme == .dark ? "dark" : "light", forKey: "colorScheme")
+        colorScheme = scheme
+    }
+}
