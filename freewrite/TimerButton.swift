@@ -16,10 +16,11 @@ struct TimerButton: View {
     @Binding var isHoveringBottomNav: Bool
     
     private var timerColor: Color {
-        guard timerIsRunning else {
-            return isHoveringTimer ? primaryColor : secondaryColor
+        if timerIsRunning {
+           return isHoveringTimer ? primaryColor : .gray.opacity(0.8) 
         }
-        return isHoveringTimer ? primaryColor : .gray.opacity(0.8)
+        
+        return isHoveringTimer ? primaryColor : secondaryColor
     }
     
     private var primaryColor: Color {
@@ -66,13 +67,10 @@ struct TimerButton: View {
     }
     
     private var timerTitle: String {
-        guard !timerIsRunning && timeRemaining == 900 else {
-            return formattedTime
+        if !timerIsRunning && timeRemaining == 900 {
+            return  "15:00"  
         }
-        return "15:00"
-    }
-    
-    private var formattedTime: String {
+
         let minutes = timeRemaining / 60
         let seconds = timeRemaining % 60
         return String(format: "%d:%02d", minutes, seconds)
