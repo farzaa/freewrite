@@ -7,7 +7,6 @@
 
 import SwiftUI
 
-// 解决输入法输入时被重置的问题 issue[#59,#51] 
 struct TimerButton: View {
     @Binding var timerIsRunning: Bool
     @Binding var timeRemaining: Int
