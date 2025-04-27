@@ -1,0 +1,76 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="UTF-8">
+  <title>Freewrite</title>
+  <link rel="stylesheet" href="css/styles.css">
+  <meta http-equiv="Content-Security-Policy" content="script-src 'self' 'unsafe-inline';">
+</head>
+<body>
+  <div class="app-container">
+    <!-- Main content area -->
+    <div class="main-content">
+      <!-- Editor area -->
+      <div class="editor-container">
+        <div id="placeholder" class="placeholder">Begin writing</div>
+        <textarea id="editor" class="editor" spellcheck="false">
+
+farza is the 🐕</textarea>
+      </div>
+      
+      <!-- Bottom toolbar -->
+      <div class="bottom-toolbar">
+        <div class="left-controls">
+          <span id="font-size-btn" class="control-item">18px</span>
+          <span class="control-separator">•</span>
+          <span id="font-btn" class="control-item">Lato</span>
+          <span class="control-separator">•</span>
+          <span id="system-font-btn" class="control-item">System</span>
+          <span class="control-separator">•</span>
+          <span id="serif-font-btn" class="control-item">Serif</span>
+          <span class="control-separator">•</span>
+          <span id="random-font-btn" class="control-item">Random [Noto Serif Kannada]</span>
+        </div>
+        <div class="right-controls">
+          <span id="timer-btn" class="control-item">15:00</span>
+          <span class="control-separator">•</span>
+          <span id="theme-btn" class="control-item">Dark Mode</span>
+          <span class="control-separator">•</span>
+          <span id="chat-btn" class="control-item">Chat</span>
+          <span class="control-separator">•</span>
+          <span id="fullscreen-btn" class="control-item">Exit Fullscreen</span>
+          <span class="control-separator">•</span>
+          <span id="new-entry-btn" class="control-item">New Entry</span>
+          <span class="control-separator">•</span>
+          <span id="history-btn" class="control-item"><svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"></circle><polyline points="12 6 12 12 16 14"></polyline></svg></span>
+        </div>
+      </div>
+      
+      <!-- Font size popup -->
+      <div id="font-size-popup" class="popup">
+        <div class="popup-content">
+          <button class="size-option" data-size="16">16px</button>
+          <button class="size-option" data-size="18">18px</button>
+          <button class="size-option" data-size="20">20px</button>
+          <button class="size-option" data-size="22">22px</button>
+          <button class="size-option" data-size="24">24px</button>
+          <button class="size-option" data-size="26">26px</button>
+        </div>
+      </div>
+
+      <!-- Entries sidebar (hidden by default) -->
+      <div id="sidebar" class="sidebar hidden">
+        <div class="sidebar-header">
+          <h2>Entries</h2>
+          <button id="close-sidebar-btn">×</button>
+        </div>
+        <div id="entries-list" class="entries-list">
+          <!-- Entries will be dynamically added here -->
+        </div>
+      </div>
+    </div>
+  </div>
+  
+  <script src="js/renderer.js"></script>
+</body>
+</html> 

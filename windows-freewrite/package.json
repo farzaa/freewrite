@@ -1,0 +1,53 @@
+{
+  "name": "freewrite-electron",
+  "version": "1.0.0",
+  "description": "A simple app to freewrite",
+  "main": "main.js",
+  "scripts": {
+    "start": "electron .",
+    "build": "electron-builder --win",
+    "dist": "electron-builder --win",
+    "pack": "electron-builder --dir",
+    "make": "electron-builder --win",
+    "postinstall": "electron-builder install-app-deps"
+  },
+  "author": "",
+  "license": "MIT",
+  "devDependencies": {
+    "electron": "^29.1.0",
+    "electron-builder": "^24.9.1"
+  },
+  "dependencies": {
+    "electron-squirrel-startup": "^1.0.0"
+  },
+  "build": {
+    "appId": "com.freewrite.app",
+    "productName": "Freewrite",
+    "win": {
+      "target": [
+        "nsis",
+        "portable"
+      ],
+      "icon": "assets/icon.ico"
+    },
+    "mac": {
+      "icon": "assets/icon.ico"
+    },
+    "linux": {
+      "icon": "assets/icon.ico"
+    },
+    "nsis": {
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true,
+      "createDesktopShortcut": true,
+      "createStartMenuShortcut": true
+    },
+    "portable": {
+      "artifactName": "Freewrite-Portable-${version}.exe"
+    },
+    "directories": {
+      "output": "dist",
+      "buildResources": "assets"
+    }
+  }
+}
