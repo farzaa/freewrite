@@ -577,14 +577,49 @@ struct ContentView: View {
                         // Utility buttons (moved to right)
                         HStack(spacing: 8) {
                             
-                            TimerButton(
-                                timerIsRunning: $timerIsRunning,
-                                timeRemaining: $timeRemaining,
-                                isHoveringTimer: $isHoveringTimer,
-                                colorScheme: $colorScheme,
-                                lastClickTime: $lastClickTime,
-                                isHoveringBottomNav: $isHoveringBottomNav
-                            )
+                            Button(action:{
+                                let now = Date()
+                                if let lastClick = lastClickTime,
+                                   now.timeIntervalSince(lastClick) < 0.3 {
+                                    timeRemaining = 900
+                                    timerIsRunning = false
+                                    lastClickTime = nil
+                                } else {
+                                    timerIsRunning.toggle()
+                                    lastClickTime = now
+                                }
+                            }) {
+                                TimerButton(timerButtonTitle:timerButtonTitle)
+                            }
+                            .buttonStyle(.plain)
+                            .foregroundColor(timerColor)
+                            .onHover { hovering in
+                                isHoveringTimer = hovering
+                                isHoveringBottomNav = hovering
+                                if hovering {
+                                    NSCursor.pointingHand.push()
+                                } else {
+                                    NSCursor.pop()
+                                }
+                            }
+                            .onAppear {
+                                NSEvent.addLocalMonitorForEvents(matching: .scrollWheel) { event in
+                                    if isHoveringTimer {
+                                        let scrollBuffer = event.deltaY * 0.25
+                                        
+                                        if abs(scrollBuffer) >= 0.1 {
+                                            let currentMinutes = timeRemaining / 60
+                                            NSHapticFeedbackManager.defaultPerformer.perform(.generic, performanceTime: .now)
+                                            let direction = -scrollBuffer > 0 ? 5 : -5
+                                            let newMinutes = currentMinutes + direction
+                                            let roundedMinutes = (newMinutes / 5) * 5
+                                            let newTime = roundedMinutes * 60
+                                            timeRemaining = min(max(newTime, 0), 2700)
+                                        }
+                                    }
+                                    return event
+                                }
+                            }
                             
                             Text("•")
                                 .foregroundColor(.gray)
@@ -1018,6 +1053,7 @@ struct ContentView: View {
         .onReceive(timer) { _ in
             if timerIsRunning && timeRemaining > 0 {
                 timeRemaining -= 1
+                print(timeRemaining)
             } else if timeRemaining == 0 {
                 timerIsRunning = false
                 if !isHoveringBottomNav {
