@@ -341,23 +341,6 @@ struct ContentView: View {
         return currentRandomFont.isEmpty ? "Random" : "Random [\(currentRandomFont)]"
     }
     
-    var timerButtonTitle: String {
-        if !timerIsRunning && timeRemaining == 900 {
-            return "15:00"
-        }
-        let minutes = timeRemaining / 60
-        let seconds = timeRemaining % 60
-        return String(format: "%d:%02d", minutes, seconds)
-    }
-    
-    var timerColor: Color {
-        if timerIsRunning {
-            return isHoveringTimer ? (colorScheme == .light ? .black : .white) : .gray.opacity(0.8)
-        } else {
-            return isHoveringTimer ? (colorScheme == .light ? .black : .white) : (colorScheme == .light ? .gray : .gray.opacity(0.8))
-        }
-    }
-    
     var lineHeight: CGFloat {
         let font = NSFont(name: selectedFont, size: fontSize) ?? .systemFont(ofSize: fontSize)
         let defaultLineHeight = getLineHeight(font: font)
@@ -589,10 +572,14 @@ struct ContentView: View {
                                     lastClickTime = now
                                 }
                             }) {
-                                TimerButton(timerButtonTitle:timerButtonTitle)
+                                TimerButtonView(
+                                    timerIsRunning: $timerIsRunning,
+                                    isHoveringTimer: $isHoveringTimer,
+                                    colorScheme: $colorScheme,
+                                    timeRemaining: $timeRemaining
+                                )
                             }
                             .buttonStyle(.plain)
-                            .foregroundColor(timerColor)
                             .onHover { hovering in
                                 isHoveringTimer = hovering
                                 isHoveringBottomNav = hovering
