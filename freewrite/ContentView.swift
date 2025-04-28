@@ -1040,7 +1040,6 @@ struct ContentView: View {
         .onReceive(timer) { _ in
             if timerIsRunning && timeRemaining > 0 {
                 timeRemaining -= 1
-                print(timeRemaining)
             } else if timeRemaining == 0 {
                 timerIsRunning = false
                 if !isHoveringBottomNav {
