@@ -85,6 +85,22 @@ struct ContentView: View {
     @State private var colorScheme: ColorScheme = .light // Add state for color scheme
     @State private var isHoveringThemeToggle = false // Add state for theme toggle hover
     @State private var didCopyPrompt: Bool = false // Add state for copy prompt feedback
+    @State private var searchText: String = ""
+    
+    var filteredEntries: [HumanEntry] {
+        let query = searchText.trimmed().lowercased()
+        guard !query.isEmpty else { return entries }
+
+        return entries.filter { entry in
+            let fileURL = getDocumentsDirectory().appendingPathComponent(entry.filename)
+            if let content = try? String(contentsOf: fileURL, encoding: .utf8) {
+                return content.lowercased().contains(query)
+            }
+            return false
+        }
+    }
+
+    
     let timer = Timer.publish(every: 1, on: .main, in: .common).autoconnect()
     let entryHeight: CGFloat = 40
     
@@ -921,10 +937,21 @@ struct ContentView: View {
                     
                     Divider()
                     
+                    HStack {
+                        TextField("Search entries...", text: $searchText)
+                            .textFieldStyle(PlainTextFieldStyle())
+                            .padding(8)
+                            .background(Color.gray.opacity(0.1))
+                            .cornerRadius(8)
+                    }
+                    .padding([.horizontal, .vertical], 12)
+                    
+                    Divider()
+                    
                     // Entries List
                     ScrollView {
                         LazyVStack(spacing: 0) {
-                            ForEach(entries) { entry in
+                            ForEach(filteredEntries) { entry in
                                 Button(action: {
                                     if selectedEntryId != entry.id {
                                         // Save current entry before switching
@@ -956,9 +983,9 @@ struct ContentView: View {
                                                         }) {
                                                             Image(systemName: "arrow.down.circle")
                                                                 .font(.system(size: 11))
-                                                                .foregroundColor(hoveredExportId == entry.id ? 
-                                                                    (colorScheme == .light ? .black : .white) : 
-                                                                    (colorScheme == .light ? .gray : .gray.opacity(0.8)))
+                                                                .foregroundColor(hoveredExportId == entry.id ?
+                                                                                 (colorScheme == .light ? .black : .white) :
+                                                                                    (colorScheme == .light ? .gray : .gray.opacity(0.8)))
                                                         }
                                                         .buttonStyle(.plain)
                                                         .help("Export entry as PDF")
@@ -1408,6 +1435,13 @@ extension NSView {
         return nil
     }
 }
+
+extension String {
+    func trimmed() -> String {
+        self.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+}
+
 
 #Preview {
     ContentView()
