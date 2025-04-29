@@ -85,6 +85,7 @@ struct ContentView: View {
     @State private var colorScheme: ColorScheme = .light // Add state for color scheme
     @State private var isHoveringThemeToggle = false // Add state for theme toggle hover
     @State private var didCopyPrompt: Bool = false // Add state for copy prompt feedback
+    @State private var searchText: String = ""
     let timer = Timer.publish(every: 1, on: .main, in: .common).autoconnect()
     let entryHeight: CGFloat = 40
     
@@ -888,7 +889,7 @@ struct ContentView: View {
             // Right sidebar
             if showingSidebar {
                 Divider()
-                
+
                 VStack(spacing: 0) {
                     // Header
                     Button(action: {
@@ -918,21 +919,31 @@ struct ContentView: View {
                     .onHover { hovering in
                         isHoveringHistory = hovering
                     }
-                    
+
                     Divider()
-                    
-                    // Entries List
+
+                    // searchBar
+                    HStack {
+                               TextField("Search entries...", text: $searchText)
+                                   .textFieldStyle(PlainTextFieldStyle())
+                                   .padding(8)
+                                   .background(Color.gray.opacity(0.1))
+                                   .cornerRadius(8)
+                           }
+                           .padding([.horizontal, .vertical], 12)
+
+                           Divider()
+
+                    // Entries List with Search Filtering
                     ScrollView {
                         LazyVStack(spacing: 0) {
-                            ForEach(entries) { entry in
+                            ForEach(entries.filter { searchText.isEmpty ? true : $0.previewText.localizedCaseInsensitiveContains(searchText) }) { entry in
                                 Button(action: {
                                     if selectedEntryId != entry.id {
-                                        // Save current entry before switching
                                         if let currentId = selectedEntryId,
                                            let currentEntry = entries.first(where: { $0.id == currentId }) {
                                             saveEntry(entry: currentEntry)
                                         }
-                                        
                                         selectedEntryId = entry.id
                                         loadEntry(entry: entry)
                                     }
@@ -944,83 +955,41 @@ struct ContentView: View {
                                                     .font(.system(size: 13))
                                                     .lineLimit(1)
                                                     .foregroundColor(.primary)
-                                                
+
                                                 Spacer()
-                                                
-                                                // Export/Trash icons that appear on hover
+
                                                 if hoveredEntryId == entry.id {
                                                     HStack(spacing: 8) {
-                                                        // Export PDF button
-                                                        Button(action: {
-                                                            exportEntryAsPDF(entry: entry)
-                                                        }) {
+                                                        Button(action: { exportEntryAsPDF(entry: entry) }) {
                                                             Image(systemName: "arrow.down.circle")
                                                                 .font(.system(size: 11))
-                                                                .foregroundColor(hoveredExportId == entry.id ? 
-                                                                    (colorScheme == .light ? .black : .white) : 
-                                                                    (colorScheme == .light ? .gray : .gray.opacity(0.8)))
+                                                                .foregroundColor(hoveredExportId == entry.id ? (colorScheme == .light ? .black : .white) : .gray)
                                                         }
                                                         .buttonStyle(.plain)
-                                                        .help("Export entry as PDF")
-                                                        .onHover { hovering in
-                                                            withAnimation(.easeInOut(duration: 0.2)) {
-                                                                hoveredExportId = hovering ? entry.id : nil
-                                                            }
-                                                            if hovering {
-                                                                NSCursor.pointingHand.push()
-                                                            } else {
-                                                                NSCursor.pop()
-                                                            }
-                                                        }
-                                                        
-                                                        // Trash icon
-                                                        Button(action: {
-                                                            deleteEntry(entry: entry)
-                                                        }) {
+
+                                                        Button(action: { deleteEntry(entry: entry) }) {
                                                             Image(systemName: "trash")
                                                                 .font(.system(size: 11))
                                                                 .foregroundColor(hoveredTrashId == entry.id ? .red : .gray)
                                                         }
                                                         .buttonStyle(.plain)
-                                                        .onHover { hovering in
-                                                            withAnimation(.easeInOut(duration: 0.2)) {
-                                                                hoveredTrashId = hovering ? entry.id : nil
-                                                            }
-                                                            if hovering {
-                                                                NSCursor.pointingHand.push()
-                                                            } else {
-                                                                NSCursor.pop()
-                                                            }
-                                                        }
                                                     }
                                                 }
                                             }
-                                            
                                             Text(entry.date)
                                                 .font(.system(size: 12))
                                                 .foregroundColor(.secondary)
                                         }
                                     }
-                                    .frame(maxWidth: .infinity)
                                     .padding(.horizontal, 16)
                                     .padding(.vertical, 8)
-                                    .background(
-                                        RoundedRectangle(cornerRadius: 4)
-                                            .fill(backgroundColor(for: entry))
-                                    )
+                                    .background(RoundedRectangle(cornerRadius: 4).fill(backgroundColor(for: entry)))
                                 }
                                 .buttonStyle(PlainButtonStyle())
                                 .contentShape(Rectangle())
                                 .onHover { hovering in
-                                    withAnimation(.easeInOut(duration: 0.2)) {
-                                        hoveredEntryId = hovering ? entry.id : nil
-                                    }
+                                    hoveredEntryId = hovering ? entry.id : nil
                                 }
-                                .onAppear {
-                                    NSCursor.pop()  // Reset cursor when button appears
-                                }
-                                .help("Click to select this entry")  // Add tooltip
-                                
                                 if entry.id != entries.last?.id {
                                     Divider()
                                 }
@@ -1030,7 +999,7 @@ struct ContentView: View {
                     .scrollIndicators(.never)
                 }
                 .frame(width: 200)
-                .background(Color(colorScheme == .light ? .white : NSColor.black))
+                .background(Color(colorScheme == .light ? .white : .black))
             }
         }
         .frame(minWidth: 1100, minHeight: 600)
