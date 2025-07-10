@@ -10,12 +10,15 @@ import SwiftUI
 import AppKit
 import UniformTypeIdentifiers
 import PDFKit
+import NaturalLanguage
 
 struct HumanEntry: Identifiable {
     let id: UUID
     let date: String
     let filename: String
     var previewText: String
+    var summary: String?
+    var summaryGenerated: Date?
     
     static func createNew() -> HumanEntry {
         let id = UUID()
@@ -32,8 +35,1012 @@ struct HumanEntry: Identifiable {
             id: id,
             date: displayDate,
             filename: "[\(id)]-[\(dateString)].md",
-            previewText: ""
+            previewText: "",
+            summary: nil,
+            summaryGenerated: nil
         )
+    }
+}
+
+class SummaryService: ObservableObject {
+    func generateSummary(for text: String) -> String {
+        let cleanText = text.replacingOccurrences(of: "\n", with: " ")
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        
+        if cleanText.isEmpty {
+            return "Empty entry"
+        }
+        
+        if cleanText.count < 50 {
+            return cleanText
+        }
+        
+        // Extract first few meaningful sentences for summary
+        let sentences = cleanText.components(separatedBy: CharacterSet(charactersIn: ".!?"))
+            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+            .filter { !$0.isEmpty && $0.count > 3 }
+        
+        if sentences.isEmpty {
+            return String(cleanText.prefix(100)) + "..."
+        }
+        
+        // Take first 1-2 sentences up to 150 characters
+        var summary = ""
+        for sentence in sentences.prefix(2) {
+            if summary.count + sentence.count < 150 {
+                summary += sentence + ". "
+            } else {
+                break
+            }
+        }
+        
+        return summary.isEmpty ? String(cleanText.prefix(100)) + "..." : summary.trimmingCharacters(in: .whitespaces)
+    }
+}
+
+// Timeline Prediction Data Models
+struct TimelinePoint: Identifiable, Codable {
+    let id = UUID()
+    let date: Date
+    let happiness: Double
+    let description: String
+    let scenario: TimelineScenario
+    
+    enum TimelineScenario: String, Codable {
+        case actual = "actual"
+        case best = "best"
+        case darkest = "darkest"
+    }
+}
+
+struct TimelinePrediction: Codable {
+    let bestTimeline: [TimelinePoint]
+    let darkestTimeline: [TimelinePoint]
+    let analysisDate: Date
+    let monthsAhead: Int
+}
+
+// Claude API Service
+class ClaudeAPIService: ObservableObject {
+    @Published var isLoading = false
+    @Published var error: String?
+    @Published var isTestingConnection = false
+    @Published var connectionTestResult: String?
+    
+    private let baseURL = "https://api.anthropic.com/v1/messages"
+    
+    func generateTimelinePrediction(entries: [HumanEntry], apiToken: String, monthsAhead: Int) async throws -> TimelinePrediction {
+        guard !apiToken.isEmpty else {
+            throw APIError.missingToken
+        }
+        
+        await MainActor.run {
+            isLoading = true
+            error = nil
+        }
+        
+        do {
+            // Prepare entries data for analysis
+            let entriesData = try await prepareEntriesData(entries: entries)
+            
+            // Validate we have enough data
+            guard !entriesData.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+                throw APIError.networkError("No journal entries found to analyze")
+            }
+            
+            // Create the prompt for Claude
+            let prompt = createTimelinePredictionPrompt(entriesData: entriesData, monthsAhead: monthsAhead)
+            
+            // Make API call to Claude
+            let response = try await makeClaudeAPICall(prompt: prompt, apiToken: apiToken)
+            
+            // Parse the response into timeline prediction
+            let prediction = try parseTimelinePrediction(response: response, monthsAhead: monthsAhead)
+            
+            await MainActor.run {
+                isLoading = false
+            }
+            
+            return prediction
+            
+        } catch let urlError as URLError {
+            let networkError = APIError.networkError(urlError.localizedDescription)
+            await MainActor.run {
+                isLoading = false
+                self.error = networkError.localizedDescription
+            }
+            throw networkError
+        } catch let apiError as APIError {
+            await MainActor.run {
+                isLoading = false
+                self.error = apiError.localizedDescription
+            }
+            throw apiError
+        } catch {
+            let genericError = APIError.networkError(error.localizedDescription)
+            await MainActor.run {
+                isLoading = false
+                self.error = genericError.localizedDescription
+            }
+            throw genericError
+        }
+    }
+    
+    private func prepareEntriesData(entries: [HumanEntry]) async throws -> String {
+        var entriesText = ""
+        
+        for entry in entries.prefix(20) { // Limit to recent 20 entries
+            let documentsDirectory = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0].appendingPathComponent("Freewrite")
+            let fileURL = documentsDirectory.appendingPathComponent(entry.filename)
+            
+            do {
+                let content = try String(contentsOf: fileURL, encoding: .utf8)
+                entriesText += "Date: \(entry.date)\n"
+                entriesText += "Entry: \(content.trimmingCharacters(in: .whitespacesAndNewlines))\n\n"
+            } catch {
+                continue
+            }
+        }
+        
+        return entriesText
+    }
+    
+    private func createTimelinePredictionPrompt(entriesData: String, monthsAhead: Int) -> String {
+        return """
+        You are a skilled life coach and pattern analyst. Based on the following journal entries, I need you to create two timeline predictions for the next \(monthsAhead) months:
+
+        1. **Best Timeline**: What would likely happen if things go really well
+        2. **Darkest Timeline**: What might happen if things go poorly
+
+        For each timeline, provide monthly predictions with:
+        - A happiness score (1-10, where 10 is most happy)
+        - A brief story description of what happens that month
+
+        Please respond in this exact JSON format:
+        {
+          "bestTimeline": [
+            {
+              "month": 1,
+              "happiness": 8.5,
+              "description": "Description of what happens in month 1"
+            }
+          ],
+          "darkestTimeline": [
+            {
+              "month": 1,
+              "happiness": 4.2,
+              "description": "Description of what happens in month 1"
+            }
+          ]
+        }
+
+        Journal Entries:
+        \(entriesData)
+
+        Base your predictions on patterns, concerns, hopes, and themes you see in the entries. Make the stories feel personal and specific to this person's life situation.
+        """
+    }
+    
+    private func makeClaudeAPICall(prompt: String, apiToken: String) async throws -> String {
+        // Validate API token format
+        guard !apiToken.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+            throw APIError.missingToken
+        }
+        
+        let cleanToken = apiToken.trimmingCharacters(in: .whitespacesAndNewlines)
+        
+        guard let url = URL(string: baseURL) else {
+            throw APIError.invalidURL
+        }
+        
+        var request = URLRequest(url: url)
+        request.httpMethod = "POST"
+        request.setValue("application/json", forHTTPHeaderField: "content-type")
+        request.setValue("2023-06-01", forHTTPHeaderField: "anthropic-version")
+        request.setValue(cleanToken, forHTTPHeaderField: "x-api-key")
+        request.timeoutInterval = 60.0
+        
+        let requestBody = ClaudeAPIRequest(
+            model: "claude-sonnet-4-20250514",
+            max_tokens: 4000,
+            messages: [
+                ClaudeMessage(role: "user", content: prompt)
+            ]
+        )
+        
+        do {
+            request.httpBody = try JSONEncoder().encode(requestBody)
+        } catch {
+            throw APIError.encodingError(error.localizedDescription)
+        }
+        
+        print("Making API request to: \(url)")
+        print("Request headers: \(request.allHTTPHeaderFields ?? [:])")
+        print("Request body model: \(requestBody.model)")
+        print("Request body max_tokens: \(requestBody.max_tokens)")
+        
+        // Create custom URL session with better configuration
+        let config = URLSessionConfiguration.default
+        config.timeoutIntervalForRequest = 60.0
+        config.timeoutIntervalForResource = 120.0
+        config.waitsForConnectivity = true
+        
+        let session = URLSession(configuration: config)
+        
+        let (data, response) = try await session.data(for: request)
+        
+        guard let httpResponse = response as? HTTPURLResponse else {
+            throw APIError.invalidResponse
+        }
+        
+        print("HTTP Status Code: \(httpResponse.statusCode)")
+        
+        if httpResponse.statusCode != 200 {
+            let errorBody = String(data: data, encoding: .utf8) ?? "Unknown error"
+            print("Error response body: \(errorBody)")
+            throw APIError.httpError(httpResponse.statusCode, errorBody)
+        }
+        
+        do {
+            let apiResponse = try JSONDecoder().decode(ClaudeAPIResponse.self, from: data)
+            guard let content = apiResponse.content.first?.text else {
+                throw APIError.invalidResponse
+            }
+            return content
+        } catch {
+            let responseString = String(data: data, encoding: .utf8) ?? "Unable to decode response"
+            print("Decoding error: \(error)")
+            print("Response body: \(responseString)")
+            throw APIError.decodingError(error.localizedDescription)
+        }
+    }
+    
+    private func parseTimelinePrediction(response: String, monthsAhead: Int) throws -> TimelinePrediction {
+        // Extract JSON from response (Claude sometimes adds explanatory text)
+        let jsonStart = response.firstIndex(of: "{") ?? response.startIndex
+        let jsonEnd = response.lastIndex(of: "}") ?? response.endIndex
+        let jsonString = String(response[jsonStart...jsonEnd])
+        
+        let data = jsonString.data(using: .utf8)!
+        let parsedResponse = try JSONDecoder().decode(ClaudeTimelineResponse.self, from: data)
+        
+        let calendar = Calendar.current
+        let today = Date()
+        
+        let bestTimeline = parsedResponse.bestTimeline.map { item in
+            let futureDate = calendar.date(byAdding: .month, value: item.month, to: today)!
+            return TimelinePoint(
+                date: futureDate,
+                happiness: item.happiness,
+                description: item.description,
+                scenario: .best
+            )
+        }
+        
+        let darkestTimeline = parsedResponse.darkestTimeline.map { item in
+            let futureDate = calendar.date(byAdding: .month, value: item.month, to: today)!
+            return TimelinePoint(
+                date: futureDate,
+                happiness: item.happiness,
+                description: item.description,
+                scenario: .darkest
+            )
+        }
+        
+        return TimelinePrediction(
+            bestTimeline: bestTimeline,
+            darkestTimeline: darkestTimeline,
+            analysisDate: today,
+            monthsAhead: monthsAhead
+        )
+    }
+    
+    enum APIError: Error {
+        case missingToken
+        case invalidURL
+        case invalidResponse
+        case httpError(Int, String)
+        case encodingError(String)
+        case decodingError(String)
+        case networkError(String)
+        
+        var localizedDescription: String {
+            switch self {
+            case .missingToken:
+                return "Claude API token is missing. Please add it in Settings."
+            case .invalidURL:
+                return "Invalid API URL"
+            case .invalidResponse:
+                return "Invalid response from Claude API"
+            case .httpError(let code, let message):
+                if code == 401 {
+                    return "Invalid API token. Please check your token in Settings."
+                } else if code == 429 {
+                    return "Rate limit exceeded. Please try again later."
+                } else {
+                    return "HTTP error \(code): \(message)"
+                }
+            case .encodingError(let message):
+                return "Request encoding error: \(message)"
+            case .decodingError(let message):
+                return "Response decoding error: \(message)"
+            case .networkError(let message):
+                return "Network error: \(message). Check your internet connection."
+            }
+        }
+    }
+    
+    func testConnection(apiToken: String) async {
+        await MainActor.run {
+            isTestingConnection = true
+            connectionTestResult = nil
+        }
+        
+        do {
+            let testPrompt = "Hello, please respond with just the word 'success' to test the API connection."
+            let response = try await makeClaudeAPICall(prompt: testPrompt, apiToken: apiToken)
+            
+            await MainActor.run {
+                isTestingConnection = false
+                connectionTestResult = "✅ Connection successful! API token is valid."
+            }
+        } catch {
+            await MainActor.run {
+                isTestingConnection = false
+                connectionTestResult = "❌ Connection failed: \(error.localizedDescription)"
+            }
+        }
+    }
+}
+
+// Claude API Request/Response Models
+struct ClaudeAPIRequest: Codable {
+    let model: String
+    let max_tokens: Int
+    let messages: [ClaudeMessage]
+}
+
+struct ClaudeMessage: Codable {
+    let role: String
+    let content: String
+}
+
+struct ClaudeAPIResponse: Codable {
+    let content: [ClaudeContent]
+}
+
+struct ClaudeContent: Codable {
+    let text: String
+    let type: String
+}
+
+struct ClaudeTimelineResponse: Codable {
+    let bestTimeline: [ClaudeTimelineItem]
+    let darkestTimeline: [ClaudeTimelineItem]
+}
+
+struct ClaudeTimelineItem: Codable {
+    let month: Int
+    let happiness: Double
+    let description: String
+}
+
+struct TimelineDot: View {
+    let isFirst: Bool
+    let isLast: Bool
+    
+    var body: some View {
+        VStack(spacing: 0) {
+            if !isFirst {
+                Rectangle()
+                    .fill(Color.gray.opacity(0.3))
+                    .frame(width: 2, height: 20)
+            }
+            
+            Circle()
+                .fill(Color.blue)
+                .frame(width: 12, height: 12)
+            
+            if !isLast {
+                Rectangle()
+                    .fill(Color.gray.opacity(0.3))
+                    .frame(width: 2, height: 20)
+            }
+        }
+    }
+}
+
+struct TimelineEntryView: View {
+    let entry: HumanEntry
+    let summary: String
+    let isFirst: Bool
+    let isLast: Bool
+    let onTap: () -> Void
+    
+    @State private var isHovered = false
+    
+    var body: some View {
+        HStack(alignment: .top, spacing: 16) {
+            TimelineDot(isFirst: isFirst, isLast: isLast)
+            
+            VStack(alignment: .leading, spacing: 8) {
+                Text(entry.date)
+                    .font(.caption)
+                    .foregroundColor(.secondary)
+                
+                Text(summary)
+                    .font(.body)
+                    .foregroundColor(isHovered ? .primary : .secondary)
+                    .lineLimit(3)
+                    .multilineTextAlignment(.leading)
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+        }
+        .padding(.vertical, 8)
+        .padding(.horizontal, 16)
+        .background(
+            RoundedRectangle(cornerRadius: 8)
+                .fill(isHovered ? Color.gray.opacity(0.1) : Color.clear)
+        )
+        .onHover { hovering in
+            isHovered = hovering
+        }
+        .onTapGesture {
+            onTap()
+        }
+    }
+}
+
+struct TimelineView: View {
+    let entries: [HumanEntry]
+    let onEntrySelected: (HumanEntry) -> Void
+    let onClose: () -> Void
+    
+    @StateObject private var summaryService = SummaryService()
+    @State private var summaries: [UUID: String] = [:]
+    
+    var body: some View {
+        VStack(spacing: 0) {
+            
+            ScrollView {
+                LazyVStack(spacing: 0) {
+                    ForEach(Array(entries.enumerated()), id: \.element.id) { index, entry in
+                        TimelineEntryView(
+                            entry: entry,
+                            summary: summaries[entry.id] ?? "Generating summary...",
+                            isFirst: index == 0,
+                            isLast: index == entries.count - 1,
+                            onTap: {
+                                onEntrySelected(entry)
+                                onClose()
+                            }
+                        )
+                        .onAppear {
+                            generateSummaryIfNeeded(for: entry)
+                        }
+                    }
+                }
+                .padding(.top)
+            }
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .background(Color(NSColor.windowBackgroundColor))
+    }
+    
+    private func generateSummaryIfNeeded(for entry: HumanEntry) {
+        guard summaries[entry.id] == nil else { return }
+        
+        Task {
+            let documentsDirectory = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0].appendingPathComponent("Freewrite")
+            let fileURL = documentsDirectory.appendingPathComponent(entry.filename)
+            
+            do {
+                let content = try String(contentsOf: fileURL, encoding: .utf8)
+                let summary = summaryService.generateSummary(for: content)
+                
+                await MainActor.run {
+                    summaries[entry.id] = summary
+                }
+            } catch {
+                await MainActor.run {
+                    summaries[entry.id] = entry.previewText.isEmpty ? "Unable to load content" : entry.previewText
+                }
+            }
+        }
+    }
+}
+
+struct TimelineChartView: View {
+    let entries: [HumanEntry]
+    let prediction: TimelinePrediction?
+    let onEntrySelected: (HumanEntry) -> Void
+    
+    @State private var selectedPoint: TimelinePoint?
+    @State private var hoveredDate: Date?
+    @StateObject private var summaryService = SummaryService()
+    @State private var actualTimelineData: [TimelinePoint] = []
+    
+    var body: some View {
+        VStack(spacing: 16) {
+            // Chart Header
+            HStack {
+                VStack(alignment: .leading, spacing: 4) {
+                    Text("Future Timeline Projection")
+                        .font(.title2)
+                        .fontWeight(.semibold)
+                    Text("Historical happiness data with best and darkest possible futures")
+                        .font(.caption)
+                        .foregroundColor(.secondary)
+                }
+                Spacer()
+                
+                // Legend
+                HStack(spacing: 20) {
+                    HStack(spacing: 8) {
+                        Circle()
+                            .fill(Color.blue)
+                            .frame(width: 12, height: 12)
+                        Text("Actual Journey")
+                            .font(.caption)
+                            .foregroundColor(.blue)
+                    }
+                    
+                    HStack(spacing: 8) {
+                        Circle()
+                            .fill(Color.green)
+                            .frame(width: 12, height: 12)
+                        Text("Best Timeline")
+                            .font(.caption)
+                            .foregroundColor(.green)
+                    }
+                    
+                    HStack(spacing: 8) {
+                        Circle()
+                            .fill(Color.red)
+                            .frame(width: 12, height: 12)
+                        Text("Darkest Timeline")
+                            .font(.caption)
+                            .foregroundColor(.red)
+                    }
+                }
+            }
+            
+            // Custom Chart Implementation
+            CustomChartView(
+                actualData: actualTimelineData,
+                prediction: prediction,
+                onPointSelected: { point in
+                    selectedPoint = point
+                }
+            )
+            .frame(height: 300)
+            .onAppear {
+                generateActualTimelineData()
+            }
+            
+            // Selected point details
+            if let selectedPoint = selectedPoint {
+                VStack(alignment: .leading, spacing: 8) {
+                    HStack {
+                        Text(getTimelineTitle(for: selectedPoint.scenario))
+                            .font(.headline)
+                            .foregroundColor(getTimelineColor(for: selectedPoint.scenario))
+                        
+                        Spacer()
+                        
+                        Text(formatDate(selectedPoint.date))
+                            .font(.subheadline)
+                            .foregroundColor(.secondary)
+                    }
+                    
+                    Text("Happiness: \(selectedPoint.happiness, specifier: "%.1f")/10")
+                        .font(.subheadline)
+                        .foregroundColor(.secondary)
+                    
+                    Text(selectedPoint.description)
+                        .font(.body)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+                .padding()
+                .background(Color.gray.opacity(0.1))
+                .cornerRadius(8)
+            }
+        }
+        .padding()
+    }
+    
+    private func getTimelineTitle(for scenario: TimelinePoint.TimelineScenario) -> String {
+        switch scenario {
+        case .actual:
+            return "Current State"
+        case .best:
+            return "Best Timeline"
+        case .darkest:
+            return "Darkest Timeline"
+        }
+    }
+    
+    private func getTimelineColor(for scenario: TimelinePoint.TimelineScenario) -> Color {
+        switch scenario {
+        case .actual:
+            return .blue
+        case .best:
+            return .green
+        case .darkest:
+            return .red
+        }
+    }
+    
+    private func formatDate(_ date: Date) -> String {
+        let formatter = DateFormatter()
+        formatter.dateFormat = "MMM yyyy"
+        return formatter.string(from: date)
+    }
+    
+    private func generateActualTimelineData() {
+        // Generate actual timeline data from entries
+        let calendar = Calendar.current
+        
+        // Group entries by month
+        var monthlyEntries: [Date: [HumanEntry]] = [:]
+        
+        for entry in entries {
+            let dateFormatter = DateFormatter()
+            dateFormatter.dateFormat = "MMM d"
+            
+            if let entryDate = dateFormatter.date(from: entry.date) {
+                // Set current year
+                var components = calendar.dateComponents([.month, .day], from: entryDate)
+                components.year = calendar.component(.year, from: Date())
+                
+                if let dateWithYear = calendar.date(from: components) {
+                    let monthStart = calendar.dateInterval(of: .month, for: dateWithYear)?.start ?? dateWithYear
+                    
+                    if monthlyEntries[monthStart] == nil {
+                        monthlyEntries[monthStart] = []
+                    }
+                    monthlyEntries[monthStart]?.append(entry)
+                }
+            }
+        }
+        
+        // Calculate happiness scores for each month
+        var points: [TimelinePoint] = []
+        
+        for (monthDate, monthEntries) in monthlyEntries.sorted(by: { $0.key < $1.key }) {
+            let happiness = calculateHappinessScore(for: monthEntries)
+            let description = generateMonthDescription(for: monthEntries)
+            
+            let point = TimelinePoint(
+                date: monthDate,
+                happiness: happiness,
+                description: description,
+                scenario: .actual
+            )
+            points.append(point)
+        }
+        
+        actualTimelineData = points
+    }
+    
+    private func calculateHappinessScore(for entries: [HumanEntry]) -> Double {
+        // Simple happiness calculation based on text sentiment
+        // In a real app, you might use NaturalLanguage framework or more sophisticated analysis
+        
+        let totalWords = entries.reduce(0) { count, entry in
+            count + entry.previewText.split(separator: " ").count
+        }
+        
+        let positiveWords = ["happy", "good", "great", "amazing", "love", "excited", "wonderful", "fantastic", "awesome", "perfect", "beautiful", "successful", "accomplished", "grateful", "thankful", "blessed", "confident", "optimistic", "hopeful", "peaceful", "joyful", "content", "satisfied", "pleased", "delighted", "thrilled", "ecstatic", "proud", "inspired", "motivated", "energized"]
+        
+        let negativeWords = ["sad", "bad", "terrible", "awful", "hate", "worried", "horrible", "disgusting", "disappointed", "frustrated", "angry", "annoyed", "stressed", "anxious", "depressed", "upset", "miserable", "lonely", "tired", "exhausted", "overwhelmed", "confused", "lost", "hopeless", "scared", "afraid", "nervous", "uncomfortable", "embarrassed", "ashamed", "guilty", "regretful", "bitter", "resentful"]
+        
+        var positiveCount = 0
+        var negativeCount = 0
+        
+        for entry in entries {
+            let words = entry.previewText.lowercased().split(separator: " ")
+            for word in words {
+                if positiveWords.contains(String(word)) {
+                    positiveCount += 1
+                } else if negativeWords.contains(String(word)) {
+                    negativeCount += 1
+                }
+            }
+        }
+        
+        // Calculate happiness score (1-10)
+        let sentiment = Double(positiveCount - negativeCount)
+        let wordCount = max(Double(totalWords), 1)
+        let normalizedSentiment = sentiment / wordCount * 100
+        
+        // Map to 1-10 scale with 5 as neutral
+        let happiness = max(1, min(10, 5 + normalizedSentiment))
+        
+        return happiness
+    }
+    
+    private func generateMonthDescription(for entries: [HumanEntry]) -> String {
+        let wordCount = entries.reduce(0) { count, entry in
+            count + entry.previewText.split(separator: " ").count
+        }
+        
+        let entryCount = entries.count
+        
+        if entryCount == 0 {
+            return "No entries this month"
+        } else if entryCount == 1 {
+            return "1 entry with \(wordCount) words"
+        } else {
+            return "\(entryCount) entries with \(wordCount) words total"
+        }
+    }
+}
+
+struct CustomChartView: View {
+    let actualData: [TimelinePoint]
+    let prediction: TimelinePrediction?
+    let onPointSelected: (TimelinePoint) -> Void
+    
+    @State private var hoveredDate: Date?
+    
+    var body: some View {
+        GeometryReader { geometry in
+            let width = geometry.size.width
+            let height = geometry.size.height
+            let padding: CGFloat = 40
+            let chartWidth = width - padding * 2
+            let chartHeight = height - padding * 2
+            
+            ZStack {
+                // Chart background
+                RoundedRectangle(cornerRadius: 8)
+                    .fill(Color.gray.opacity(0.1))
+                
+                // Grid lines
+                Path { path in
+                    // Horizontal grid lines
+                    for i in 0...10 {
+                        let y = padding + (chartHeight * CGFloat(10 - i) / 10)
+                        path.move(to: CGPoint(x: padding, y: y))
+                        path.addLine(to: CGPoint(x: padding + chartWidth, y: y))
+                    }
+                    
+                    // Vertical grid lines (months)
+                    let allPoints = getAllPoints()
+                    if !allPoints.isEmpty {
+                        let monthCount = allPoints.count > 1 ? allPoints.count - 1 : 1
+                        for i in 0...monthCount {
+                            let x = padding + (chartWidth * CGFloat(i) / CGFloat(monthCount))
+                            path.move(to: CGPoint(x: x, y: padding))
+                            path.addLine(to: CGPoint(x: x, y: padding + chartHeight))
+                        }
+                    }
+                }
+                .stroke(Color.gray.opacity(0.3), lineWidth: 0.5)
+                
+                // Plot actual timeline
+                if !actualData.isEmpty {
+                    drawTimeline(points: actualData, color: .blue, isDashed: false, width: chartWidth, height: chartHeight, padding: padding)
+                }
+                
+                // Plot prediction timelines
+                if let prediction = prediction {
+                    drawTimeline(points: prediction.bestTimeline, color: .green, isDashed: true, width: chartWidth, height: chartHeight, padding: padding)
+                    drawTimeline(points: prediction.darkestTimeline, color: .red, isDashed: true, width: chartWidth, height: chartHeight, padding: padding)
+                }
+                
+                // Y-axis labels
+                VStack {
+                    ForEach(0..<11) { i in
+                        HStack {
+                            Text("\(10 - i)")
+                                .font(.caption)
+                                .foregroundColor(.secondary)
+                            Spacer()
+                        }
+                        if i < 10 {
+                            Spacer()
+                        }
+                    }
+                }
+                .frame(width: 20, height: chartHeight)
+                .offset(x: -width/2 + 20, y: 0)
+                
+                // X-axis labels
+                HStack {
+                    ForEach(getAllPoints().indices, id: \.self) { index in
+                        Text(formatDateForAxis(getAllPoints()[index].date))
+                            .font(.caption)
+                            .foregroundColor(.secondary)
+                        if index < getAllPoints().count - 1 {
+                            Spacer()
+                        }
+                    }
+                }
+                .frame(width: chartWidth, height: 20)
+                .offset(x: 0, y: height/2 - 30)
+                
+                // Invisible hover zones for each month
+                ForEach(getUniqueDates(), id: \.self) { date in
+                    let allPoints = getAllPoints()
+                    let pointIndex = allPoints.firstIndex { Calendar.current.isDate($0.date, inSameDayAs: date) } ?? 0
+                    let xPosition = padding + (chartWidth * CGFloat(pointIndex) / CGFloat(max(allPoints.count - 1, 1)))
+                    let zoneWidth = chartWidth / CGFloat(max(allPoints.count, 1))
+                    
+                    Rectangle()
+                        .fill(Color.clear)
+                        .frame(width: zoneWidth, height: chartHeight)
+                        .position(x: xPosition, y: padding + chartHeight/2)
+                        .onHover { isHovering in
+                            hoveredDate = isHovering ? date : nil
+                        }
+                }
+                
+                // Tooltip overlay
+                if let hoveredDate = hoveredDate {
+                    tooltipView(for: hoveredDate, width: width, height: height, padding: padding, chartWidth: chartWidth, chartHeight: chartHeight)
+                }
+            }
+        }
+    }
+    
+    private func tooltipView(for date: Date, width: CGFloat, height: CGFloat, padding: CGFloat, chartWidth: CGFloat, chartHeight: CGFloat) -> some View {
+        let allPoints = getAllPoints()
+        let pointsAtDate = getPointsAtDate(date: date)
+        
+        // Get the x position for this date - use same logic as chart points
+        let pointIndex = allPoints.firstIndex { Calendar.current.isDate($0.date, inSameDayAs: date) } ?? 0
+        let pointX = padding + (chartWidth * CGFloat(pointIndex) / CGFloat(max(allPoints.count - 1, 1)))
+        
+        return VStack(alignment: .leading, spacing: 12) {
+            Text(formatDateForTooltip(date))
+                .font(.caption)
+                .fontWeight(.semibold)
+                .foregroundColor(.primary)
+            
+            // Show tooltips for each scenario at this date
+            ForEach(pointsAtDate.sorted { $0.scenario.rawValue < $1.scenario.rawValue }) { point in
+                VStack(alignment: .leading, spacing: 4) {
+                    HStack {
+                        Circle()
+                            .fill(point.scenario == .best ? .green : point.scenario == .darkest ? .red : .blue)
+                            .frame(width: 8, height: 8)
+                        
+                        Text(point.scenario.rawValue.capitalized + " Timeline")
+                            .font(.caption2)
+                            .fontWeight(.medium)
+                            .foregroundColor(point.scenario == .best ? .green : point.scenario == .darkest ? .red : .blue)
+                    }
+                    
+                    Text("Happiness: \(String(format: "%.1f", point.happiness))/10")
+                        .font(.caption2)
+                        .foregroundColor(.secondary)
+                    
+                    if !point.description.isEmpty {
+                        Text(point.description)
+                            .font(.caption2)
+                            .foregroundColor(.primary)
+                            .multilineTextAlignment(.leading)
+                            .fixedSize(horizontal: false, vertical: true)
+                    }
+                }
+                .padding(6)
+                .background(
+                    RoundedRectangle(cornerRadius: 4)
+                        .fill(Color.gray.opacity(0.1))
+                )
+            }
+        }
+        .padding(10)
+        .background(
+            RoundedRectangle(cornerRadius: 8)
+                .fill(Color(NSColor.controlBackgroundColor))
+                .shadow(color: .black.opacity(0.15), radius: 6, x: 0, y: 3)
+        )
+        .frame(maxWidth: 280)
+        .position(
+            x: min(max(pointX, 140), width - 140),
+            y: max(height * 0.2, 60)
+        )
+    }
+    
+    private func getPointsAtDate(date: Date) -> [TimelinePoint] {
+        var pointsAtDate: [TimelinePoint] = []
+        
+        // Check actual data
+        pointsAtDate.append(contentsOf: actualData.filter { Calendar.current.isDate($0.date, inSameDayAs: date) })
+        
+        // Check prediction data
+        if let prediction = prediction {
+            pointsAtDate.append(contentsOf: prediction.bestTimeline.filter { Calendar.current.isDate($0.date, inSameDayAs: date) })
+            pointsAtDate.append(contentsOf: prediction.darkestTimeline.filter { Calendar.current.isDate($0.date, inSameDayAs: date) })
+        }
+        
+        return pointsAtDate
+    }
+    
+    private func formatDateForTooltip(_ date: Date) -> String {
+        let formatter = DateFormatter()
+        formatter.dateFormat = "MMM yyyy"
+        return formatter.string(from: date)
+    }
+    
+    private func getUniqueDates() -> [Date] {
+        var allDates: [Date] = []
+        
+        // Collect dates from actual data
+        allDates.append(contentsOf: actualData.map { $0.date })
+        
+        // Collect dates from prediction data
+        if let prediction = prediction {
+            allDates.append(contentsOf: prediction.bestTimeline.map { $0.date })
+            allDates.append(contentsOf: prediction.darkestTimeline.map { $0.date })
+        }
+        
+        // Remove duplicates and sort
+        let uniqueDates = Array(Set(allDates)).sorted()
+        return uniqueDates
+    }
+    
+    
+    private func getAllPoints() -> [TimelinePoint] {
+        var allPoints = actualData
+        
+        if let prediction = prediction {
+            allPoints.append(contentsOf: prediction.bestTimeline)
+            allPoints.append(contentsOf: prediction.darkestTimeline)
+        }
+        
+        return allPoints.sorted { $0.date < $1.date }
+    }
+    
+    private func drawTimeline(points: [TimelinePoint], color: Color, isDashed: Bool, width: CGFloat, height: CGFloat, padding: CGFloat) -> some View {
+        let sortedPoints = points.sorted { $0.date < $1.date }
+        let allPoints = getAllPoints()
+        
+        return ZStack {
+            // Draw line
+            if sortedPoints.count > 1 {
+                Path { path in
+                    for (index, point) in sortedPoints.enumerated() {
+                        let x = padding + (width * CGFloat(getPointIndex(point: point, in: allPoints)) / CGFloat(max(allPoints.count - 1, 1)))
+                        let y = padding + (height * CGFloat(10 - point.happiness) / 10)
+                        
+                        if index == 0 {
+                            path.move(to: CGPoint(x: x, y: y))
+                        } else {
+                            path.addLine(to: CGPoint(x: x, y: y))
+                        }
+                    }
+                }
+                .stroke(color, style: StrokeStyle(lineWidth: isDashed ? 2 : 3, lineCap: .round, dash: isDashed ? [5, 5] : []))
+            }
+            
+            // Draw points
+            ForEach(sortedPoints) { point in
+                Circle()
+                    .fill(color)
+                    .frame(width: 8, height: 8)
+                    .position(
+                        x: padding + (width * CGFloat(getPointIndex(point: point, in: allPoints)) / CGFloat(max(allPoints.count - 1, 1))),
+                        y: padding + (height * CGFloat(10 - point.happiness) / 10)
+                    )
+                    .onTapGesture {
+                        onPointSelected(point)
+                    }
+            }
+        }
+    }
+    
+    private func getPointIndex(point: TimelinePoint, in allPoints: [TimelinePoint]) -> Int {
+        return allPoints.firstIndex { $0.date == point.date } ?? 0
+    }
+    
+    private func formatDateForAxis(_ date: Date) -> String {
+        let formatter = DateFormatter()
+        formatter.dateFormat = "MMM"
+        return formatter.string(from: date)
     }
 }
 
@@ -85,6 +1092,22 @@ struct ContentView: View {
     @State private var colorScheme: ColorScheme = .light // Add state for color scheme
     @State private var isHoveringThemeToggle = false // Add state for theme toggle hover
     @State private var didCopyPrompt: Bool = false // Add state for copy prompt feedback
+    @State private var currentView: AppView = .writing // Add state for current view
+    @State private var isHoveringTimeline = false // Add state for timeline button hover
+    @State private var showingTimeline = false // Keep for backwards compatibility
+    @State private var isHoveringSettings = false // Add state for settings button hover
+    @AppStorage("claudeApiToken") private var claudeApiToken: String = ""
+    @AppStorage("predictionMonths") private var predictionMonths: Int = 6
+    @StateObject private var claudeService = ClaudeAPIService()
+    @State private var timelinePrediction: TimelinePrediction?
+    @State private var isGeneratingPrediction = false
+    @State private var showApiToken = false
+    
+    enum AppView {
+        case writing
+        case timeline
+        case settings
+    }
     let timer = Timer.publish(every: 1, on: .main, in: .common).autoconnect()
     let entryHeight: CGFloat = 40
     
@@ -249,7 +1272,9 @@ struct ContentView: View {
                             id: uuid,
                             date: displayDate,
                             filename: filename,
-                            previewText: truncated
+                            previewText: truncated,
+                            summary: nil,
+                            summaryGenerated: nil
                         ),
                         date: fileDate,
                         content: content  // Store the full content to check for welcome message
@@ -390,6 +1415,18 @@ struct ContentView: View {
         let textColor = colorScheme == .light ? Color.gray : Color.gray.opacity(0.8)
         let textHoverColor = colorScheme == .light ? Color.black : Color.white
         
+        Group {
+            if currentView == .timeline {
+                timelinePageView
+            } else if currentView == .settings {
+                settingsPageView
+            } else {
+                writingPageView(buttonBackground: buttonBackground, navHeight: navHeight, textColor: textColor, textHoverColor: textHoverColor)
+            }
+        }
+    }
+    
+    private func writingPageView(buttonBackground: Color, navHeight: CGFloat, textColor: Color, textHoverColor: Color) -> some View {
         HStack(spacing: 0) {
             // Main content
             ZStack {
@@ -841,6 +1878,48 @@ struct ContentView: View {
                             Text("•")
                                 .foregroundColor(.gray)
                             
+                            // Timeline button
+                            Button(action: {
+                                currentView = .timeline
+                            }) {
+                                Image(systemName: "timeline.selection")
+                                    .foregroundColor(isHoveringTimeline ? textHoverColor : textColor)
+                            }
+                            .buttonStyle(.plain)
+                            .onHover { hovering in
+                                isHoveringTimeline = hovering
+                                isHoveringBottomNav = hovering
+                                if hovering {
+                                    NSCursor.pointingHand.push()
+                                } else {
+                                    NSCursor.pop()
+                                }
+                            }
+                            
+                            Text("•")
+                                .foregroundColor(.gray)
+                            
+                            // Settings button
+                            Button(action: {
+                                currentView = .settings
+                            }) {
+                                Image(systemName: "gear")
+                                    .foregroundColor(isHoveringSettings ? textHoverColor : textColor)
+                            }
+                            .buttonStyle(.plain)
+                            .onHover { hovering in
+                                isHoveringSettings = hovering
+                                isHoveringBottomNav = hovering
+                                if hovering {
+                                    NSCursor.pointingHand.push()
+                                } else {
+                                    NSCursor.pop()
+                                }
+                            }
+                            
+                            Text("•")
+                                .foregroundColor(.gray)
+                            
                             // Version history button
                             Button(action: {
                                 withAnimation(.easeInOut(duration: 0.2)) {
@@ -1064,6 +2143,332 @@ struct ContentView: View {
         }
         .onReceive(NotificationCenter.default.publisher(for: NSWindow.willExitFullScreenNotification)) { _ in
             isFullscreen = false
+        }
+    }
+    
+    private var timelinePageView: some View {
+        VStack(spacing: 0) {
+            // Navigation header
+            HStack {
+                Button(action: {
+                    currentView = .writing
+                }) {
+                    HStack(spacing: 8) {
+                        Image(systemName: "chevron.left")
+                        Text("Back to Writing")
+                    }
+                    .foregroundColor(.primary)
+                }
+                .buttonStyle(.plain)
+                
+                Spacer()
+                
+                Text("Timeline")
+                    .font(.title2)
+                    .fontWeight(.medium)
+                
+                Spacer()
+                
+                // Empty space for visual balance
+                HStack(spacing: 8) {
+                    Text("Back to Writing")
+                        .opacity(0)
+                    Image(systemName: "chevron.left")
+                        .opacity(0)
+                }
+            }
+            .padding()
+            .background(Color(NSColor.windowBackgroundColor))
+            
+            // Timeline content
+            ScrollView {
+                VStack(spacing: 24) {
+                    // Generate Predictions Button
+                    HStack {
+                        Button(action: {
+                            generateTimelinePredictions()
+                        }) {
+                            HStack {
+                                if isGeneratingPrediction {
+                                    ProgressView()
+                                        .scaleEffect(0.8)
+                                        .progressViewStyle(CircularProgressViewStyle())
+                                } else {
+                                    Image(systemName: "wand.and.stars")
+                                }
+                                Text(isGeneratingPrediction ? "Generating Predictions..." : "Generate Timeline Predictions")
+                            }
+                            .padding(.horizontal, 16)
+                            .padding(.vertical, 8)
+                            .background(claudeApiToken.isEmpty ? Color.gray.opacity(0.3) : Color.blue)
+                            .foregroundColor(.white)
+                            .cornerRadius(8)
+                        }
+                        .disabled(claudeApiToken.isEmpty || isGeneratingPrediction)
+                        .buttonStyle(.plain)
+                        
+                        Spacer()
+                        
+                        if claudeApiToken.isEmpty {
+                            Button(action: {
+                                currentView = .settings
+                            }) {
+                                HStack {
+                                    Image(systemName: "gear")
+                                    Text("Add API Token")
+                                }
+                                .padding(.horizontal, 16)
+                                .padding(.vertical, 8)
+                                .background(Color.orange)
+                                .foregroundColor(.white)
+                                .cornerRadius(8)
+                            }
+                            .buttonStyle(.plain)
+                        }
+                    }
+                    .padding(.horizontal)
+                    
+                    // Error message
+                    if let error = claudeService.error {
+                        Text(error)
+                            .foregroundColor(.red)
+                            .padding()
+                            .background(Color.red.opacity(0.1))
+                            .cornerRadius(8)
+                            .padding(.horizontal)
+                    }
+                    
+                    // Timeline Chart
+                    TimelineChartView(
+                        entries: entries,
+                        prediction: timelinePrediction,
+                        onEntrySelected: { entry in
+                            selectedEntryId = entry.id
+                            loadEntry(entry: entry)
+                            currentView = .writing
+                        }
+                    )
+                    
+                    // Original Timeline View (for entry selection)
+                    VStack(alignment: .leading, spacing: 16) {
+                        Text("Journal Entries")
+                            .font(.headline)
+                            .fontWeight(.semibold)
+                            .padding(.horizontal)
+                        
+                        TimelineView(
+                            entries: entries,
+                            onEntrySelected: { entry in
+                                selectedEntryId = entry.id
+                                loadEntry(entry: entry)
+                                currentView = .writing
+                            },
+                            onClose: {
+                                currentView = .writing
+                            }
+                        )
+                    }
+                }
+            }
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .background(Color(NSColor.windowBackgroundColor))
+        .preferredColorScheme(colorScheme)
+    }
+    
+    private var settingsPageView: some View {
+        VStack(spacing: 0) {
+            // Navigation header
+            HStack {
+                Button(action: {
+                    currentView = .writing
+                }) {
+                    HStack(spacing: 8) {
+                        Image(systemName: "chevron.left")
+                        Text("Back to Writing")
+                    }
+                    .foregroundColor(.primary)
+                }
+                .buttonStyle(.plain)
+                
+                Spacer()
+                
+                Text("Settings")
+                    .font(.title2)
+                    .fontWeight(.medium)
+                
+                Spacer()
+                
+                // Empty space for visual balance
+                HStack(spacing: 8) {
+                    Text("Back to Writing")
+                        .opacity(0)
+                    Image(systemName: "chevron.left")
+                        .opacity(0)
+                }
+            }
+            .padding()
+            .background(Color(NSColor.windowBackgroundColor))
+            
+            // Settings content
+            ScrollView {
+                VStack(alignment: .leading, spacing: 24) {
+                    // Claude AI API Token Section
+                    VStack(alignment: .leading, spacing: 16) {
+                        Text("Claude AI Integration")
+                            .font(.headline)
+                            .fontWeight(.semibold)
+                        
+                        VStack(alignment: .leading, spacing: 8) {
+                            Text("API Token")
+                                .font(.subheadline)
+                                .fontWeight(.medium)
+                            
+                            Text("Enter your Claude AI API token to enable timeline predictions and advanced analysis.")
+                                .font(.caption)
+                                .foregroundColor(.secondary)
+                                .fixedSize(horizontal: false, vertical: true)
+                            
+                            HStack {
+                                Group {
+                                    if showApiToken {
+                                        TextField("Enter Claude AI API Token", text: $claudeApiToken)
+                                    } else {
+                                        SecureField("Enter Claude AI API Token", text: $claudeApiToken)
+                                    }
+                                }
+                                .textFieldStyle(.roundedBorder)
+                                
+                                Button(action: {
+                                    showApiToken.toggle()
+                                }) {
+                                    Image(systemName: showApiToken ? "eye.slash" : "eye")
+                                        .foregroundColor(.gray)
+                                }
+                                .buttonStyle(.plain)
+                                .help(showApiToken ? "Hide API token" : "Show API token")
+                            }
+                            .frame(maxWidth: 400)
+                            
+                            HStack {
+                                Button(action: {
+                                    Task {
+                                        await claudeService.testConnection(apiToken: claudeApiToken)
+                                    }
+                                }) {
+                                    HStack {
+                                        if claudeService.isTestingConnection {
+                                            ProgressView()
+                                                .scaleEffect(0.8)
+                                                .progressViewStyle(CircularProgressViewStyle())
+                                        } else {
+                                            Image(systemName: "antenna.radiowaves.left.and.right")
+                                        }
+                                        Text(claudeService.isTestingConnection ? "Testing..." : "Test Connection")
+                                    }
+                                    .padding(.horizontal, 12)
+                                    .padding(.vertical, 6)
+                                    .background(claudeApiToken.isEmpty ? Color.gray.opacity(0.3) : Color.blue)
+                                    .foregroundColor(.white)
+                                    .cornerRadius(6)
+                                }
+                                .disabled(claudeApiToken.isEmpty || claudeService.isTestingConnection)
+                                .buttonStyle(.plain)
+                                
+                                Spacer()
+                            }
+                            
+                            if let result = claudeService.connectionTestResult {
+                                Text(result)
+                                    .font(.caption)
+                                    .foregroundColor(result.contains("✅") ? .green : .red)
+                                    .padding(.top, 4)
+                            }
+                        }
+                        
+                        VStack(alignment: .leading, spacing: 8) {
+                            Text("How to get your API token:")
+                                .font(.caption)
+                                .fontWeight(.medium)
+                            
+                            Text("1. Go to console.anthropic.com\n2. Create an account or sign in\n3. Navigate to API Keys\n4. Create a new API key\n5. Copy and paste it above")
+                                .font(.caption)
+                                .foregroundColor(.secondary)
+                                .fixedSize(horizontal: false, vertical: true)
+                        }
+                        
+                        VStack(alignment: .leading, spacing: 8) {
+                            Text("Troubleshooting:")
+                                .font(.caption)
+                                .fontWeight(.medium)
+                            
+                            Text("• Ensure you have an active internet connection\n• Check that your firewall isn't blocking api.anthropic.com\n• Verify your API token is correct and has sufficient credits\n• Try the 'Test Connection' button above")
+                                .font(.caption)
+                                .foregroundColor(.secondary)
+                                .fixedSize(horizontal: false, vertical: true)
+                        }
+                    }
+                    
+                    Divider()
+                    
+                    // Timeline Prediction Settings
+                    VStack(alignment: .leading, spacing: 16) {
+                        Text("Timeline Predictions")
+                            .font(.headline)
+                            .fontWeight(.semibold)
+                        
+                        VStack(alignment: .leading, spacing: 8) {
+                            Text("Prediction Range")
+                                .font(.subheadline)
+                                .fontWeight(.medium)
+                            
+                            Text("How many months ahead would you like to predict?")
+                                .font(.caption)
+                                .foregroundColor(.secondary)
+                            
+                            Picker("Prediction Range", selection: $predictionMonths) {
+                                Text("3 months").tag(3)
+                                Text("6 months").tag(6)
+                                Text("12 months").tag(12)
+                            }
+                            .pickerStyle(.segmented)
+                            .frame(maxWidth: 300)
+                        }
+                    }
+                    
+                    Spacer()
+                }
+                .padding()
+            }
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .background(Color(NSColor.windowBackgroundColor))
+        .preferredColorScheme(colorScheme)
+    }
+    
+    private func generateTimelinePredictions() {
+        guard !claudeApiToken.isEmpty else { return }
+        
+        isGeneratingPrediction = true
+        
+        Task {
+            do {
+                let prediction = try await claudeService.generateTimelinePrediction(
+                    entries: entries,
+                    apiToken: claudeApiToken,
+                    monthsAhead: predictionMonths
+                )
+                
+                await MainActor.run {
+                    timelinePrediction = prediction
+                    isGeneratingPrediction = false
+                }
+            } catch {
+                await MainActor.run {
+                    isGeneratingPrediction = false
+                    print("Error generating predictions: \(error)")
+                }
+            }
         }
     }
     
