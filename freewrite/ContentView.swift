@@ -576,22 +576,239 @@ struct ContentView: View {
                         
                         // Utility buttons (moved to right)
                         HStack(spacing: 8) {
-                            Button(timerButtonTitle) {
-                                let now = Date()
-                                if let lastClick = lastClickTime,
-                                   now.timeIntervalSince(lastClick) < 0.3 {
-                                    timeRemaining = 900
-                                    timerIsRunning = false
-                                    lastClickTime = nil
-                                } else {
-                                    timerIsRunning.toggle()
-                                    lastClickTime = now
-                                }
+                            // Button(timerButtonTitle) {
+                            //     let now = Date()
+                            //     if let lastClick = lastClickTime,
+                            //        now.timeIntervalSince(lastClick) < 0.3 {
+                            //         timeRemaining = 900
+                            //         timerIsRunning = false
+                            //         lastClickTime = nil
+                            //     } else {
+                            //         timerIsRunning.toggle()
+                            //         lastClickTime = now
+                            //     }
+                            // }
+                            // .buttonStyle(.plain)
+                            // .foregroundColor(timerColor)
+                            // .onHover { hovering in
+                            //     isHoveringTimer = hovering
+                            //     isHoveringBottomNav = hovering
+                            //     if hovering {
+                            //         NSCursor.pointingHand.push()
+                            //     } else {
+                            //         NSCursor.pop()
+                            //     }
+                            // }
+                            // .onAppear {
+                            //     NSEvent.addLocalMonitorForEvents(matching: .scrollWheel) { event in
+                            //         if isHoveringTimer {
+                            //             let scrollBuffer = event.deltaY * 0.25
+                                        
+                            //             if abs(scrollBuffer) >= 0.1 {
+                            //                 let currentMinutes = timeRemaining / 60
+                            //                 NSHapticFeedbackManager.defaultPerformer.perform(.generic, performanceTime: .now)
+                            //                 let direction = -scrollBuffer > 0 ? 5 : -5
+                            //                 let newMinutes = currentMinutes + direction
+                            //                 let roundedMinutes = (newMinutes / 5) * 5
+                            //                 let newTime = roundedMinutes * 60
+                            //                 timeRemaining = min(max(newTime, 0), 2700)
+                            //             }
+                            //         }
+                            //         return event
+                            //     }
+                            // }
+                            
+                            // Text("•")
+                            //     .foregroundColor(.gray)
+                            
+                            // Button("Chat") {
+                            //     showingChatMenu = true
+                            //     // Ensure didCopyPrompt is reset when opening the menu
+                            //     didCopyPrompt = false
+                            // }
+                            // .buttonStyle(.plain)
+                            // .foregroundColor(isHoveringChat ? textHoverColor : textColor)
+                            // .onHover { hovering in
+                            //     isHoveringChat = hovering
+                            //     isHoveringBottomNav = hovering
+                            //     if hovering {
+                            //         NSCursor.pointingHand.push()
+                            //     } else {
+                            //         NSCursor.pop()
+                            //     }
+                            // }
+                            // .popover(isPresented: $showingChatMenu, attachmentAnchor: .point(UnitPoint(x: 0.5, y: 0)), arrowEdge: .top) {
+                            //     VStack(spacing: 0) { // Wrap everything in a VStack for consistent styling and onChange
+                            //         let trimmedText = text.trimmingCharacters(in: .whitespacesAndNewlines)
+                                    
+                            //         // Calculate potential URL lengths
+                            //         let gptFullText = aiChatPrompt + "\n\n" + trimmedText
+                            //         let claudeFullText = claudePrompt + "\n\n" + trimmedText
+                            //         let encodedGptText = gptFullText.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? ""
+                            //         let encodedClaudeText = claudeFullText.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? ""
+                                    
+                            //         let gptUrlLength = "https://chat.openai.com/?m=".count + encodedGptText.count
+                            //         let claudeUrlLength = "https://claude.ai/new?q=".count + encodedClaudeText.count
+                            //         let isUrlTooLong = gptUrlLength > 6000 || claudeUrlLength > 6000
+                                    
+                            //         if isUrlTooLong {
+                            //             // View for long text (URL too long)
+                            //             Text("Hey, your entry is long. It'll break the URL. Instead, copy prompt by clicking below and paste into AI of your choice!")
+                            //                 .font(.system(size: 14))
+                            //                 .foregroundColor(popoverTextColor)
+                            //                 .lineLimit(nil)
+                            //                 .multilineTextAlignment(.leading)
+                            //                 .frame(width: 200, alignment: .leading)
+                            //                 .padding(.horizontal, 12)
+                            //                 .padding(.vertical, 8)
+                                        
+                            //             Divider()
+                                        
+                            //             Button(action: {
+                            //                 copyPromptToClipboard()
+                            //                 didCopyPrompt = true
+                            //             }) {
+                            //                 Text(didCopyPrompt ? "Copied!" : "Copy Prompt")
+                            //                     .frame(maxWidth: .infinity, alignment: .leading)
+                            //                     .padding(.horizontal, 12)
+                            //                     .padding(.vertical, 8)
+                            //             }
+                            //             .buttonStyle(.plain)
+                            //             .foregroundColor(popoverTextColor)
+                            //             .onHover { hovering in
+                            //                 if hovering {
+                            //                     NSCursor.pointingHand.push()
+                            //                 } else {
+                            //                     NSCursor.pop()
+                            //                 }
+                            //             }
+                                        
+                            //         } else if text.trimmingCharacters(in: .whitespacesAndNewlines).hasPrefix("hi. my name is farza.") {
+                            //             Text("Yo. Sorry, you can't chat with the guide lol. Please write your own entry.")
+                            //                 .font(.system(size: 14))
+                            //                 .foregroundColor(popoverTextColor)
+                            //                 .frame(width: 250)
+                            //                 .padding(.horizontal, 12)
+                            //                 .padding(.vertical, 8)
+                            //         } else if text.count < 350 {
+                            //             Text("Please free write for at minimum 5 minutes first. Then click this. Trust.")
+                            //                 .font(.system(size: 14))
+                            //                 .foregroundColor(popoverTextColor)
+                            //                 .frame(width: 250)
+                            //                 .padding(.horizontal, 12)
+                            //                 .padding(.vertical, 8)
+                            //         } else {
+                            //             // View for normal text length
+                            //             Button(action: {
+                            //                 showingChatMenu = false
+                            //                 openChatGPT()
+                            //             }) {
+                            //                 Text("ChatGPT")
+                            //                     .frame(maxWidth: .infinity, alignment: .leading)
+                            //                     .padding(.horizontal, 12)
+                            //                     .padding(.vertical, 8)
+                            //             }
+                            //             .buttonStyle(.plain)
+                            //             .foregroundColor(popoverTextColor)
+                            //             .onHover { hovering in
+                            //                 if hovering {
+                            //                     NSCursor.pointingHand.push()
+                            //                 } else {
+                            //                     NSCursor.pop()
+                            //                 }
+                            //             }
+                                        
+                            //             Divider()
+                                        
+                            //             Button(action: {
+                            //                 showingChatMenu = false
+                            //                 openClaude()
+                            //             }) {
+                            //                 Text("Claude")
+                            //                     .frame(maxWidth: .infinity, alignment: .leading)
+                            //                     .padding(.horizontal, 12)
+                            //                     .padding(.vertical, 8)
+                            //             }
+                            //             .buttonStyle(.plain)
+                            //             .foregroundColor(popoverTextColor)
+                            //             .onHover { hovering in
+                            //                 if hovering {
+                            //                     NSCursor.pointingHand.push()
+                            //                 } else {
+                            //                     NSCursor.pop()
+                            //                 }
+                            //             }
+                                        
+                            //             Divider()
+                                        
+                            //             Button(action: {
+                            //                 // Don't dismiss menu, just copy and update state
+                            //                 copyPromptToClipboard()
+                            //                 didCopyPrompt = true
+                            //             }) {
+                            //                 Text(didCopyPrompt ? "Copied!" : "Copy Prompt")
+                            //                     .frame(maxWidth: .infinity, alignment: .leading)
+                            //                     .padding(.horizontal, 12)
+                            //                     .padding(.vertical, 8)
+                            //             }
+                            //             .buttonStyle(.plain)
+                            //             .foregroundColor(popoverTextColor)
+                            //             .onHover { hovering in
+                            //                 if hovering {
+                            //                     NSCursor.pointingHand.push()
+                            //                 } else {
+                            //                     NSCursor.pop()
+                            //                 }
+                            //             }
+                            //         }
+                            //     }
+                            //     .frame(minWidth: 120, maxWidth: 250) // Allow width to adjust
+                            //     .background(popoverBackgroundColor)
+                            //     .cornerRadius(8)
+                            //     .shadow(color: Color.black.opacity(0.1), radius: 4, y: 2)
+                            //     // Reset copied state when popover dismisses
+                            //     .onChange(of: showingChatMenu) { newValue in
+                            //         if !newValue {
+                            //             didCopyPrompt = false
+                            //         }
+                            //     }
+                            // }
+                            
+                            // Text("•")
+                            //     .foregroundColor(.gray)
+                            
+                            // Button(isFullscreen ? "Minimize" : "Fullscreen") {
+                            //     if let window = NSApplication.shared.windows.first {
+                            //         window.toggleFullScreen(nil)
+                            //     }
+                            // }
+                            // .buttonStyle(.plain)
+                            // .foregroundColor(isHoveringFullscreen ? textHoverColor : textColor)
+                            // .onHover { hovering in
+                            //     isHoveringFullscreen = hovering
+                            //     isHoveringBottomNav = hovering
+                            //     if hovering {
+                            //         NSCursor.pointingHand.push()
+                            //     } else {
+                            //         NSCursor.pop()
+                            //     }
+                            // }
+                            
+                            // Text("•")
+                            //     .foregroundColor(.gray)
+
+                            // Theme toggle button
+                            Button(action: {
+                                colorScheme = colorScheme == .light ? .dark : .light
+                                // Save preference
+                                UserDefaults.standard.set(colorScheme == .light ? "light" : "dark", forKey: "colorScheme")
+                            }) {
+                                Image(systemName: colorScheme == .light ? "moon.fill" : "sun.max.fill")
+                                    .foregroundColor(isHoveringThemeToggle ? textHoverColor : textColor)
                             }
                             .buttonStyle(.plain)
-                            .foregroundColor(timerColor)
                             .onHover { hovering in
-                                isHoveringTimer = hovering
+                                isHoveringThemeToggle = hovering
                                 isHoveringBottomNav = hovering
                                 if hovering {
                                     NSCursor.pointingHand.push()
@@ -599,201 +816,7 @@ struct ContentView: View {
                                     NSCursor.pop()
                                 }
                             }
-                            .onAppear {
-                                NSEvent.addLocalMonitorForEvents(matching: .scrollWheel) { event in
-                                    if isHoveringTimer {
-                                        let scrollBuffer = event.deltaY * 0.25
-                                        
-                                        if abs(scrollBuffer) >= 0.1 {
-                                            let currentMinutes = timeRemaining / 60
-                                            NSHapticFeedbackManager.defaultPerformer.perform(.generic, performanceTime: .now)
-                                            let direction = -scrollBuffer > 0 ? 5 : -5
-                                            let newMinutes = currentMinutes + direction
-                                            let roundedMinutes = (newMinutes / 5) * 5
-                                            let newTime = roundedMinutes * 60
-                                            timeRemaining = min(max(newTime, 0), 2700)
-                                        }
-                                    }
-                                    return event
-                                }
-                            }
-                            
-                            Text("•")
-                                .foregroundColor(.gray)
-                            
-                            Button("Chat") {
-                                showingChatMenu = true
-                                // Ensure didCopyPrompt is reset when opening the menu
-                                didCopyPrompt = false
-                            }
-                            .buttonStyle(.plain)
-                            .foregroundColor(isHoveringChat ? textHoverColor : textColor)
-                            .onHover { hovering in
-                                isHoveringChat = hovering
-                                isHoveringBottomNav = hovering
-                                if hovering {
-                                    NSCursor.pointingHand.push()
-                                } else {
-                                    NSCursor.pop()
-                                }
-                            }
-                            .popover(isPresented: $showingChatMenu, attachmentAnchor: .point(UnitPoint(x: 0.5, y: 0)), arrowEdge: .top) {
-                                VStack(spacing: 0) { // Wrap everything in a VStack for consistent styling and onChange
-                                    let trimmedText = text.trimmingCharacters(in: .whitespacesAndNewlines)
-                                    
-                                    // Calculate potential URL lengths
-                                    let gptFullText = aiChatPrompt + "\n\n" + trimmedText
-                                    let claudeFullText = claudePrompt + "\n\n" + trimmedText
-                                    let encodedGptText = gptFullText.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? ""
-                                    let encodedClaudeText = claudeFullText.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? ""
-                                    
-                                    let gptUrlLength = "https://chat.openai.com/?m=".count + encodedGptText.count
-                                    let claudeUrlLength = "https://claude.ai/new?q=".count + encodedClaudeText.count
-                                    let isUrlTooLong = gptUrlLength > 6000 || claudeUrlLength > 6000
-                                    
-                                    if isUrlTooLong {
-                                        // View for long text (URL too long)
-                                        Text("Hey, your entry is long. It'll break the URL. Instead, copy prompt by clicking below and paste into AI of your choice!")
-                                            .font(.system(size: 14))
-                                            .foregroundColor(popoverTextColor)
-                                            .lineLimit(nil)
-                                            .multilineTextAlignment(.leading)
-                                            .frame(width: 200, alignment: .leading)
-                                            .padding(.horizontal, 12)
-                                            .padding(.vertical, 8)
-                                        
-                                        Divider()
-                                        
-                                        Button(action: {
-                                            copyPromptToClipboard()
-                                            didCopyPrompt = true
-                                        }) {
-                                            Text(didCopyPrompt ? "Copied!" : "Copy Prompt")
-                                                .frame(maxWidth: .infinity, alignment: .leading)
-                                                .padding(.horizontal, 12)
-                                                .padding(.vertical, 8)
-                                        }
-                                        .buttonStyle(.plain)
-                                        .foregroundColor(popoverTextColor)
-                                        .onHover { hovering in
-                                            if hovering {
-                                                NSCursor.pointingHand.push()
-                                            } else {
-                                                NSCursor.pop()
-                                            }
-                                        }
-                                        
-                                    } else if text.trimmingCharacters(in: .whitespacesAndNewlines).hasPrefix("hi. my name is farza.") {
-                                        Text("Yo. Sorry, you can't chat with the guide lol. Please write your own entry.")
-                                            .font(.system(size: 14))
-                                            .foregroundColor(popoverTextColor)
-                                            .frame(width: 250)
-                                            .padding(.horizontal, 12)
-                                            .padding(.vertical, 8)
-                                    } else if text.count < 350 {
-                                        Text("Please free write for at minimum 5 minutes first. Then click this. Trust.")
-                                            .font(.system(size: 14))
-                                            .foregroundColor(popoverTextColor)
-                                            .frame(width: 250)
-                                            .padding(.horizontal, 12)
-                                            .padding(.vertical, 8)
-                                    } else {
-                                        // View for normal text length
-                                        Button(action: {
-                                            showingChatMenu = false
-                                            openChatGPT()
-                                        }) {
-                                            Text("ChatGPT")
-                                                .frame(maxWidth: .infinity, alignment: .leading)
-                                                .padding(.horizontal, 12)
-                                                .padding(.vertical, 8)
-                                        }
-                                        .buttonStyle(.plain)
-                                        .foregroundColor(popoverTextColor)
-                                        .onHover { hovering in
-                                            if hovering {
-                                                NSCursor.pointingHand.push()
-                                            } else {
-                                                NSCursor.pop()
-                                            }
-                                        }
-                                        
-                                        Divider()
-                                        
-                                        Button(action: {
-                                            showingChatMenu = false
-                                            openClaude()
-                                        }) {
-                                            Text("Claude")
-                                                .frame(maxWidth: .infinity, alignment: .leading)
-                                                .padding(.horizontal, 12)
-                                                .padding(.vertical, 8)
-                                        }
-                                        .buttonStyle(.plain)
-                                        .foregroundColor(popoverTextColor)
-                                        .onHover { hovering in
-                                            if hovering {
-                                                NSCursor.pointingHand.push()
-                                            } else {
-                                                NSCursor.pop()
-                                            }
-                                        }
-                                        
-                                        Divider()
-                                        
-                                        Button(action: {
-                                            // Don't dismiss menu, just copy and update state
-                                            copyPromptToClipboard()
-                                            didCopyPrompt = true
-                                        }) {
-                                            Text(didCopyPrompt ? "Copied!" : "Copy Prompt")
-                                                .frame(maxWidth: .infinity, alignment: .leading)
-                                                .padding(.horizontal, 12)
-                                                .padding(.vertical, 8)
-                                        }
-                                        .buttonStyle(.plain)
-                                        .foregroundColor(popoverTextColor)
-                                        .onHover { hovering in
-                                            if hovering {
-                                                NSCursor.pointingHand.push()
-                                            } else {
-                                                NSCursor.pop()
-                                            }
-                                        }
-                                    }
-                                }
-                                .frame(minWidth: 120, maxWidth: 250) // Allow width to adjust
-                                .background(popoverBackgroundColor)
-                                .cornerRadius(8)
-                                .shadow(color: Color.black.opacity(0.1), radius: 4, y: 2)
-                                // Reset copied state when popover dismisses
-                                .onChange(of: showingChatMenu) { newValue in
-                                    if !newValue {
-                                        didCopyPrompt = false
-                                    }
-                                }
-                            }
-                            
-                            Text("•")
-                                .foregroundColor(.gray)
-                            
-                            Button(isFullscreen ? "Minimize" : "Fullscreen") {
-                                if let window = NSApplication.shared.windows.first {
-                                    window.toggleFullScreen(nil)
-                                }
-                            }
-                            .buttonStyle(.plain)
-                            .foregroundColor(isHoveringFullscreen ? textHoverColor : textColor)
-                            .onHover { hovering in
-                                isHoveringFullscreen = hovering
-                                isHoveringBottomNav = hovering
-                                if hovering {
-                                    NSCursor.pointingHand.push()
-                                } else {
-                                    NSCursor.pop()
-                                }
-                            }
-                            
+
                             Text("•")
                                 .foregroundColor(.gray)
                             
@@ -815,29 +838,6 @@ struct ContentView: View {
                                 }
                             }
                             
-                            Text("•")
-                                .foregroundColor(.gray)
-                            
-                            // Theme toggle button
-                            Button(action: {
-                                colorScheme = colorScheme == .light ? .dark : .light
-                                // Save preference
-                                UserDefaults.standard.set(colorScheme == .light ? "light" : "dark", forKey: "colorScheme")
-                            }) {
-                                Image(systemName: colorScheme == .light ? "moon.fill" : "sun.max.fill")
-                                    .foregroundColor(isHoveringThemeToggle ? textHoverColor : textColor)
-                            }
-                            .buttonStyle(.plain)
-                            .onHover { hovering in
-                                isHoveringThemeToggle = hovering
-                                isHoveringBottomNav = hovering
-                                if hovering {
-                                    NSCursor.pointingHand.push()
-                                } else {
-                                    NSCursor.pop()
-                                }
-                            }
-
                             Text("•")
                                 .foregroundColor(.gray)
                             
