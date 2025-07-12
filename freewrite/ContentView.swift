@@ -11,6 +11,7 @@ import AppKit
 import UniformTypeIdentifiers
 import PDFKit
 import AVFoundation
+import Security
 
 struct HumanEntry: Identifiable {
     let id: UUID
@@ -47,6 +48,67 @@ struct HeartEmoji: Identifiable {
     let id = UUID()
     var position: CGPoint
     var offset: CGFloat = 0
+}
+
+// MARK: - Keychain Helper for secure API key storage
+// Using Keychain instead of UserDefaults for security - API keys are encrypted and protected
+class KeychainHelper {
+    static let shared = KeychainHelper()
+    private init() {}
+    
+    private let service = "com.freewrite.apikeys"
+    private let openAIKeyAccount = "openai_api_key"
+    
+    func saveAPIKey(_ key: String) {
+        let data = key.data(using: .utf8)!
+        
+        let query: [String: Any] = [
+            kSecClass as String: kSecClassGenericPassword,
+            kSecAttrService as String: service,
+            kSecAttrAccount as String: openAIKeyAccount,
+            kSecValueData as String: data
+        ]
+        
+        // Delete any existing item
+        SecItemDelete(query as CFDictionary)
+        
+        // Add new item
+        let status = SecItemAdd(query as CFDictionary, nil)
+        if status != errSecSuccess {
+            print("Failed to save API key to Keychain: \(status)")
+        }
+    }
+    
+    func loadAPIKey() -> String? {
+        let query: [String: Any] = [
+            kSecClass as String: kSecClassGenericPassword,
+            kSecAttrService as String: service,
+            kSecAttrAccount as String: openAIKeyAccount,
+            kSecReturnData as String: true,
+            kSecMatchLimit as String: kSecMatchLimitOne
+        ]
+        
+        var result: AnyObject?
+        let status = SecItemCopyMatching(query as CFDictionary, &result)
+        
+        if status == errSecSuccess,
+           let data = result as? Data,
+           let key = String(data: data, encoding: .utf8) {
+            return key
+        }
+        
+        return nil
+    }
+    
+    func deleteAPIKey() {
+        let query: [String: Any] = [
+            kSecClass as String: kSecClassGenericPassword,
+            kSecAttrService as String: service,
+            kSecAttrAccount as String: openAIKeyAccount
+        ]
+        
+        SecItemDelete(query as CFDictionary)
+    }
 }
 
 struct ContentView: View {
@@ -98,7 +160,7 @@ struct ContentView: View {
     let timer = Timer.publish(every: 1, on: .main, in: .common).autoconnect()
     let entryHeight: CGFloat = 40
     
-    // 1. Add state for mic button
+    // Updated audio recording states for streaming
     @State private var isListening = false
     @State private var micDotAngle: Double = 0
     @State private var micDotTimer: Timer? = nil
@@ -106,6 +168,10 @@ struct ContentView: View {
     @State private var isRecording = false
     @State private var isTranscribing = false
     @State private var transcriptionError: String? = nil
+    @State private var chunkTimer: Timer? = nil
+    @State private var chunkCounter: Int = 0
+    @State private var isVoiceInputMode = false // New state for voice input mode
+    @State private var pendingTranscriptionText = "" // Buffer for incoming transcription
     
     // Toast notification states
     @State private var showToast = false
@@ -179,6 +245,10 @@ struct ContentView: View {
         // Load saved color scheme preference
         let savedScheme = UserDefaults.standard.string(forKey: "colorScheme") ?? "light"
         _colorScheme = State(initialValue: savedScheme == "dark" ? .dark : .light)
+        
+        // Load saved OpenAI API key from Keychain (secure storage)
+        let savedAPIKey = KeychainHelper.shared.loadAPIKey() ?? ""
+        _openAIAPIKey = State(initialValue: savedAPIKey)
     }
     
     // Modify getDocumentsDirectory to use cached value
@@ -424,6 +494,9 @@ struct ContentView: View {
                     TextEditor(text: Binding(
                         get: { text },
                         set: { newValue in
+                            // Don't allow text changes when voice input is active
+                            guard !isVoiceInputMode else { return }
+                            
                             // Ensure the text always starts with two newlines
                             if !newValue.hasPrefix("\n\n") {
                                 text = "\n\n" + newValue.trimmingCharacters(in: .newlines)
@@ -439,6 +512,7 @@ struct ContentView: View {
                     .scrollIndicators(.never)
                     .lineSpacing(lineHeight)
                     .frame(maxWidth: 650)
+                    .allowsHitTesting(!isVoiceInputMode) // Disable interactions during voice input
                     
           
                     .id("\(selectedFont)-\(fontSize)-\(colorScheme)")
@@ -455,8 +529,6 @@ struct ContentView: View {
                                 Text(placeholderText)
                                     .font(.custom(selectedFont, size: fontSize))
                                     .foregroundColor(colorScheme == .light ? .gray.opacity(0.5) : .gray.opacity(0.6))
-                                // .padding(.top, 8)
-                                // .padding(.leading, 8)
                                     .allowsHitTesting(false)
                                     .offset(x: 5, y: placeholderOffset)
                             }
@@ -1132,6 +1204,9 @@ struct ContentView: View {
             showingSidebar = false  // Hide sidebar by default
             loadExistingEntries()
         }
+        .onDisappear {
+            cleanupRecording()
+        }
         .onChange(of: text) { _ in
             // Save current entry when text changes
             if let currentId = selectedEntryId,
@@ -1532,8 +1607,20 @@ struct ContentView: View {
     }
     
     func setupRecorder() {
+        // Enter voice input mode - remove cursor focus and prepare for voice input
+        isVoiceInputMode = true
+        
+        // Remove focus from text editor by hiding the keyboard/cursor
+        DispatchQueue.main.async {
+            NSApplication.shared.keyWindow?.makeFirstResponder(nil)
+        }
+        
+        // Reset chunk counter and start initial recording
+        chunkCounter = 0
+        
+        // Start the first recording chunk
         let documentsPath = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0]
-        let audioURL = documentsPath.appendingPathComponent("recording.m4a")
+        let audioURL = documentsPath.appendingPathComponent("recording_chunk_0.m4a")
         
         let settings = [
             AVFormatIDKey: Int(kAudioFormatMPEG4AAC),
@@ -1546,25 +1633,168 @@ struct ContentView: View {
             audioRecorder = try AVAudioRecorder(url: audioURL, settings: settings)
             audioRecorder?.record()
             
+            // Start chunked recording timer
+            startChunkedRecording()
+            
             isRecording = true
             isListening = true
             startMicAnimation()
             // showToast(message: "Recording started", type: .success)
         } catch {
             showToast(message: "Failed to start recording: \(error.localizedDescription)", type: .error)
+            isVoiceInputMode = false
+        }
+    }
+    
+    func startChunkedRecording() {
+        // Start a timer to process audio chunks every 3 seconds
+        chunkTimer = Timer.scheduledTimer(withTimeInterval: 3.0, repeats: true) { _ in
+            self.processAudioChunk()
+        }
+    }
+    
+    func processAudioChunk() {
+        guard isRecording else { return }
+        
+        // Stop current recording and start a new one
+        audioRecorder?.stop()
+        
+        // Process the current chunk
+        if let url = audioRecorder?.url {
+            transcribeAudioChunk(url: url, chunkIndex: chunkCounter)
+            chunkCounter += 1
+        }
+        
+        // Start recording the next chunk
+        let documentsPath = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0]
+        let audioURL = documentsPath.appendingPathComponent("recording_chunk_\(chunkCounter).m4a")
+        
+        let settings = [
+            AVFormatIDKey: Int(kAudioFormatMPEG4AAC),
+            AVSampleRateKey: 44100,
+            AVNumberOfChannelsKey: 2,
+            AVEncoderAudioQualityKey: AVAudioQuality.high.rawValue
+        ]
+        
+        do {
+            audioRecorder = try AVAudioRecorder(url: audioURL, settings: settings)
+            audioRecorder?.record()
+        } catch {
+            showToast(message: "Failed to continue recording: \(error.localizedDescription)", type: .error)
+            stopRecording()
         }
     }
     
     func stopRecording() {
+        // Stop the chunk timer
+        chunkTimer?.invalidate()
+        chunkTimer = nil
+        
+        // Stop current recording
         audioRecorder?.stop()
+        
+        // Process the final chunk if it exists
+        if let url = audioRecorder?.url {
+            transcribeAudioChunk(url: url, chunkIndex: chunkCounter)
+        }
+        
+        // Exit voice input mode
+        isVoiceInputMode = false
         isRecording = false
         isListening = false
         stopMicAnimation()
         
-        if let url = audioRecorder?.url {
-            showToast(message: "Processing audio...", type: .info)
-            transcribeAudio(url: url)
+    }
+    
+    func transcribeAudioChunk(url: URL, chunkIndex: Int) {
+        guard !openAIAPIKey.isEmpty else {
+            showToast(message: "Please enter your OpenAI API key in Settings", type: .error)
+            return
         }
+        
+        // Check if the audio file has content (avoid transcribing empty chunks)
+        guard let audioData = try? Data(contentsOf: url), audioData.count > 1000 else {
+            // Clean up small/empty audio file
+            try? FileManager.default.removeItem(at: url)
+            return
+        }
+        
+        // Prepare request to OpenAI Whisper
+        let apiKey = openAIAPIKey
+        let endpoint = URL(string: "https://api.openai.com/v1/audio/transcriptions")!
+        var request = URLRequest(url: endpoint)
+        request.httpMethod = "POST"
+        let boundary = UUID().uuidString
+        request.setValue("Bearer \(apiKey)", forHTTPHeaderField: "Authorization")
+        request.setValue("multipart/form-data; boundary=\(boundary)", forHTTPHeaderField: "Content-Type")
+        
+        // Prepare multipart body
+        var body = Data()
+        
+        // Add file
+        body.append("--\(boundary)\r\n".data(using: .utf8)!)
+        body.append("Content-Disposition: form-data; name=\"file\"; filename=\"chunk_\(chunkIndex).m4a\"\r\n".data(using: .utf8)!)
+        body.append("Content-Type: audio/m4a\r\n\r\n".data(using: .utf8)!)
+        body.append(audioData)
+        body.append("\r\n".data(using: .utf8)!)
+        
+        // Add model param
+        body.append("--\(boundary)\r\n".data(using: .utf8)!)
+        body.append("Content-Disposition: form-data; name=\"model\"\r\n\r\n".data(using: .utf8)!)
+        body.append("whisper-1\r\n".data(using: .utf8)!)
+        
+        // End boundary
+        body.append("--\(boundary)--\r\n".data(using: .utf8)!)
+        request.httpBody = body
+        
+        // Send request
+        URLSession.shared.dataTask(with: request) { data, response, error in
+            DispatchQueue.main.async {
+                if let error = error {
+                    print("Transcription error for chunk \(chunkIndex): \(error)")
+                    // Don't show error toast for individual chunks to avoid spam
+                    return
+                }
+                
+                guard let data = data else {
+                    print("No data returned from Whisper API for chunk \(chunkIndex)")
+                    return
+                }
+                
+                // Check for API errors
+                if let httpResponse = response as? HTTPURLResponse {
+                    if httpResponse.statusCode != 200 {
+                        if let errorJson = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+                           let error = errorJson["error"] as? [String: Any],
+                           let message = error["message"] as? String {
+                            print("OpenAI API Error for chunk \(chunkIndex): \(message)")
+                        } else {
+                            print("API Error for chunk \(chunkIndex): Status \(httpResponse.statusCode)")
+                        }
+                        return
+                    }
+                }
+                
+                if let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any], 
+                   let textResult = json["text"] as? String {
+                    
+                    // Filter out empty or very short transcriptions
+                    let cleanedText = textResult.trimmingCharacters(in: .whitespacesAndNewlines)
+                    if !cleanedText.isEmpty && cleanedText.count > 2 {
+                        // Insert the transcribed text at the end of current text
+                        let separator = self.text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? "" : " "
+                        self.text += separator + cleanedText
+                    
+
+                    }
+                } else {
+                    print("Failed to parse Whisper response for chunk \(chunkIndex)")
+                }
+            }
+        }.resume()
+        
+        // Clean up audio file
+        try? FileManager.default.removeItem(at: url)
     }
     
     func transcribeAudio(url: URL) {
@@ -1681,6 +1911,22 @@ struct ContentView: View {
         micDotTimer = nil
     }
     
+    func cleanupRecording() {
+        // Stop all timers and recording
+        chunkTimer?.invalidate()
+        chunkTimer = nil
+        micDotTimer?.invalidate()
+        micDotTimer = nil
+        audioRecorder?.stop()
+        audioRecorder = nil
+        
+        // Reset states
+        isRecording = false
+        isListening = false
+        isVoiceInputMode = false
+        isTranscribing = false
+    }
+    
     // --- End Audio Recording and Whisper API ---
     
     // Computed property for toast overlay to avoid type-checking complexity
@@ -1781,7 +2027,7 @@ struct SettingsSidebarItem: View {
             .padding(.vertical, 8)
             .background(
                 RoundedRectangle(cornerRadius: 6)
-                    .fill(isSelected ? Color.accentColor : Color.clear)
+                    .fill(isSelected ? .primary : Color.clear)
             )
         }
         .buttonStyle(PlainButtonStyle())
@@ -1808,6 +2054,9 @@ struct SettingsContent: View {
 
 struct AISettingsView: View {
     @Binding var apiKey: String
+    @State private var tempApiKey: String = ""
+    @State private var hasUnsavedChanges: Bool = false
+    @State private var showSaveConfirmation: Bool = false
     
     var body: some View {
         VStack(alignment: .leading, spacing: 16) {
@@ -1818,16 +2067,75 @@ struct AISettingsView: View {
                     .font(.system(size: 14, weight: .medium))
                     .foregroundColor(.primary)
                 
-                SecureField("Enter your OpenAI API key", text: $apiKey)
-                    .textFieldStyle(RoundedBorderTextFieldStyle())
+                SecureField("Enter your OpenAI API key", text: $tempApiKey)
+                    .textFieldStyle(PlainTextFieldStyle())
                     .font(.system(size: 13, design: .monospaced))
+                    .padding(.horizontal, 8)
+                    .padding(.vertical, 6)
+                    .background(
+                        RoundedRectangle(cornerRadius: 5)
+                            .stroke(Color.primary, lineWidth: 1)
+                    )
                     .frame(maxWidth: 300)
-                
+                    .onChange(of: tempApiKey) { newValue in
+                        hasUnsavedChanges = (newValue != apiKey)
+                    }
+
                 Text("Your API key is stored locally and only used for transcription.")
                     .font(.caption)
                     .foregroundColor(.secondary)
+                
+                // Save button
+                HStack(spacing: 12) {
+                    Button(action: {
+                        // Save API key to Keychain when save button is clicked
+                        if !tempApiKey.isEmpty {
+                            KeychainHelper.shared.saveAPIKey(tempApiKey)
+                            apiKey = tempApiKey
+                        } else {
+                            KeychainHelper.shared.deleteAPIKey()
+                            apiKey = ""
+                        }
+                        hasUnsavedChanges = false
+                        showSaveConfirmation = true
+                        
+                        // Hide confirmation after 2 seconds
+                        DispatchQueue.main.asyncAfter(deadline: .now() + 2.0) {
+                            showSaveConfirmation = false
+                        }
+                    }) {
+                        Text("Save")
+                            .font(.system(size: 13, weight: .medium))
+                            .foregroundColor(.white)
+                            .padding(.horizontal, 16)
+                            .padding(.vertical, 8)
+                            .background(
+                                RoundedRectangle(cornerRadius: 6)
+                                    .fill(hasUnsavedChanges ? .primary : .secondary)
+                            )
+                    }
+                    .buttonStyle(PlainButtonStyle())
+                    .disabled(!hasUnsavedChanges)
+                    
+                    if showSaveConfirmation {
+                        HStack(spacing: 6) {
+                            Image(systemName: "checkmark.circle.fill")
+                                .foregroundColor(.primary)
+                                .font(.system(size: 12))
+                            Text("Saved!")
+                                .font(.system(size: 12))
+                                .foregroundColor(.primary)
+                        }
+                        .transition(.opacity)
+                    }
+                }
+                .animation(.easeInOut(duration: 0.2), value: showSaveConfirmation)
             }
             .padding(.top, 8)
+        }
+        .onAppear {
+            // Load the current API key when the view appears
+            tempApiKey = apiKey
         }
     }
 }
