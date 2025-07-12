@@ -23,7 +23,7 @@ struct HumanEntry: Identifiable {
         let id = UUID()
         let now = Date()
         let dateFormatter = DateFormatter()
-        dateFormatter.dateFormat = "yyyy-MM-dd-HH-mm-ss"
+        dateFormatter.dateFormat = "MM-dd-yyyy-HH-mm-ss"
         let dateString = dateFormatter.string(from: now)
         
         // For display
@@ -33,7 +33,7 @@ struct HumanEntry: Identifiable {
         return HumanEntry(
             id: id,
             date: displayDate,
-            filename: "[\(id)]-[\(dateString)].md",
+            filename: "[\(dateString)]-[\(id)].md",
             previewText: ""
         )
     }
@@ -336,7 +336,7 @@ struct ContentView: View {
                 // Parse the date string
                 let dateString = String(filename[dateMatch].dropFirst().dropLast())
                 let dateFormatter = DateFormatter()
-                dateFormatter.dateFormat = "yyyy-MM-dd-HH-mm-ss"
+                dateFormatter.dateFormat = "MM-dd-yyyy-HH-mm-ss"
                 
                 guard let fileDate = dateFormatter.date(from: dateString) else {
                     print("Failed to parse date from filename: \(filename)")
@@ -481,7 +481,7 @@ struct ContentView: View {
     
     var placeholderOffset: CGFloat {
         // Instead of using calculated line height, use a simple offset
-        return fontSize / 2
+        return (fontSize / 2) + 1.5
     }
     
     // Add a color utility computed property
@@ -754,7 +754,12 @@ struct ContentView: View {
                     HStack(spacing: 8) {
                         Button(action: {
                             showReflectionPanel = true
-                            reflectionViewModel.start(apiKey: openAIAPIKey, entryText: text)
+                            reflectionViewModel.start(apiKey: openAIAPIKey, entryText: text) {
+                                if let currentId = self.selectedEntryId,
+                                   let entry = self.entries.first(where: { $0.id == currentId }) {
+                                    self.saveEntry(entry: entry)
+                                }
+                            }
                         }) {
                             Text("Reflect")
                                 .font(.system(size: 13))
@@ -825,7 +830,7 @@ struct ContentView: View {
                 .padding(.trailing, 16)
                 .padding(.bottom, 16)
                 .padding(.top, 8)
-                .background(.clear)
+                .background(Color(colorScheme == .light ? .white : .black))
                 .opacity(bottomNavOpacity)
                 .onHover { hovering in
                     isHoveringBottomNav = hovering
@@ -1853,8 +1858,9 @@ struct ContentView: View {
         @Published var hasBeenRun: Bool = false
         
         private var streamingTask: URLSessionDataTask?
+        private var onComplete: (() -> Void)?
 
-        func start(apiKey: String, entryText: String) {
+        func start(apiKey: String, entryText: String, onComplete: @escaping () -> Void) {
             guard !apiKey.isEmpty else {
                 self.error = "Please enter your OpenAI API key in Settings"
                 return
@@ -1869,6 +1875,7 @@ struct ContentView: View {
             self.isLoading = true
             self.error = nil
             self.hasBeenRun = true
+            self.onComplete = onComplete
 
             streamOpenAIResponse(apiKey: apiKey, entryText: entryText)
         }
@@ -1882,19 +1889,25 @@ struct ContentView: View {
             request.setValue("application/json", forHTTPHeaderField: "Content-Type")
             
             let systemPrompt = """
-            Take a look at this journal entry. I'd like you to analyze it and respond with deep insight that feels personal, not clinical.
-            
-            Imagine you're not just a friend, but a mentor who truly gets both my tech background and my psychological patterns. I want you to uncover the deeper meaning and emotional undercurrents behind my scattered thoughts.
-            
-            Keep it casual, help me make new connections i don't see, comfort, validate, challenge, all of it. don't be afraid to say a lot. format with markdown headings if needed.
-            
-            Use vivid metaphors and powerful imagery to help me see what I'm really building. Organize your thoughts with meaningful headings that create a narrative journey through my ideas.
-            
-            Don't just validate my thoughts - reframe them in a way that shows me what I'm really seeking beneath the surface. Go beyond the product concepts to the emotional core of what I'm trying to solve.
-            
-            Be willing to be profound and philosophical without sounding like you're giving therapy. I want someone who can see the patterns I can't see myself and articulate them in a way that feels like an epiphany.
-            
-            Start with 'hey, thanks for showing me this. my thoughts:' and then use markdown headings to structure your response.
+            below is my spoken word journal entry for the day. wyt? talk through it with me like a friend. don't therapize me and give me a whole breakdown, don't repeat my thoughts with headings. really take all of this, and tell me back stuff truly as if you're an old homie.
+
+            then after, extract what you think are my wins and losses for the day and put them in a list formatted:
+
+            Wins:
+
+            - win #1
+            - …
+
+            Losses
+
+            - loss #1
+            - …
+
+            then after that pull out the single most important improvement you think I could make (one sentence), and a compliment for me that you would give having observed my thoughts :)
+
+            if you can’t really get any of the above stuff from what I said, no worries.
+
+            my raw thoughts:
             """
             
             let payload: [String: Any] = [
@@ -1932,6 +1945,7 @@ struct ContentView: View {
                     if jsonString == "[DONE]" {
                         DispatchQueue.main.async {
                             self.isLoading = false
+                            self.onComplete?()
                         }
                         return
                     }
@@ -2002,15 +2016,28 @@ struct ContentView: View {
                     .padding(.horizontal, 24)
                     .padding(.top, 16) // Match vertical padding
             } else {
-                ScrollView {
-                    Text(reflectionViewModel.reflectionResponse)
-                        .font(.custom(selectedFont, size: fontSize))
-                        .foregroundColor(colorScheme == .light ? Color(red: 0.20, green: 0.20, blue: 0.20) : Color(red: 0.9, green: 0.9, blue: 0.9))
-                        .lineSpacing(lineHeight)
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                        .padding(.horizontal, 24)
+                let navHeight: CGFloat = 68
+                ScrollViewReader { proxy in
+                    ScrollView {
+                        Text(reflectionViewModel.reflectionResponse)
+                            .font(.custom(selectedFont, size: fontSize))
+                            .foregroundColor(colorScheme == .light ? Color(red: 0.20, green: 0.20, blue: 0.20) : Color(red: 0.9, green: 0.9, blue: 0.9))
+                            .lineSpacing(lineHeight)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                            .padding(.horizontal, 24)
+                            .padding(.bottom, bottomNavOpacity > 0 ? navHeight : 0)
+
+                        Color.clear
+                            .frame(height: 1)
+                            .id("bottomAnchor")
+                    }
+                    .scrollIndicators(.never)
+                    .onChange(of: reflectionViewModel.reflectionResponse) { _ in
+                        withAnimation {
+                            proxy.scrollTo("bottomAnchor", anchor: .bottom)
+                        }
+                    }
                 }
-                .scrollIndicators(.never)
             }
             Spacer()
         }
@@ -2049,7 +2076,6 @@ struct ContentView: View {
                     .lineSpacing(lineHeight)
                     .frame(maxWidth: .infinity)
                     .allowsHitTesting(!isVoiceInputMode && !showingSettings)
-                    .id("\(selectedFont)-\(fontSize)-\(colorScheme)")
                     .padding(.horizontal, 24)
                     .padding(.bottom, bottomNavOpacity > 0 ? navHeight : 0)
                     .ignoresSafeArea()
