@@ -230,33 +230,6 @@ struct ContentView: View {
         return directory
     }()
     
-    // Add shared prompt constant
-    private let aiChatPrompt = """
-    below is my journal entry. wyt? talk through it with me like a friend. don't therpaize me and give me a whole breakdown, don't repeat my thoughts with headings. really take all of this, and tell me back stuff truly as if you're an old homie.
-    
-    Keep it casual, dont say yo, help me make new connections i don't see, comfort, validate, challenge, all of it. dont be afraid to say a lot. format with markdown headings if needed.
-
-    do not just go through every single thing i say, and say it back to me. you need to proccess everythikng is say, make connections i don't see it, and deliver it all back to me as a story that makes me feel what you think i wanna feel. thats what the best therapists do.
-
-    ideally, you're style/tone should sound like the user themselves. it's as if the user is hearing their own tone but it should still feel different, because you have different things to say and don't just repeat back they say.
-
-    else, start by saying, "hey, thanks for showing me this. my thoughts:"
-        
-    my entry:
-    """
-    
-    private let claudePrompt = """
-    Take a look at my journal entry below. I'd like you to analyze it and respond with deep insight that feels personal, not clinical.
-    Imagine you're not just a friend, but a mentor who truly gets both my tech background and my psychological patterns. I want you to uncover the deeper meaning and emotional undercurrents behind my scattered thoughts.
-    Keep it casual, dont say yo, help me make new connections i don't see, comfort, validate, challenge, all of it. dont be afraid to say a lot. format with markdown headings if needed.
-    Use vivid metaphors and powerful imagery to help me see what I'm really building. Organize your thoughts with meaningful headings that create a narrative journey through my ideas.
-    Don't just validate my thoughts - reframe them in a way that shows me what I'm really seeking beneath the surface. Go beyond the product concepts to the emotional core of what I'm trying to solve.
-    Be willing to be profound and philosophical without sounding like you're giving therapy. I want someone who can see the patterns I can't see myself and articulate them in a way that feels like an epiphany.
-    Start with 'hey, thanks for showing me this. my thoughts:' and then use markdown headings to structure your response.
-
-    Here's my journal entry:
-    """
-    
     // Initialize with saved theme preference if available
     init() {
         // Load saved color scheme preference
@@ -1289,36 +1262,6 @@ struct ContentView: View {
         }
     }
     
-    private func openChatGPT() {
-        let trimmedText = text.trimmingCharacters(in: .whitespacesAndNewlines)
-        let fullText = aiChatPrompt + "\n\n" + trimmedText
-        
-        if let encodedText = fullText.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed),
-           let url = URL(string: "https://chat.openai.com/?m=" + encodedText) {
-            NSWorkspace.shared.open(url)
-        }
-    }
-    
-    private func openClaude() {
-        let trimmedText = text.trimmingCharacters(in: .whitespacesAndNewlines)
-        let fullText = claudePrompt + "\n\n" + trimmedText
-        
-        if let encodedText = fullText.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed),
-           let url = URL(string: "https://claude.ai/new?q=" + encodedText) {
-            NSWorkspace.shared.open(url)
-        }
-    }
-
-    private func copyPromptToClipboard() {
-        let trimmedText = text.trimmingCharacters(in: .whitespacesAndNewlines)
-        let fullText = aiChatPrompt + "\n\n" + trimmedText
-
-        let pasteboard = NSPasteboard.general
-        pasteboard.clearContents()
-        pasteboard.setString(fullText, forType: .string)
-        print("Prompt copied to clipboard")
-    }
-    
     private func deleteEntry(entry: HumanEntry) {
         // Delete the file from the filesystem
         let documentsDirectory = getDocumentsDirectory()
@@ -1889,23 +1832,29 @@ struct ContentView: View {
             request.setValue("application/json", forHTTPHeaderField: "Content-Type")
             
             let systemPrompt = """
-            below is my spoken word journal entry for the day. wyt? talk through it with me like a friend. don't therapize me and give me a whole breakdown, don't repeat my thoughts with headings. really take all of this, and tell me back stuff truly as if you're an old homie.
+            below is my journal entry for the day. wyt? talk through it with me like a friend. don't therapize me and give me a whole breakdown, don't repeat my thoughts with headings. really take all of this, and tell me back stuff truly as if you're an old homie.
+
+            Keep it casual, dont say yo, help me make new connections i don't see, comfort, validate, challenge, all of it. dont be afraid to say a lot. format with markdown headings if needed. use new paragrahs to make what you say more readable.
+
+            do not just go through every single thing i say, and say it back to me. you need to proccess everything i say, make connections i don't see it, and deliver it all back to me as a story that makes me feel what you think i wanna feel. thats what the best therapists do.
+
+            ideally, you're style/tone should sound like the user themselves. it's as if the user is hearing their own tone but it should still feel different, because you have different things to say and don't just repeat back they say.
+
+            else, start by saying, "hey, thanks for showing me this. my thoughts:"
 
             then after, extract what you think are my wins and losses for the day and put them in a list formatted:
 
-            Wins:
+            **Wins:**
 
             - win #1
             - …
 
-            Losses
+            **Losses:**
 
             - loss #1
             - …
 
             then after that pull out the single most important improvement you think I could make (one sentence), and a compliment for me that you would give having observed my thoughts :)
-
-            if you can’t really get any of the above stuff from what I said, no worries.
 
             my raw thoughts:
             """
@@ -2019,13 +1968,16 @@ struct ContentView: View {
                 let navHeight: CGFloat = 68
                 ScrollViewReader { proxy in
                     ScrollView {
-                        Text(reflectionViewModel.reflectionResponse)
-                            .font(.custom(selectedFont, size: fontSize))
-                            .foregroundColor(colorScheme == .light ? Color(red: 0.20, green: 0.20, blue: 0.20) : Color(red: 0.9, green: 0.9, blue: 0.9))
-                            .lineSpacing(lineHeight)
-                            .frame(maxWidth: .infinity, alignment: .leading)
-                            .padding(.horizontal, 24)
-                            .padding(.bottom, bottomNavOpacity > 0 ? navHeight : 0)
+                        MarkdownTextView(
+                            content: reflectionViewModel.reflectionResponse,
+                            font: selectedFont,
+                            fontSize: fontSize,
+                            colorScheme: colorScheme,
+                            lineHeight: lineHeight
+                        )
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .padding(.horizontal, 24)
+                        .padding(.bottom, bottomNavOpacity > 0 ? navHeight : 0)
 
                         Color.clear
                             .frame(height: 1)
@@ -2434,6 +2386,112 @@ struct OscillatingDotView: View {
                     self.scale = 1.2
                 }
             }
+    }
+}
+
+// MarkdownTextView: Renders markdown content with proper styling
+struct MarkdownTextView: View {
+    let content: String
+    let font: String
+    let fontSize: CGFloat
+    let colorScheme: ColorScheme
+    let lineHeight: CGFloat
+    
+    @State private var attributedString: AttributedString = AttributedString()
+    
+    var body: some View {
+        Text(attributedString)
+            .textSelection(.enabled)
+            .lineSpacing(lineHeight)
+            .onAppear {
+                updateAttributedString()
+            }
+            .onChange(of: content) { _ in
+                updateAttributedString()
+            }
+            .onChange(of: font) { _ in
+                updateAttributedString()
+            }
+            .onChange(of: fontSize) { _ in
+                updateAttributedString()
+            }
+            .onChange(of: colorScheme) { _ in
+                updateAttributedString()
+            }
+    }
+    
+    private func updateAttributedString() {
+        do {
+            // Parse markdown content
+            var parsed = try AttributedString(markdown: content, options: .init(interpretedSyntax: .inlineOnlyPreservingWhitespace))
+            
+            // Apply base font and color
+            let baseFont = NSFont(name: font, size: fontSize) ?? NSFont.systemFont(ofSize: fontSize)
+            let textColor = colorScheme == .light ? 
+                NSColor(red: 0.20, green: 0.20, blue: 0.20, alpha: 1.0) : 
+                NSColor(red: 0.9, green: 0.9, blue: 0.9, alpha: 1.0)
+            
+            // Apply base styling to entire string
+            parsed.font = baseFont
+            parsed.foregroundColor = textColor
+            
+            // Apply custom styling for markdown elements
+            for run in parsed.runs {
+                let range = run.range
+                
+                // Handle bold text
+                if let intent = run.inlinePresentationIntent, intent.contains(.stronglyEmphasized) {
+                    let boldFont = NSFont(name: font.replacingOccurrences(of: "Regular", with: "Bold"), size: fontSize) ?? NSFont.boldSystemFont(ofSize: fontSize)
+                    parsed[range].font = boldFont
+                }
+                
+                // Handle italic text
+                if let intent = run.inlinePresentationIntent, intent.contains(.emphasized) {
+                    let italicFont = NSFont(name: font.replacingOccurrences(of: "Regular", with: "Italic"), size: fontSize) ?? {
+                        // Fallback to system italic if custom font doesn't have italic variant
+                        let descriptor = baseFont.fontDescriptor.withSymbolicTraits(.italic)
+                        return NSFont(descriptor: descriptor, size: fontSize) ?? baseFont
+                    }()
+                    parsed[range].font = italicFont
+                }
+                
+                // Handle code spans
+                if let intent = run.inlinePresentationIntent, intent.contains(.code) {
+                    let codeFont = NSFont.monospacedSystemFont(ofSize: fontSize * 0.9, weight: .regular)
+                    parsed[range].font = codeFont
+                    parsed[range].backgroundColor = colorScheme == .light ? 
+                        NSColor.lightGray.withAlphaComponent(0.2) : 
+                        NSColor.darkGray.withAlphaComponent(0.3)
+                }
+                
+                // Handle headers by checking presentation intent
+                if let intent = run.presentationIntent {
+                    let intentString = "\(intent)"
+                    if intentString.contains("header(level: 1)") {
+                        let headerFont = NSFont(name: font.replacingOccurrences(of: "Regular", with: "Bold"), size: fontSize * 1.5) ?? NSFont.boldSystemFont(ofSize: fontSize * 1.5)
+                        parsed[range].font = headerFont
+                    } else if intentString.contains("header(level: 2)") {
+                        let headerFont = NSFont(name: font.replacingOccurrences(of: "Regular", with: "Bold"), size: fontSize * 1.3) ?? NSFont.boldSystemFont(ofSize: fontSize * 1.3)
+                        parsed[range].font = headerFont
+                    } else if intentString.contains("header(level: 3)") {
+                        let headerFont = NSFont(name: font.replacingOccurrences(of: "Regular", with: "Bold"), size: fontSize * 1.1) ?? NSFont.boldSystemFont(ofSize: fontSize * 1.1)
+                        parsed[range].font = headerFont
+                    }
+                }
+            }
+            
+            self.attributedString = parsed
+            
+        } catch {
+            // If markdown parsing fails, fall back to plain text
+            print("Markdown parsing failed: \(error)")
+            var fallback = AttributedString(content)
+            fallback.font = NSFont(name: font, size: fontSize) ?? NSFont.systemFont(ofSize: fontSize)
+            fallback.foregroundColor = colorScheme == .light ? 
+                NSColor(red: 0.20, green: 0.20, blue: 0.20, alpha: 1.0) : 
+                NSColor(red: 0.9, green: 0.9, blue: 0.9, alpha: 1.0)
+            self.attributedString = fallback
+        }
     }
 }
 
