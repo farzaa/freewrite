@@ -111,6 +111,11 @@ class KeychainHelper {
     }
 }
 
+class ContentViewController: NSObject, URLSessionDataDelegate {
+    // You can move the URLSession delegate methods here if you prefer
+    // to keep ContentView cleaner. For now, we'll keep them in the extension.
+}
+
 struct ContentView: View {
     private let headerString = "\n\n"
     @State private var entries: [HumanEntry] = []
@@ -150,6 +155,10 @@ struct ContentView: View {
     @State private var isHoveringHistoryText = false
     @State private var isHoveringHistoryPath = false
     @State private var isHoveringHistoryArrow = false
+    @State private var showStyleOptions = false // Track if style options are visible
+    @State private var isHoveringStyle = false
+    @State private var isHoveringReflect = false
+    @State private var isHoveringBrain = false // Add hover state for brain icon
     @State private var colorScheme: ColorScheme = .light // Add state for color scheme
     @State private var isHoveringThemeToggle = false // Add state for theme toggle hover
     @State private var didCopyPrompt: Bool = false // Add state for copy prompt feedback
@@ -157,6 +166,14 @@ struct ContentView: View {
     @State private var isHoveringSettings = false // Add state for settings hover
     @State private var selectedSettingsTab: SettingsTab = .ai // Add state for selected tab
     @State private var openAIAPIKey: String = ""
+    @StateObject private var reflectionViewModel = ReflectionViewModel()
+    
+    // Hard-coded DeepGram API key for transcription
+    private let deepgramAPIKey = "YOUR_DEEPGRAM_API_KEY_HERE"
+    
+    // Add state for reflection functionality
+    @State private var showReflectionPanel: Bool = false
+    
     let timer = Timer.publish(every: 1, on: .main, in: .common).autoconnect()
     let entryHeight: CGFloat = 40
     
@@ -478,25 +495,489 @@ struct ContentView: View {
     
     @State private var viewHeight: CGFloat = 0
     
-    var body: some View {
-        let buttonBackground = colorScheme == .light ? Color.white : Color.black
-        let navHeight: CGFloat = 68
+    @ViewBuilder
+    private var bottomNavigationView: some View {
         let textColor = colorScheme == .light ? Color.gray : Color.gray.opacity(0.8)
         let textHoverColor = colorScheme == .light ? Color.black : Color.white
         
-        HStack(spacing: 0) {
-            // Main content
+        VStack(spacing: 0) {
+            // Style options bar (appears above main navigation)
+            if showStyleOptions {
+                    HStack(spacing: 8) {
+                        Button(fontSizeButtonTitle) {
+                            if let currentIndex = fontSizes.firstIndex(of: fontSize) {
+                                let nextIndex = (currentIndex + 1) % fontSizes.count
+                                fontSize = fontSizes[nextIndex]
+                            }
+                        }
+                        .buttonStyle(.plain)
+                        .foregroundColor(isHoveringSize ? textHoverColor : textColor)
+                        .onHover { hovering in
+                            isHoveringSize = hovering
+                            isHoveringBottomNav = hovering
+                            if hovering {
+                                NSCursor.pointingHand.push()
+                            } else {
+                                NSCursor.pop()
+                            }
+                        }
+                        
+                        Text("•")
+                            .foregroundColor(.gray)
+                        
+                        Button("Lato") {
+                            selectedFont = "Lato-Regular"
+                            currentRandomFont = ""
+                        }
+                        .buttonStyle(.plain)
+                        .foregroundColor(hoveredFont == "Lato" ? textHoverColor : textColor)
+                        .onHover { hovering in
+                            hoveredFont = hovering ? "Lato" : nil
+                            isHoveringBottomNav = hovering
+                            if hovering {
+                                NSCursor.pointingHand.push()
+                            } else {
+                                NSCursor.pop()
+                            }
+                        }
+                        
+                        Text("•")
+                            .foregroundColor(.gray)
+                        
+                        Button("Arial") {
+                            selectedFont = "Arial"
+                            currentRandomFont = ""
+                        }
+                        .buttonStyle(.plain)
+                        .foregroundColor(hoveredFont == "Arial" ? textHoverColor : textColor)
+                        .onHover { hovering in
+                            hoveredFont = hovering ? "Arial" : nil
+                            isHoveringBottomNav = hovering
+                            if hovering {
+                                NSCursor.pointingHand.push()
+                            } else {
+                                NSCursor.pop()
+                            }
+                        }
+                        
+                        Text("•")
+                            .foregroundColor(.gray)
+                        
+                        Button("System") {
+                            selectedFont = ".AppleSystemUIFont"
+                            currentRandomFont = ""
+                        }
+                        .buttonStyle(.plain)
+                        .foregroundColor(hoveredFont == "System" ? textHoverColor : textColor)
+                        .onHover { hovering in
+                            hoveredFont = hovering ? "System" : nil
+                            isHoveringBottomNav = hovering
+                            if hovering {
+                                NSCursor.pointingHand.push()
+                            } else {
+                                NSCursor.pop()
+                            }
+                        }
+                        
+                        Text("•")
+                            .foregroundColor(.gray)
+                        
+                        Button("Serif") {
+                            selectedFont = "Times New Roman"
+                            currentRandomFont = ""
+                        }
+                        .buttonStyle(.plain)
+                        .foregroundColor(hoveredFont == "Serif" ? textHoverColor : textColor)
+                        .onHover { hovering in
+                            hoveredFont = hovering ? "Serif" : nil
+                            isHoveringBottomNav = hovering
+                            if hovering {
+                                NSCursor.pointingHand.push()
+                            } else {
+                                NSCursor.pop()
+                            }
+                        }
+                        
+                        Text("•")
+                            .foregroundColor(.gray)
+                        
+                        Button(randomButtonTitle) {
+                            if let randomFont = availableFonts.randomElement() {
+                                selectedFont = randomFont
+                                currentRandomFont = randomFont
+                            }
+                        }
+                        .buttonStyle(.plain)
+                        .foregroundColor(hoveredFont == "Random" ? textHoverColor : textColor)
+                        .onHover { hovering in
+                            hoveredFont = hovering ? "Random" : nil
+                            isHoveringBottomNav = hovering
+                            if hovering {
+                                NSCursor.pointingHand.push()
+                            } else {
+                                NSCursor.pop()
+                            }
+                        }
+                    
+                        Spacer()
+                    }
+                .padding(.horizontal, 24) // Match the main nav padding
+                .background(.clear) // maybe change this to "Color(colorScheme == .light ? .white : .black)"
+                .opacity(bottomNavOpacity)
+                    .onHover { hovering in
+                        isHoveringBottomNav = hovering
+                    if hovering {
+                        withAnimation(.easeOut(duration: 0.2)) {
+                            bottomNavOpacity = 1.0
+                        }
+                    } else if timerIsRunning {
+                        withAnimation(.easeIn(duration: 1.0)) {
+                            bottomNavOpacity = 0.0
+                        }
+                    }
+                }
+            }
+            
+            // Brain icon toggle bar (appears above main navigation when reflection has been run)
+            if reflectionViewModel.hasBeenRun {
+                HStack {
+                    Spacer()
+                    
+                    Button(action: {
+                        showReflectionPanel.toggle()
+                    }) {
+                        Image(systemName: "brain.head.profile.fill")
+                            .foregroundColor(isHoveringBrain ? textHoverColor : textColor)
+                    }
+                    .buttonStyle(.plain)
+                    .onHover { hovering in
+                        isHoveringBrain = hovering
+                        isHoveringBottomNav = hovering
+                        if hovering {
+                            NSCursor.pointingHand.push()
+                        } else {
+                            NSCursor.pop()
+                        }
+                    }
+                }
+                .padding(.horizontal, 24) // Match the main nav padding
+                .background(.clear)
+                .opacity(bottomNavOpacity)
+                .onHover { hovering in
+                    isHoveringBottomNav = hovering
+                    if hovering {
+                        withAnimation(.easeOut(duration: 0.2)) {
+                            bottomNavOpacity = 1.0
+                        }
+                    } else if timerIsRunning {
+                        withAnimation(.easeIn(duration: 1.0)) {
+                            bottomNavOpacity = 0.0
+                        }
+                    }
+                }
+            }
+            
+            // Main navigation bar
             ZStack {
+                HStack {
+                    // Left side - Style button, theme toggle, and settings
+                    HStack(spacing: 8) {
+                        // Style toggle button
+                        Button("Style") {
+                            showStyleOptions.toggle()
+                        }
+                        .buttonStyle(.plain)
+                        .foregroundColor(isHoveringStyle ? textHoverColor : textColor)
+                        .onHover { hovering in
+                            isHoveringStyle = hovering
+                            isHoveringBottomNav = hovering
+                            if hovering {
+                                NSCursor.pointingHand.push()
+                            } else {
+                                NSCursor.pop()
+                            }
+                        }
+                        
+                        Text("•")
+                            .foregroundColor(.gray)
+
+                        // Theme toggle button
+                        Button(action: {
+                            colorScheme = colorScheme == .light ? .dark : .light
+                            // Save preference
+                            UserDefaults.standard.set(colorScheme == .light ? "light" : "dark", forKey: "colorScheme")
+                        }) {
+                            Image(systemName: colorScheme == .light ? "moon.fill" : "sun.max.fill")
+                                .foregroundColor(isHoveringThemeToggle ? textHoverColor : textColor)
+                        }
+                        .buttonStyle(.plain)
+                        .onHover { hovering in
+                            isHoveringThemeToggle = hovering
+                            isHoveringBottomNav = hovering
+                            if hovering {
+                                NSCursor.pointingHand.push()
+                            } else {
+                                NSCursor.pop()
+                            }
+                        }
+
+                        Text("•")
+                            .foregroundColor(.gray)
+                        
+                        // Settings button
+                        Button(action: {
+                            withAnimation(.easeInOut(duration: 0.2)) {
+                                showingSettings = true
+                            }
+                        }) {
+                            Image(systemName: "gearshape.fill")
+                                .foregroundColor(isHoveringSettings ? textHoverColor : textColor)
+                        }
+                        .buttonStyle(.plain)
+                        .onHover { hovering in
+                            isHoveringSettings = hovering
+                            isHoveringBottomNav = hovering
+                            if hovering {
+                                NSCursor.pointingHand.push()
+                            } else {
+                                NSCursor.pop()
+                            }
+                        }
+                    }
+                    .padding(8)
+                    .cornerRadius(6)
+                    .onHover { hovering in
+                        isHoveringBottomNav = hovering
+                    }
+                    Spacer()
+                    // Right side buttons
+                    HStack(spacing: 8) {
+                        Button(action: {
+                            showReflectionPanel = true
+                            reflectionViewModel.start(apiKey: openAIAPIKey, entryText: text)
+                        }) {
+                            Text("Reflect")
+                                .font(.system(size: 13))
+                        }
+                        .buttonStyle(.plain)
+                        .foregroundColor(isHoveringReflect ? textHoverColor : textColor)
+                        .onHover { hovering in
+                            isHoveringReflect = hovering
+                            isHoveringBottomNav = hovering
+                            if hovering {
+                                NSCursor.pointingHand.push()
+                            } else {
+                                NSCursor.pop()
+                            }
+                        }
+
+                        Text("•")
+                            .foregroundColor(.gray)
+                        
+                        Button(action: {
+                            createNewEntry()
+                        }) {
+                            Text("New Entry")
+                                .font(.system(size: 13))
+                        }
+                        .buttonStyle(.plain)
+                        .foregroundColor(isHoveringNewEntry ? textHoverColor : textColor)
+                        .onHover { hovering in
+                            isHoveringNewEntry = hovering
+                            isHoveringBottomNav = hovering
+                            if hovering {
+                                NSCursor.pointingHand.push()
+                            } else {
+                                NSCursor.pop()
+                            }
+                        }
+                        
+                        Text("•")
+                            .foregroundColor(.gray)
+                        
+                        // History/sidebar button with new icon
+                        Button(action: {
+                            withAnimation(.easeInOut(duration: 0.2)) {
+                                showingSidebar.toggle()
+                            }
+                        }) {
+                            Image(systemName: "book.fill")
+                                .foregroundColor(isHoveringClock ? textHoverColor : textColor)
+                        }
+                        .buttonStyle(.plain)
+                        .onHover { hovering in
+                            isHoveringClock = hovering
+                            isHoveringBottomNav = hovering
+                            if hovering {
+                                NSCursor.pointingHand.push()
+                            } else {
+                                NSCursor.pop()
+                            }
+                        }
+                    }
+                    .padding(8)
+                    .cornerRadius(6)
+                    .onHover { hovering in
+                        isHoveringBottomNav = hovering
+                    }
+                }
+                .padding(.leading, 16)
+                .padding(.trailing, 16)
+                .padding(.bottom, 16)
+                .padding(.top, 8)
+                .background(.clear)
+                .opacity(bottomNavOpacity)
+                .onHover { hovering in
+                    isHoveringBottomNav = hovering
+                    if hovering {
+                        withAnimation(.easeOut(duration: 0.2)) {
+                            bottomNavOpacity = 1.0
+                        }
+                    } else if timerIsRunning {
+                        withAnimation(.easeIn(duration: 1.0)) {
+                            bottomNavOpacity = 0.0
+                        }
+                    }
+                }
+                // --- Microphone Button (centered absolutely) ---
+                GeometryReader { geo in
+                    let barHeight: CGFloat = 68 // matches navHeight
+                    let buttonSize: CGFloat = 40
+                    let borderWidth: CGFloat = 1
+                    let dotRadius: CGFloat = (buttonSize / 2) - (borderWidth / 2)
+                    Button(action: {
+                        toggleRecording()
+                    }) {
+                        ZStack {
+                            Circle()
+                                .fill(colorScheme == .light ? Color.white : Color.black)
+                                .frame(width: buttonSize, height: buttonSize)
+                                .overlay(
+                                    Circle()
+                                        .stroke(Color.gray.opacity(0.45), lineWidth: borderWidth)
+                                )
+                                .shadow(
+                                    color: isRecording
+                                        ? (colorScheme == .dark ? Color.clear : Color.clear)
+                                        : (colorScheme == .dark ? Color.white.opacity(0.32) : Color.gray.opacity(0.32)),
+                                    radius: 12,
+                                    y: 3
+                                )
+                            Image(systemName: "mic.fill")
+                                .font(.system(size: 16, weight: .medium))
+                                .foregroundColor(colorScheme == .light ? .gray : .white.opacity(0.85))
+                            // Animated white dot on border
+                            if isRecording {
+                                let angle = Angle(degrees: micDotAngle)
+                                let x = dotRadius * cos(angle.radians - .pi/2)
+                                let y = dotRadius * sin(angle.radians - .pi/2)
+                                Circle()
+                                    .fill(Color.white)
+                                    .frame(width: 5, height: 5)
+                                    .offset(x: x, y: y)
+                                    .shadow(color: Color.white.opacity(0.8), radius: 3)
+                            }
+                        }
+                    }
+                    .buttonStyle(.plain)
+                    .animation(.linear(duration: 0.016), value: micDotAngle)
+                    .onDisappear {
+                        micDotTimer?.invalidate()
+                        micDotTimer = nil
+                    }
+                    .position(x: geo.size.width / 2, y: barHeight / 2)
+                }
+                .frame(height: 68)
+                // --- End Microphone Button ---
+            }
+        }
+    }
+    
+    var body: some View {
+        Group {
+            if showReflectionPanel {
+                mainContentWithReflection
+            } else {
+                HStack(spacing: 0) {
+                    mainContent
+                    sidebar
+                }
+            }
+        }
+        .frame(minWidth: 1100, minHeight: 600)
+        .animation(.easeInOut(duration: 0.2), value: showingSidebar)
+        .preferredColorScheme(colorScheme)
+        .onAppear {
+            showingSidebar = false  // Hide sidebar by default
+            loadExistingEntries()
+        }
+        .onDisappear {
+            cleanupRecording()
+        }
+        .onChange(of: text) { _ in
+            // Save current entry when text changes
+            if let currentId = selectedEntryId,
+               let currentEntry = entries.first(where: { $0.id == currentId }) {
+                saveEntry(entry: currentEntry)
+            }
+        }
+        .onReceive(timer) { _ in
+            if timerIsRunning && timeRemaining > 0 {
+                timeRemaining -= 1
+            } else if timeRemaining == 0 {
+                timerIsRunning = false
+                if !isHoveringBottomNav {
+                    withAnimation(.easeOut(duration: 1.0)) {
+                        bottomNavOpacity = 1.0
+                    }
+                }
+            }
+        }
+        .onReceive(NotificationCenter.default.publisher(for: NSWindow.willEnterFullScreenNotification)) { _ in
+            isFullscreen = true
+        }
+        .onReceive(NotificationCenter.default.publisher(for: NSWindow.willExitFullScreenNotification)) { _ in
+            isFullscreen = false
+        }
+        .overlay(
+            // Settings Menu Overlay
+            Group {
+                if showingSettings {
+                    Color.black.opacity(0.3)
+                        .ignoresSafeArea()
+                        .onTapGesture {
+                            withAnimation(.easeInOut(duration: 0.2)) {
+                                showingSettings = false
+                            }
+                        }
+                    
+                    SettingsModal(
+                        showingSettings: $showingSettings,
+                        selectedSettingsTab: $selectedSettingsTab,
+                        apiKey: $openAIAPIKey
+                    )
+                }
+            }
+        )
+        .overlay(
+            // Toast Overlay
+            toastOverlay
+        )
+    }
+    
+    private var mainContent: some View {
+        let navHeight: CGFloat = 68
+        
+        return ZStack {
                 Color(colorScheme == .light ? .white : .black)
                     .ignoresSafeArea()
-                
               
                     TextEditor(text: Binding(
                         get: { text },
                         set: { newValue in
-                            // Don't allow text changes when voice input is active
-                            guard !isVoiceInputMode else { return }
-                            
+                    // Don't allow text changes when voice input is active
+                    guard !isVoiceInputMode else { return }
+                    
                             // Ensure the text always starts with two newlines
                             if !newValue.hasPrefix("\n\n") {
                                 text = "\n\n" + newValue.trimmingCharacters(in: .newlines)
@@ -512,7 +993,7 @@ struct ContentView: View {
                     .scrollIndicators(.never)
                     .lineSpacing(lineHeight)
                     .frame(maxWidth: 650)
-                    .allowsHitTesting(!isVoiceInputMode) // Disable interactions during voice input
+            .allowsHitTesting(!isVoiceInputMode && !showingSettings) // Disable interactions during voice input or settings modal
                     
           
                     .id("\(selectedFont)-\(fontSize)-\(colorScheme)")
@@ -540,517 +1021,20 @@ struct ContentView: View {
                                     viewHeight = height
                                 }
                                 .contentMargins(.bottom, viewHeight / 4)
-                    
                 
                 VStack {
                     Spacer()
-                    ZStack {
-                        // Bottom bar background
-                        HStack {
-                            // Font buttons (left)
-                            HStack(spacing: 8) {
-                                Button(fontSizeButtonTitle) {
-                                    if let currentIndex = fontSizes.firstIndex(of: fontSize) {
-                                        let nextIndex = (currentIndex + 1) % fontSizes.count
-                                        fontSize = fontSizes[nextIndex]
-                                    }
-                                }
-                                .buttonStyle(.plain)
-                                .foregroundColor(isHoveringSize ? textHoverColor : textColor)
-                                .onHover { hovering in
-                                    isHoveringSize = hovering
-                                    isHoveringBottomNav = hovering
-                                    if hovering {
-                                        NSCursor.pointingHand.push()
-                                    } else {
-                                        NSCursor.pop()
-                                    }
-                                }
-                                
-                                Text("•")
-                                    .foregroundColor(.gray)
-                                
-                                Button("Lato") {
-                                    selectedFont = "Lato-Regular"
-                                    currentRandomFont = ""
-                                }
-                                .buttonStyle(.plain)
-                                .foregroundColor(hoveredFont == "Lato" ? textHoverColor : textColor)
-                                .onHover { hovering in
-                                    hoveredFont = hovering ? "Lato" : nil
-                                    isHoveringBottomNav = hovering
-                                    if hovering {
-                                        NSCursor.pointingHand.push()
-                                    } else {
-                                        NSCursor.pop()
-                                    }
-                                }
-                                
-                                Text("•")
-                                    .foregroundColor(.gray)
-                                
-                                Button("Arial") {
-                                    selectedFont = "Arial"
-                                    currentRandomFont = ""
-                                }
-                                .buttonStyle(.plain)
-                                .foregroundColor(hoveredFont == "Arial" ? textHoverColor : textColor)
-                                .onHover { hovering in
-                                    hoveredFont = hovering ? "Arial" : nil
-                                    isHoveringBottomNav = hovering
-                                    if hovering {
-                                        NSCursor.pointingHand.push()
-                                    } else {
-                                        NSCursor.pop()
-                                    }
-                                }
-                                
-                                Text("•")
-                                    .foregroundColor(.gray)
-                                
-                                Button("System") {
-                                    selectedFont = ".AppleSystemUIFont"
-                                    currentRandomFont = ""
-                                }
-                                .buttonStyle(.plain)
-                                .foregroundColor(hoveredFont == "System" ? textHoverColor : textColor)
-                                .onHover { hovering in
-                                    hoveredFont = hovering ? "System" : nil
-                                    isHoveringBottomNav = hovering
-                                    if hovering {
-                                        NSCursor.pointingHand.push()
-                                    } else {
-                                        NSCursor.pop()
-                                    }
-                                }
-                                
-                                Text("•")
-                                    .foregroundColor(.gray)
-                                
-                                Button("Serif") {
-                                    selectedFont = "Times New Roman"
-                                    currentRandomFont = ""
-                                }
-                                .buttonStyle(.plain)
-                                .foregroundColor(hoveredFont == "Serif" ? textHoverColor : textColor)
-                                .onHover { hovering in
-                                    hoveredFont = hovering ? "Serif" : nil
-                                    isHoveringBottomNav = hovering
-                                    if hovering {
-                                        NSCursor.pointingHand.push()
-                                    } else {
-                                        NSCursor.pop()
-                                    }
-                                }
-                                
-                                Text("•")
-                                    .foregroundColor(.gray)
-                                
-                                Button(randomButtonTitle) {
-                                    if let randomFont = availableFonts.randomElement() {
-                                        selectedFont = randomFont
-                                        currentRandomFont = randomFont
-                                    }
-                                }
-                                .buttonStyle(.plain)
-                                .foregroundColor(hoveredFont == "Random" ? textHoverColor : textColor)
-                                .onHover { hovering in
-                                    hoveredFont = hovering ? "Random" : nil
-                                    isHoveringBottomNav = hovering
-                                    if hovering {
-                                        NSCursor.pointingHand.push()
-                                    } else {
-                                        NSCursor.pop()
-                                    }
-                                }
-                            }
-                            .padding(8)
-                            .cornerRadius(6)
-                            .onHover { hovering in
-                                isHoveringBottomNav = hovering
-                            }
-                            Spacer()
-                            // Utility buttons (right)
-                            HStack(spacing: 8) {
-                                // Button(timerButtonTitle) {
-                                //     let now = Date()
-                                //     if let lastClick = lastClickTime,
-                                //        now.timeIntervalSince(lastClick) < 0.3 {
-                                //         timeRemaining = 900
-                                //         timerIsRunning = false
-                                //         lastClickTime = nil
-                                //     } else {
-                                //         timerIsRunning.toggle()
-                                //         lastClickTime = now
-                                //     }
-                                // }
-                                // .buttonStyle(.plain)
-                                // .foregroundColor(timerColor)
-                                // .onHover { hovering in
-                                //     isHoveringTimer = hovering
-                                //     isHoveringBottomNav = hovering
-                                //     if hovering {
-                                //         NSCursor.pointingHand.push()
-                                //     } else {
-                                //         NSCursor.pop()
-                                //     }
-                                // }
-                                // .onAppear {
-                                //     NSEvent.addLocalMonitorForEvents(matching: .scrollWheel) { event in
-                                //         if isHoveringTimer {
-                                //             let scrollBuffer = event.deltaY * 0.25
-                                        
-                                //             if abs(scrollBuffer) >= 0.1 {
-                                //                 let currentMinutes = timeRemaining / 60
-                                //                 NSHapticFeedbackManager.defaultPerformer.perform(.generic, performanceTime: .now)
-                                //                 let direction = -scrollBuffer > 0 ? 5 : -5
-                                //                 let newMinutes = currentMinutes + direction
-                                //                 let roundedMinutes = (newMinutes / 5) * 5
-                                //                 let newTime = roundedMinutes * 60
-                                //                 timeRemaining = min(max(newTime, 0), 2700)
-                                //             }
-                                //         }
-                                //         return event
-                                //     }
-                                // }
-                                
-                                // Text("•")
-                                //     .foregroundColor(.gray)
-                                
-                                // Button("Chat") {
-                                //     showingChatMenu = true
-                                //     // Ensure didCopyPrompt is reset when opening the menu
-                                //     didCopyPrompt = false
-                                // }
-                                // .buttonStyle(.plain)
-                                // .foregroundColor(isHoveringChat ? textHoverColor : textColor)
-                                // .onHover { hovering in
-                                //     isHoveringChat = hovering
-                                //     isHoveringBottomNav = hovering
-                                //     if hovering {
-                                //         NSCursor.pointingHand.push()
-                                //     } else {
-                                //         NSCursor.pop()
-                                //     }
-                                // }
-                                // .popover(isPresented: $showingChatMenu, attachmentAnchor: .point(UnitPoint(x: 0.5, y: 0)), arrowEdge: .top) {
-                                //     VStack(spacing: 0) { // Wrap everything in a VStack for consistent styling and onChange
-                                //         let trimmedText = text.trimmingCharacters(in: .whitespacesAndNewlines)
-                                    
-                                //         // Calculate potential URL lengths
-                                //         let gptFullText = aiChatPrompt + "\n\n" + trimmedText
-                                //         let claudeFullText = claudePrompt + "\n\n" + trimmedText
-                                //         let encodedGptText = gptFullText.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? ""
-                                //         let encodedClaudeText = claudeFullText.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? ""
-                                    
-                                //         let gptUrlLength = "https://chat.openai.com/?m=".count + encodedGptText.count
-                                //         let claudeUrlLength = "https://claude.ai/new?q=".count + encodedClaudeText.count
-                                //         let isUrlTooLong = gptUrlLength > 6000 || claudeUrlLength > 6000
-                                    
-                                //         if isUrlTooLong {
-                                //             // View for long text (URL too long)
-                                //             Text("Hey, your entry is long. It'll break the URL. Instead, copy prompt by clicking below and paste into AI of your choice!")
-                                //                 .font(.system(size: 14))
-                                //                 .foregroundColor(popoverTextColor)
-                                //                 .lineLimit(nil)
-                                //                 .multilineTextAlignment(.leading)
-                                //                 .frame(width: 200, alignment: .leading)
-                                //                 .padding(.horizontal, 12)
-                                //                 .padding(.vertical, 8)
-                                        
-                                //             Divider()
-                                        
-                                //             Button(action: {
-                                //                 copyPromptToClipboard()
-                                //                 didCopyPrompt = true
-                                //             }) {
-                                //                 Text(didCopyPrompt ? "Copied!" : "Copy Prompt")
-                                //                     .frame(maxWidth: .infinity, alignment: .leading)
-                                //                     .padding(.horizontal, 12)
-                                //                     .padding(.vertical, 8)
-                                //             }
-                                //             .buttonStyle(.plain)
-                                //             .foregroundColor(popoverTextColor)
-                                //             .onHover { hovering in
-                                //                 if hovering {
-                                //                     NSCursor.pointingHand.push()
-                                //                 } else {
-                                //                     NSCursor.pop()
-                                //                 }
-                                //             }
-                                        
-                                //         } else if text.trimmingCharacters(in: .whitespacesAndNewlines).hasPrefix("hi. my name is farza.") {
-                                //             Text("Yo. Sorry, you can't chat with the guide lol. Please write your own entry.")
-                                //                 .font(.system(size: 14))
-                                //                 .foregroundColor(popoverTextColor)
-                                //                 .frame(width: 250)
-                                //                 .padding(.horizontal, 12)
-                                //                 .padding(.vertical, 8)
-                                //         } else if text.count < 350 {
-                                //             Text("Please free write for at minimum 5 minutes first. Then click this. Trust.")
-                                //                 .font(.system(size: 14))
-                                //                 .foregroundColor(popoverTextColor)
-                                //                 .frame(width: 250)
-                                //                 .padding(.horizontal, 12)
-                                //                 .padding(.vertical, 8)
-                                //         } else {
-                                //             // View for normal text length
-                                //             Button(action: {
-                                //                 showingChatMenu = false
-                                //                 openChatGPT()
-                                //             }) {
-                                //                 Text("ChatGPT")
-                                //                     .frame(maxWidth: .infinity, alignment: .leading)
-                                //                     .padding(.horizontal, 12)
-                                //                     .padding(.vertical, 8)
-                                //             }
-                                //             .buttonStyle(.plain)
-                                //             .foregroundColor(popoverTextColor)
-                                //             .onHover { hovering in
-                                //                 if hovering {
-                                //                     NSCursor.pointingHand.push()
-                                //                 } else {
-                                //                     NSCursor.pop()
-                                //                 }
-                                //             }
-                                        
-                                //             Divider()
-                                        
-                                //             Button(action: {
-                                //                 showingChatMenu = false
-                                //                 openClaude()
-                                //             }) {
-                                //                 Text("Claude")
-                                //                     .frame(maxWidth: .infinity, alignment: .leading)
-                                //                     .padding(.horizontal, 12)
-                                //                     .padding(.vertical, 8)
-                                //             }
-                                //             .buttonStyle(.plain)
-                                //             .foregroundColor(popoverTextColor)
-                                //             .onHover { hovering in
-                                //                 if hovering {
-                                //                     NSCursor.pointingHand.push()
-                                //                 } else {
-                                //                     NSCursor.pop()
-                                //                 }
-                                //             }
-                                        
-                                //             Divider()
-                                        
-                                //             Button(action: {
-                                //                 // Don't dismiss menu, just copy and update state
-                                //                 copyPromptToClipboard()
-                                //                 didCopyPrompt = true
-                                //             }) {
-                                //                 Text(didCopyPrompt ? "Copied!" : "Copy Prompt")
-                                //                     .frame(maxWidth: .infinity, alignment: .leading)
-                                //                     .padding(.horizontal, 12)
-                                //                     .padding(.vertical, 8)
-                                //             }
-                                //             .buttonStyle(.plain)
-                                //             .foregroundColor(popoverTextColor)
-                                //             .onHover { hovering in
-                                //                 if hovering {
-                                //                     NSCursor.pointingHand.push()
-                                //                 } else {
-                                //                     NSCursor.pop()
-                                //                 }
-                                //             }
-                                //         }
-                                //     }
-                                //     .frame(minWidth: 120, maxWidth: 250) // Allow width to adjust
-                                //     .background(popoverBackgroundColor)
-                                //     .cornerRadius(8)
-                                //     .shadow(color: Color.black.opacity(0.1), radius: 4, y: 2)
-                                //     // Reset copied state when popover dismisses
-                                //     .onChange(of: showingChatMenu) { newValue in
-                                //         if !newValue {
-                                //             didCopyPrompt = false
-                                //         }
-                                //     }
-                                // }
-                                
-                                // Text("•")
-                                //     .foregroundColor(.gray)
-                                
-                                // Button(isFullscreen ? "Minimize" : "Fullscreen") {
-                                //     if let window = NSApplication.shared.windows.first {
-                                //         window.toggleFullScreen(nil)
-                                //     }
-                                // }
-                                // .buttonStyle(.plain)
-                                // .foregroundColor(isHoveringFullscreen ? textHoverColor : textColor)
-                                // .onHover { hovering in
-                                //     isHoveringFullscreen = hovering
-                                //     isHoveringBottomNav = hovering
-                                //     if hovering {
-                                //         NSCursor.pointingHand.push()
-                                //     } else {
-                                //         NSCursor.pop()
-                                //     }
-                                // }
-                                
-                                // Text("•")
-                                //     .foregroundColor(.gray)
-
-                                // Theme toggle button
-                                Button(action: {
-                                    colorScheme = colorScheme == .light ? .dark : .light
-                                    // Save preference
-                                    UserDefaults.standard.set(colorScheme == .light ? "light" : "dark", forKey: "colorScheme")
-                                }) {
-                                    Image(systemName: colorScheme == .light ? "moon.fill" : "sun.max.fill")
-                                        .foregroundColor(isHoveringThemeToggle ? textHoverColor : textColor)
-                                }
-                                .buttonStyle(.plain)
-                                .onHover { hovering in
-                                    isHoveringThemeToggle = hovering
-                                    isHoveringBottomNav = hovering
-                                    if hovering {
-                                        NSCursor.pointingHand.push()
-                                    } else {
-                                        NSCursor.pop()
-                                    }
-                                }
-
-                                Text("•")
-                                    .foregroundColor(.gray)
-                                
-                                // Settings button
-                                Button(action: {
-                                    withAnimation(.easeInOut(duration: 0.2)) {
-                                        showingSettings = true
-                                    }
-                                }) {
-                                    Image(systemName: "gearshape.fill")
-                                        .foregroundColor(isHoveringSettings ? textHoverColor : textColor)
-                                }
-                                .buttonStyle(.plain)
-                                .onHover { hovering in
-                                    isHoveringSettings = hovering
-                                    isHoveringBottomNav = hovering
-                                    if hovering {
-                                        NSCursor.pointingHand.push()
-                                    } else {
-                                        NSCursor.pop()
-                                    }
-                                }
-
-                                Text("•")
-                                    .foregroundColor(.gray)
-                                
-                                Button(action: {
-                                    createNewEntry()
-                                }) {
-                                    Text("New Entry")
-                                        .font(.system(size: 13))
-                                }
-                                .buttonStyle(.plain)
-                                .foregroundColor(isHoveringNewEntry ? textHoverColor : textColor)
-                                .onHover { hovering in
-                                    isHoveringNewEntry = hovering
-                                    isHoveringBottomNav = hovering
-                                    if hovering {
-                                        NSCursor.pointingHand.push()
-                                    } else {
-                                        NSCursor.pop()
-                                    }
-                                }
-                                
-                                Text("•")
-                                    .foregroundColor(.gray)
-                                
-                                // Version history button
-                                Button(action: {
-                                    withAnimation(.easeInOut(duration: 0.2)) {
-                                        showingSidebar.toggle()
-                                    }
-                                }) {
-                                    Image(systemName: "clock.arrow.circlepath")
-                                        .foregroundColor(isHoveringClock ? textHoverColor : textColor)
-                                }
-                                .buttonStyle(.plain)
-                                .onHover { hovering in
-                                    isHoveringClock = hovering
-                                    isHoveringBottomNav = hovering
-                                    if hovering {
-                                        NSCursor.pointingHand.push()
-                                    } else {
-                                        NSCursor.pop()
-                                    }
-                                }
-                            }
-                            .padding(8)
-                            .cornerRadius(6)
-                            .onHover { hovering in
-                                isHoveringBottomNav = hovering
-                            }
-                        }
-                        .padding()
-                        .background(Color(colorScheme == .light ? .white : .black))
-                        .opacity(bottomNavOpacity)
-                        .onHover { hovering in
-                            isHoveringBottomNav = hovering
-                            if hovering {
-                                withAnimation(.easeOut(duration: 0.2)) {
-                                    bottomNavOpacity = 1.0
-                                }
-                            } else if timerIsRunning {
-                                withAnimation(.easeIn(duration: 1.0)) {
-                                    bottomNavOpacity = 0.0
-                                }
-                            }
-                        }
-                        // --- Microphone Button (centered absolutely) ---
-                        GeometryReader { geo in
-                            let barHeight: CGFloat = 68 // matches navHeight
-                            let buttonSize: CGFloat = 40
-                            let borderWidth: CGFloat = 1
-                            let dotRadius: CGFloat = (buttonSize / 2) - (borderWidth / 2)
-                            Button(action: {
-                                toggleRecording()
-                            }) {
-                                ZStack {
-                                    Circle()
-                                        .fill(colorScheme == .light ? Color.white : Color.black)
-                                        .frame(width: buttonSize, height: buttonSize)
-                                        .overlay(
-                                            Circle()
-                                                .stroke(Color.gray.opacity(0.45), lineWidth: borderWidth)
-                                        )
-                                        .shadow(color: isRecording ? Color.clear : Color.gray.opacity(0.32), radius: 12, y: 3)
-                                    Image(systemName: "mic.fill")
-                                        .font(.system(size: 18, weight: .medium))
-                                        .foregroundColor(colorScheme == .light ? .gray : .white.opacity(0.85))
-                                    // Animated white dot on border
-                                    if isRecording {
-                                        let angle = Angle(degrees: micDotAngle)
-                                        let x = dotRadius * cos(angle.radians - .pi/2)
-                                        let y = dotRadius * sin(angle.radians - .pi/2)
-                                        Circle()
-                                            .fill(Color.white)
-                                            .frame(width: 9, height: 9)
-                                            .offset(x: x, y: y)
-                                            .shadow(color: Color.white.opacity(0.8), radius: 3)
-                                    }
-                                }
-                            }
-                            .buttonStyle(.plain)
-                            .animation(.linear(duration: 0.016), value: micDotAngle)
-                            .onDisappear {
-                                micDotTimer?.invalidate()
-                                micDotTimer = nil
-                            }
-                            .position(x: geo.size.width / 2, y: barHeight / 2)
-                        }
-                        .frame(height: 68)
-                        // --- End Microphone Button ---
-                    }
+                    bottomNavigationView
                 }
             }
-            
-            // Right sidebar
+    }
+    
+    @ViewBuilder
+    private var sidebar: some View {
             if showingSidebar {
+            let textColor = colorScheme == .light ? Color.gray : Color.gray.opacity(0.8)
+            let textHoverColor = colorScheme == .light ? Color.black : Color.white
+            
                 Divider()
                 
                 VStack(spacing: 0) {
@@ -1061,7 +1045,7 @@ struct ContentView: View {
                         HStack {
                             VStack(alignment: .leading, spacing: 4) {
                                 HStack(spacing: 4) {
-                                    Text("History")
+                                Text("Journal")
                                         .font(.system(size: 13))
                                         .foregroundColor(isHoveringHistory ? textHoverColor : textColor)
                                     Image(systemName: "arrow.up.right")
@@ -1196,66 +1180,6 @@ struct ContentView: View {
                 .frame(width: 200)
                 .background(Color(colorScheme == .light ? .white : NSColor.black))
             }
-        }
-        .frame(minWidth: 1100, minHeight: 600)
-        .animation(.easeInOut(duration: 0.2), value: showingSidebar)
-        .preferredColorScheme(colorScheme)
-        .onAppear {
-            showingSidebar = false  // Hide sidebar by default
-            loadExistingEntries()
-        }
-        .onDisappear {
-            cleanupRecording()
-        }
-        .onChange(of: text) { _ in
-            // Save current entry when text changes
-            if let currentId = selectedEntryId,
-               let currentEntry = entries.first(where: { $0.id == currentId }) {
-                saveEntry(entry: currentEntry)
-            }
-        }
-        .onReceive(timer) { _ in
-            if timerIsRunning && timeRemaining > 0 {
-                timeRemaining -= 1
-            } else if timeRemaining == 0 {
-                timerIsRunning = false
-                if !isHoveringBottomNav {
-                    withAnimation(.easeOut(duration: 1.0)) {
-                        bottomNavOpacity = 1.0
-                    }
-                }
-            }
-        }
-        .onReceive(NotificationCenter.default.publisher(for: NSWindow.willEnterFullScreenNotification)) { _ in
-            isFullscreen = true
-        }
-        .onReceive(NotificationCenter.default.publisher(for: NSWindow.willExitFullScreenNotification)) { _ in
-            isFullscreen = false
-        }
-        .overlay(
-            // Settings Menu Overlay
-            Group {
-                if showingSettings {
-                    Color.black.opacity(0.3)
-                        .ignoresSafeArea()
-                        .onTapGesture {
-                            withAnimation(.easeInOut(duration: 0.2)) {
-                                showingSettings = false
-                            }
-                        }
-                    
-                    SettingsModal(
-                        showingSettings: $showingSettings,
-                        selectedSettingsTab: $selectedSettingsTab,
-                        apiKey: $openAIAPIKey
-                    )
-                }
-            }
-        )
-        .overlay(
-            // Toast Overlay
-            toastOverlay
-        )
     }
     
     private func backgroundColor(for entry: HumanEntry) -> Color {
@@ -1292,8 +1216,13 @@ struct ContentView: View {
         let documentsDirectory = getDocumentsDirectory()
         let fileURL = documentsDirectory.appendingPathComponent(entry.filename)
         
+        var contentToSave = text
+        if reflectionViewModel.hasBeenRun && !reflectionViewModel.reflectionResponse.isEmpty {
+            contentToSave += "\n\n--- REFLECTION ---\n\n" + reflectionViewModel.reflectionResponse
+        }
+        
         do {
-            try text.write(to: fileURL, atomically: true, encoding: .utf8)
+            try contentToSave.write(to: fileURL, atomically: true, encoding: .utf8)
             print("Successfully saved entry: \(entry.filename)")
             updatePreviewText(for: entry)  // Update preview after saving
         } catch {
@@ -1307,7 +1236,21 @@ struct ContentView: View {
         
         do {
             if fileManager.fileExists(atPath: fileURL.path) {
-                text = try String(contentsOf: fileURL, encoding: .utf8)
+                let fullContent = try String(contentsOf: fileURL, encoding: .utf8)
+                let separator = "\n\n--- REFLECTION ---\n\n"
+                
+                if let range = fullContent.range(of: separator) {
+                    text = String(fullContent[..<range.lowerBound])
+                    reflectionViewModel.reflectionResponse = String(fullContent[range.upperBound...])
+                    reflectionViewModel.hasBeenRun = true
+                    showReflectionPanel = true // Or false, depending on desired default state
+                } else {
+                    text = fullContent
+                    reflectionViewModel.reflectionResponse = ""
+                    reflectionViewModel.hasBeenRun = false
+                    showReflectionPanel = false
+                }
+                
                 print("Successfully loaded entry: \(entry.filename)")
             }
         } catch {
@@ -1575,8 +1518,8 @@ struct ContentView: View {
     
     func startRecording() {
         // Check API key first
-        guard !openAIAPIKey.isEmpty else {
-            showToast(message: "Please enter your OpenAI API key in Settings", type: .error)
+        guard !deepgramAPIKey.isEmpty && deepgramAPIKey != "YOUR_DEEPGRAM_API_KEY_HERE" else {
+            showToast(message: "DeepGram API key not configured", type: .error)
             return
         }
         
@@ -1707,8 +1650,8 @@ struct ContentView: View {
     }
     
     func transcribeAudioChunk(url: URL, chunkIndex: Int) {
-        guard !openAIAPIKey.isEmpty else {
-            showToast(message: "Please enter your OpenAI API key in Settings", type: .error)
+        guard !deepgramAPIKey.isEmpty && deepgramAPIKey != "YOUR_DEEPGRAM_API_KEY_HERE" else {
+            showToast(message: "DeepGram API key not configured", type: .error)
             return
         }
         
@@ -1719,33 +1662,14 @@ struct ContentView: View {
             return
         }
         
-        // Prepare request to OpenAI Whisper
-        let apiKey = openAIAPIKey
-        let endpoint = URL(string: "https://api.openai.com/v1/audio/transcriptions")!
+        // Prepare request to DeepGram API
+        let apiKey = deepgramAPIKey
+        let endpoint = URL(string: "https://api.deepgram.com/v1/listen?model=nova-2&smart_format=true")!
         var request = URLRequest(url: endpoint)
         request.httpMethod = "POST"
-        let boundary = UUID().uuidString
-        request.setValue("Bearer \(apiKey)", forHTTPHeaderField: "Authorization")
-        request.setValue("multipart/form-data; boundary=\(boundary)", forHTTPHeaderField: "Content-Type")
-        
-        // Prepare multipart body
-        var body = Data()
-        
-        // Add file
-        body.append("--\(boundary)\r\n".data(using: .utf8)!)
-        body.append("Content-Disposition: form-data; name=\"file\"; filename=\"chunk_\(chunkIndex).m4a\"\r\n".data(using: .utf8)!)
-        body.append("Content-Type: audio/m4a\r\n\r\n".data(using: .utf8)!)
-        body.append(audioData)
-        body.append("\r\n".data(using: .utf8)!)
-        
-        // Add model param
-        body.append("--\(boundary)\r\n".data(using: .utf8)!)
-        body.append("Content-Disposition: form-data; name=\"model\"\r\n\r\n".data(using: .utf8)!)
-        body.append("whisper-1\r\n".data(using: .utf8)!)
-        
-        // End boundary
-        body.append("--\(boundary)--\r\n".data(using: .utf8)!)
-        request.httpBody = body
+        request.setValue("Token \(apiKey)", forHTTPHeaderField: "Authorization")
+        request.setValue("audio/m4a", forHTTPHeaderField: "Content-Type")
+        request.httpBody = audioData
         
         // Send request
         URLSession.shared.dataTask(with: request) { data, response, error in
@@ -1757,7 +1681,7 @@ struct ContentView: View {
                 }
                 
                 guard let data = data else {
-                    print("No data returned from Whisper API for chunk \(chunkIndex)")
+                    print("No data returned from DeepGram API for chunk \(chunkIndex)")
                     return
                 }
                 
@@ -1767,7 +1691,7 @@ struct ContentView: View {
                         if let errorJson = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
                            let error = errorJson["error"] as? [String: Any],
                            let message = error["message"] as? String {
-                            print("OpenAI API Error for chunk \(chunkIndex): \(message)")
+                            print("DeepGram API Error for chunk \(chunkIndex): \(message)")
                         } else {
                             print("API Error for chunk \(chunkIndex): Status \(httpResponse.statusCode)")
                         }
@@ -1775,8 +1699,13 @@ struct ContentView: View {
                     }
                 }
                 
-                if let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any], 
-                   let textResult = json["text"] as? String {
+                if let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+                   let results = json["results"] as? [String: Any],
+                   let channels = results["channels"] as? [[String: Any]],
+                   let firstChannel = channels.first,
+                   let alternatives = firstChannel["alternatives"] as? [[String: Any]],
+                   let firstAlternative = alternatives.first,
+                   let textResult = firstAlternative["transcript"] as? String {
                     
                     // Filter out empty or very short transcriptions
                     let cleanedText = textResult.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -1784,11 +1713,9 @@ struct ContentView: View {
                         // Insert the transcribed text at the end of current text
                         let separator = self.text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? "" : " "
                         self.text += separator + cleanedText
-                    
-
                     }
                 } else {
-                    print("Failed to parse Whisper response for chunk \(chunkIndex)")
+                    print("Failed to parse DeepGram response for chunk \(chunkIndex)")
                 }
             }
         }.resume()
@@ -1798,42 +1725,25 @@ struct ContentView: View {
     }
     
     func transcribeAudio(url: URL) {
-        guard !openAIAPIKey.isEmpty else {
-            showToast(message: "Please enter your OpenAI API key in Settings", type: .error)
+        guard !deepgramAPIKey.isEmpty && deepgramAPIKey != "YOUR_DEEPGRAM_API_KEY_HERE" else {
+            showToast(message: "DeepGram API key not configured", type: .error)
             return
         }
         
         isTranscribing = true
         
-        // Prepare request to OpenAI Whisper
-        let apiKey = openAIAPIKey
-        let endpoint = URL(string: "https://api.openai.com/v1/audio/transcriptions")!
+        // Prepare request to DeepGram API
+        let apiKey = deepgramAPIKey
+        let endpoint = URL(string: "https://api.deepgram.com/v1/listen?model=nova-2&smart_format=true")!
         var request = URLRequest(url: endpoint)
         request.httpMethod = "POST"
-        let boundary = UUID().uuidString
-        request.setValue("Bearer \(apiKey)", forHTTPHeaderField: "Authorization")
-        request.setValue("multipart/form-data; boundary=\(boundary)", forHTTPHeaderField: "Content-Type")
+        request.setValue("Token \(apiKey)", forHTTPHeaderField: "Authorization")
+        request.setValue("audio/m4a", forHTTPHeaderField: "Content-Type")
         
-        // Prepare multipart body
-        var body = Data()
-        
-        // Add file
+        // Set request body with audio data
         if let audioData = try? Data(contentsOf: url) {
-            body.append("--\(boundary)\r\n".data(using: .utf8)!)
-            body.append("Content-Disposition: form-data; name=\"file\"; filename=\"recording.m4a\"\r\n".data(using: .utf8)!)
-            body.append("Content-Type: audio/m4a\r\n\r\n".data(using: .utf8)!)
-            body.append(audioData)
-            body.append("\r\n".data(using: .utf8)!)
+            request.httpBody = audioData
         }
-        
-        // Add model param
-        body.append("--\(boundary)\r\n".data(using: .utf8)!)
-        body.append("Content-Disposition: form-data; name=\"model\"\r\n\r\n".data(using: .utf8)!)
-        body.append("whisper-1\r\n".data(using: .utf8)!)
-        
-        // End boundary
-        body.append("--\(boundary)--\r\n".data(using: .utf8)!)
-        request.httpBody = body
         
         // Send request
         URLSession.shared.dataTask(with: request) { data, response, error in
@@ -1847,8 +1757,8 @@ struct ContentView: View {
                 }
                 
                 guard let data = data else {
-                    self.showToast(message: "No response from OpenAI", type: .error)
-                    print("No data returned from Whisper API")
+                    self.showToast(message: "No response from DeepGram", type: .error)
+                    print("No data returned from DeepGram API")
                     return
                 }
                 
@@ -1858,7 +1768,7 @@ struct ContentView: View {
                         if let errorJson = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
                            let error = errorJson["error"] as? [String: Any],
                            let message = error["message"] as? String {
-                            self.showToast(message: "OpenAI API Error: \(message)", type: .error)
+                            self.showToast(message: "DeepGram API Error: \(message)", type: .error)
                         } else {
                             self.showToast(message: "API Error: Status \(httpResponse.statusCode)", type: .error)
                         }
@@ -1866,14 +1776,19 @@ struct ContentView: View {
                     }
                 }
                 
-                if let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any], 
-                   let textResult = json["text"] as? String {
+                if let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+                   let results = json["results"] as? [String: Any],
+                   let channels = results["channels"] as? [[String: Any]],
+                   let firstChannel = channels.first,
+                   let alternatives = firstChannel["alternatives"] as? [[String: Any]],
+                   let firstAlternative = alternatives.first,
+                   let textResult = firstAlternative["transcript"] as? String {
                     // Insert the transcribed text at the end of current text
                     self.text += (self.text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? "" : " ") + textResult
                     self.showToast(message: "Text transcribed successfully", type: .success)
                 } else {
                     self.showToast(message: "Failed to parse transcription response", type: .error)
-                    print("Failed to parse Whisper response: \(String(data: data, encoding: .utf8) ?? "")")
+                    print("Failed to parse DeepGram response: \(String(data: data, encoding: .utf8) ?? "")")
                 }
             }
         }.resume()
@@ -1929,6 +1844,130 @@ struct ContentView: View {
     
     // --- End Audio Recording and Whisper API ---
     
+    // --- Reflection Functionality ---
+    
+    class ReflectionViewModel: NSObject, ObservableObject, URLSessionDataDelegate {
+        @Published var reflectionResponse: String = ""
+        @Published var isLoading: Bool = false
+        @Published var error: String? = nil
+        @Published var hasBeenRun: Bool = false
+        
+        private var streamingTask: URLSessionDataTask?
+
+        func start(apiKey: String, entryText: String) {
+            guard !apiKey.isEmpty else {
+                self.error = "Please enter your OpenAI API key in Settings"
+                return
+            }
+            
+            guard !entryText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+                self.error = "Cannot reflect on an empty entry."
+                return
+            }
+
+            self.reflectionResponse = ""
+            self.isLoading = true
+            self.error = nil
+            self.hasBeenRun = true
+
+            streamOpenAIResponse(apiKey: apiKey, entryText: entryText)
+        }
+
+        private func streamOpenAIResponse(apiKey: String, entryText: String) {
+            let endpoint = URL(string: "https://api.openai.com/v1/chat/completions")!
+            
+            var request = URLRequest(url: endpoint)
+            request.httpMethod = "POST"
+            request.setValue("Bearer \(apiKey)", forHTTPHeaderField: "Authorization")
+            request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+            
+            let systemPrompt = """
+            Take a look at this journal entry. I'd like you to analyze it and respond with deep insight that feels personal, not clinical.
+            
+            Imagine you're not just a friend, but a mentor who truly gets both my tech background and my psychological patterns. I want you to uncover the deeper meaning and emotional undercurrents behind my scattered thoughts.
+            
+            Keep it casual, help me make new connections i don't see, comfort, validate, challenge, all of it. don't be afraid to say a lot. format with markdown headings if needed.
+            
+            Use vivid metaphors and powerful imagery to help me see what I'm really building. Organize your thoughts with meaningful headings that create a narrative journey through my ideas.
+            
+            Don't just validate my thoughts - reframe them in a way that shows me what I'm really seeking beneath the surface. Go beyond the product concepts to the emotional core of what I'm trying to solve.
+            
+            Be willing to be profound and philosophical without sounding like you're giving therapy. I want someone who can see the patterns I can't see myself and articulate them in a way that feels like an epiphany.
+            
+            Start with 'hey, thanks for showing me this. my thoughts:' and then use markdown headings to structure your response.
+            """
+            
+            let payload: [String: Any] = [
+                "model": "gpt-4o",
+                "messages": [
+                    ["role": "system", "content": systemPrompt],
+                    ["role": "user", "content": entryText]
+                ],
+                "stream": true
+            ]
+            
+            do {
+                request.httpBody = try JSONSerialization.data(withJSONObject: payload)
+            } catch {
+                DispatchQueue.main.async {
+                    self.isLoading = false
+                    self.error = "Failed to prepare request."
+                }
+                return
+            }
+            
+            let session = URLSession(configuration: .default, delegate: self, delegateQueue: nil)
+            streamingTask = session.dataTask(with: request)
+            streamingTask?.resume()
+        }
+        
+        func urlSession(_ session: URLSession, dataTask: URLSessionDataTask, didReceive data: Data) {
+            let stringData = String(data: data, encoding: .utf8) ?? ""
+            let lines = stringData.split(separator: "\n")
+            
+            for line in lines {
+                if line.hasPrefix("data: ") {
+                    let jsonString = String(line.dropFirst(6))
+                    
+                    if jsonString == "[DONE]" {
+                        DispatchQueue.main.async {
+                            self.isLoading = false
+                        }
+                        return
+                    }
+                    
+                    if let jsonData = jsonString.data(using: .utf8) {
+                        do {
+                            if let json = try JSONSerialization.jsonObject(with: jsonData) as? [String: Any],
+                               let choices = json["choices"] as? [[String: Any]],
+                               let firstChoice = choices.first,
+                               let delta = firstChoice["delta"] as? [String: Any],
+                               let content = delta["content"] as? String {
+                                DispatchQueue.main.async {
+                                    if self.reflectionResponse.isEmpty {
+                                        self.reflectionResponse = "\n\n"
+                                    }
+                                    self.reflectionResponse += content
+                                }
+                            }
+                        } catch {
+                            // JSON parsing error
+                        }
+                    }
+                }
+            }
+        }
+        
+        func urlSession(_ session: URLSession, task: URLSessionTask, didCompleteWithError error: Error?) {
+            DispatchQueue.main.async {
+                self.isLoading = false
+                if let error = error {
+                    self.error = error.localizedDescription
+                }
+            }
+        }
+    }
+
     // Computed property for toast overlay to avoid type-checking complexity
     private var toastOverlay: some View {
         Group {
@@ -1941,6 +1980,107 @@ struct ContentView: View {
                     colorScheme: colorScheme
                 )
                 .transition(.move(edge: .top))
+            }
+        }
+    }
+
+    // Add this after the mainContent and sidebar view definitions
+
+    @ViewBuilder
+    private var reflectionContent: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            if reflectionViewModel.isLoading && reflectionViewModel.reflectionResponse.isEmpty {
+                HStack(alignment: .top, spacing: 0) {
+                    OscillatingDotView(colorScheme: colorScheme)
+                    Spacer()
+                }
+                .padding(.top, (fontSize + lineHeight) * 2)
+                .padding(.horizontal, 24)
+            } else if let error = reflectionViewModel.error {
+                Text("Error: \(error)")
+                    .foregroundColor(.red)
+                    .padding(.horizontal, 24)
+                    .padding(.top, 16) // Match vertical padding
+            } else {
+                ScrollView {
+                    Text(reflectionViewModel.reflectionResponse)
+                        .font(.custom(selectedFont, size: fontSize))
+                        .foregroundColor(colorScheme == .light ? Color(red: 0.20, green: 0.20, blue: 0.20) : Color(red: 0.9, green: 0.9, blue: 0.9))
+                        .lineSpacing(lineHeight)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .padding(.horizontal, 24)
+                }
+                .scrollIndicators(.never)
+            }
+            Spacer()
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .background(Color(colorScheme == .light ? .white : .black))
+    }
+
+    @ViewBuilder
+    private var mainContentWithReflection: some View {
+        let navHeight: CGFloat = 68
+        ZStack {
+            // Split content view (behind navigation)
+            HStack(spacing: 0) {
+                // Left side - User's text (50% of screen width)
+                ZStack {
+                    Color(colorScheme == .light ? .white : .black)
+                        .ignoresSafeArea()
+                    
+                    TextEditor(text: Binding(
+                        get: { text },
+                        set: { newValue in
+                            guard !isVoiceInputMode else { return }
+                            
+                            if !newValue.hasPrefix("\n\n") {
+                                text = "\n\n" + newValue.trimmingCharacters(in: .newlines)
+                            } else {
+                                text = newValue
+                            }
+                        }
+                    ))
+                    .background(Color(colorScheme == .light ? .white : .black))
+                    .font(.custom(selectedFont, size: fontSize))
+                    .foregroundColor(colorScheme == .light ? Color(red: 0.20, green: 0.20, blue: 0.20) : Color(red: 0.9, green: 0.9, blue: 0.9))
+                    .scrollContentBackground(.hidden)
+                    .scrollIndicators(.never)
+                    .lineSpacing(lineHeight)
+                    .frame(maxWidth: .infinity)
+                    .allowsHitTesting(!isVoiceInputMode && !showingSettings)
+                    .id("\(selectedFont)-\(fontSize)-\(colorScheme)")
+                    .padding(.horizontal, 24)
+                    .padding(.bottom, bottomNavOpacity > 0 ? navHeight : 0)
+                    .ignoresSafeArea()
+                    .colorScheme(colorScheme)
+                    .overlay(
+                        ZStack(alignment: .topLeading) {
+                            if text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                                Text(placeholderText)
+                                    .font(.custom(selectedFont, size: fontSize))
+                                    .foregroundColor(colorScheme == .light ? .gray.opacity(0.5) : .gray.opacity(0.6))
+                                    .allowsHitTesting(false)
+                                    .offset(x: 29, y: placeholderOffset)
+                            }
+                        }, alignment: .topLeading
+                    )
+                }
+                
+                // Center divider
+                Rectangle()
+                    .fill(Color(red: 0.85, green: 0.85, blue: 0.85))
+                    .frame(width: 1)
+                
+                // Right side - Reflection content (50% of screen width)
+                reflectionContent
+                    .background(Color(colorScheme == .light ? .white : .black))
+            }
+            
+            // Navigation overlay (stays on top)
+            VStack {
+                Spacer()
+                bottomNavigationView
             }
         }
     }
@@ -2063,7 +2203,7 @@ struct AISettingsView: View {
             
             // OpenAI API Key Input
             VStack(alignment: .leading, spacing: 8) {
-                Text("OpenAI Whisper API Key")
+                Text("OpenAI API Key")
                     .font(.system(size: 14, weight: .medium))
                     .foregroundColor(.primary)
                 
@@ -2080,8 +2220,8 @@ struct AISettingsView: View {
                     .onChange(of: tempApiKey) { newValue in
                         hasUnsavedChanges = (newValue != apiKey)
                     }
-
-                Text("Your API key is stored locally and only used for transcription.")
+                
+                Text("Your API key is stored locally and only used for reflection.")
                     .font(.caption)
                     .foregroundColor(.secondary)
                 
@@ -2122,7 +2262,7 @@ struct AISettingsView: View {
                             Image(systemName: "checkmark.circle.fill")
                                 .foregroundColor(.primary)
                                 .font(.system(size: 12))
-                            Text("Saved!")
+                            Text("Saved")
                                 .font(.system(size: 12))
                                 .foregroundColor(.primary)
                         }
@@ -2249,6 +2389,25 @@ struct ToastView: View {
             
             Spacer()
         }
+    }
+}
+
+// OscillatingDotView: Animated loading dot for reflection loading state
+struct OscillatingDotView: View {
+    @State private var scale: CGFloat = 1.0
+    let colorScheme: ColorScheme
+    
+    var body: some View {
+        Circle()
+            .fill(colorScheme == .light ? Color(red: 0.20, green: 0.20, blue: 0.20) : Color(red: 0.9, green: 0.9, blue: 0.9))
+            .frame(width: 16, height: 16)
+            .scaleEffect(scale)
+            .onAppear {
+                let animation = Animation.easeInOut(duration: 0.8).repeatForever(autoreverses: true)
+                withAnimation(animation) {
+                    self.scale = 1.2
+                }
+            }
     }
 }
 
