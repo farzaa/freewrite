@@ -44,9 +44,9 @@ struct HumanEntry: Identifiable {
 }
 
 enum SettingsTab: String, CaseIterable {
+    case reflections = "Reflections"
     case ai = "AI"
     case style = "Style"
-    case reflections = "Reflections"
 }
 
 struct HeartEmoji: Identifiable {
@@ -127,15 +127,16 @@ struct ContentView: View {
     @State private var text: String = ""  // Remove initial welcome text since we'll handle it in createNewEntry
     
     @State private var isFullscreen = false
-    @State private var selectedFont: String = "Lato-Regular"
+    @State private var userSelectedFont: String = "Lato-Regular" // Renamed from selectedFont
+    @State private var aiSelectedFont: String = "Lato-Regular" // For AI reflections
     @State private var currentRandomFont: String = ""
+    @State private var currentAIRandomFont: String = ""
     @State private var timeRemaining: Int = 900  // Changed to 900 seconds (15 minutes)
     @State private var timerIsRunning = false
     @State private var isHoveringTimer = false
     @State private var isHoveringFullscreen = false
-    @State private var hoveredFont: String? = nil
-    @State private var isHoveringSize = false
-    @State private var fontSize: CGFloat = 18
+    @State private var userFontSize: CGFloat = 18 // Renamed from fontSize
+    @State private var aiFontSize: CGFloat = 18 // For AI reflections
     @State private var blinkCount = 0
     @State private var isBlinking = false
     @State private var opacity: Double = 1.0
@@ -160,16 +161,15 @@ struct ContentView: View {
     @State private var isHoveringHistoryText = false
     @State private var isHoveringHistoryPath = false
     @State private var isHoveringHistoryArrow = false
-    @State private var showStyleOptions = false // Track if style options are visible
-    @State private var isHoveringStyle = false
+
     @State private var isHoveringReflect = false
     @State private var isHoveringBrain = false // Add hover state for brain icon
     @State private var colorScheme: ColorScheme = .light // Add state for color scheme
-    @State private var isHoveringThemeToggle = false // Add state for theme toggle hover
+
     @State private var didCopyPrompt: Bool = false // Add state for copy prompt feedback
     @State private var showingSettings = false // Add state for settings menu
     @State private var isHoveringSettings = false // Add state for settings hover
-    @State private var selectedSettingsTab: SettingsTab = .ai // Add state for selected tab
+    @State private var selectedSettingsTab: SettingsTab = .reflections // Add state for selected tab
     @State private var openAIAPIKey: String = ""
     @StateObject private var reflectionViewModel = ReflectionViewModel()
     
@@ -201,9 +201,8 @@ struct ContentView: View {
     @State private var toastMessage = ""
     @State private var toastType: ToastType = .error
     
+
     let availableFonts = NSFontManager.shared.availableFontFamilies
-    let standardFonts = ["Lato-Regular", "Arial", ".AppleSystemUIFont", "Times New Roman"]
-    let fontSizes: [CGFloat] = [16, 18, 20, 22, 24, 26]
     let placeholderOptions = [
         "\n\nBegin writing",
         "\n\nPick a thought and go",
@@ -671,9 +670,7 @@ struct ContentView: View {
         }
     }
     
-    var randomButtonTitle: String {
-        return currentRandomFont.isEmpty ? "Random" : "Random [\(currentRandomFont)]"
-    }
+
     
     var timerButtonTitle: String {
         if !timerIsRunning && timeRemaining == 900 {
@@ -692,19 +689,21 @@ struct ContentView: View {
         }
     }
     
-    var lineHeight: CGFloat {
-        let font = NSFont(name: selectedFont, size: fontSize) ?? .systemFont(ofSize: fontSize)
+    var userLineHeight: CGFloat {
+        let font = NSFont(name: userSelectedFont, size: userFontSize) ?? .systemFont(ofSize: userFontSize)
         let defaultLineHeight = getLineHeight(font: font)
-        return (fontSize * 1.5) - defaultLineHeight
+        return (userFontSize * 1.5) - defaultLineHeight
     }
     
-    var fontSizeButtonTitle: String {
-        return "\(Int(fontSize))px"
+    var aiLineHeight: CGFloat {
+        let font = NSFont(name: aiSelectedFont, size: aiFontSize) ?? .systemFont(ofSize: aiFontSize)
+        let defaultLineHeight = getLineHeight(font: font)
+        return (aiFontSize * 1.5) - defaultLineHeight
     }
     
     var placeholderOffset: CGFloat {
         // Instead of using calculated line height, use a simple offset
-        return (fontSize / 2) + 1.5
+        return (userFontSize / 2) + 1.5
     }
     
     // Add a color utility computed property
@@ -724,142 +723,7 @@ struct ContentView: View {
         let textHoverColor = colorScheme == .light ? Color.black : Color.white
         
         VStack(spacing: 0) {
-            // Style options bar (appears above main navigation)
-            if showStyleOptions {
-                    HStack(spacing: 8) {
-                        Button(fontSizeButtonTitle) {
-                            if let currentIndex = fontSizes.firstIndex(of: fontSize) {
-                                let nextIndex = (currentIndex + 1) % fontSizes.count
-                                fontSize = fontSizes[nextIndex]
-                            }
-                        }
-                        .buttonStyle(.plain)
-                        .foregroundColor(isHoveringSize ? textHoverColor : textColor)
-                        .onHover { hovering in
-                            isHoveringSize = hovering
-                            isHoveringBottomNav = hovering
-                            if hovering {
-                                NSCursor.pointingHand.push()
-                            } else {
-                                NSCursor.pop()
-                            }
-                        }
-                        
-                        Text("•")
-                            .foregroundColor(.gray)
-                        
-                        Button("Lato") {
-                            selectedFont = "Lato-Regular"
-                            currentRandomFont = ""
-                        }
-                        .buttonStyle(.plain)
-                        .foregroundColor(hoveredFont == "Lato" ? textHoverColor : textColor)
-                        .onHover { hovering in
-                            hoveredFont = hovering ? "Lato" : nil
-                            isHoveringBottomNav = hovering
-                            if hovering {
-                                NSCursor.pointingHand.push()
-                            } else {
-                                NSCursor.pop()
-                            }
-                        }
-                        
-                        Text("•")
-                            .foregroundColor(.gray)
-                        
-                        Button("Arial") {
-                            selectedFont = "Arial"
-                            currentRandomFont = ""
-                        }
-                        .buttonStyle(.plain)
-                        .foregroundColor(hoveredFont == "Arial" ? textHoverColor : textColor)
-                        .onHover { hovering in
-                            hoveredFont = hovering ? "Arial" : nil
-                            isHoveringBottomNav = hovering
-                            if hovering {
-                                NSCursor.pointingHand.push()
-                            } else {
-                                NSCursor.pop()
-                            }
-                        }
-                        
-                        Text("•")
-                            .foregroundColor(.gray)
-                        
-                        Button("System") {
-                            selectedFont = ".AppleSystemUIFont"
-                            currentRandomFont = ""
-                        }
-                        .buttonStyle(.plain)
-                        .foregroundColor(hoveredFont == "System" ? textHoverColor : textColor)
-                        .onHover { hovering in
-                            hoveredFont = hovering ? "System" : nil
-                            isHoveringBottomNav = hovering
-                            if hovering {
-                                NSCursor.pointingHand.push()
-                            } else {
-                                NSCursor.pop()
-                            }
-                        }
-                        
-                        Text("•")
-                            .foregroundColor(.gray)
-                        
-                        Button("Serif") {
-                            selectedFont = "Times New Roman"
-                            currentRandomFont = ""
-                        }
-                        .buttonStyle(.plain)
-                        .foregroundColor(hoveredFont == "Serif" ? textHoverColor : textColor)
-                        .onHover { hovering in
-                            hoveredFont = hovering ? "Serif" : nil
-                            isHoveringBottomNav = hovering
-                            if hovering {
-                                NSCursor.pointingHand.push()
-                            } else {
-                                NSCursor.pop()
-                            }
-                        }
-                        
-                        Text("•")
-                            .foregroundColor(.gray)
-                        
-                        Button(randomButtonTitle) {
-                            if let randomFont = availableFonts.randomElement() {
-                                selectedFont = randomFont
-                                currentRandomFont = randomFont
-                            }
-                        }
-                        .buttonStyle(.plain)
-                        .foregroundColor(hoveredFont == "Random" ? textHoverColor : textColor)
-                        .onHover { hovering in
-                            hoveredFont = hovering ? "Random" : nil
-                            isHoveringBottomNav = hovering
-                            if hovering {
-                                NSCursor.pointingHand.push()
-                            } else {
-                                NSCursor.pop()
-                            }
-                        }
-                    
-                        Spacer()
-                    }
-                .padding(.horizontal, 24) // Match the main nav padding
-                .background(.clear) // maybe change this to "Color(colorScheme == .light ? .white : .black)"
-                .opacity(bottomNavOpacity)
-                    .onHover { hovering in
-                        isHoveringBottomNav = hovering
-                    if hovering {
-                        withAnimation(.easeOut(duration: 0.2)) {
-                            bottomNavOpacity = 1.0
-                        }
-                    } else if timerIsRunning {
-                        withAnimation(.easeIn(duration: 1.0)) {
-                            bottomNavOpacity = 0.0
-                        }
-                    }
-                }
-            }
+
             
             // Brain icon toggle bar (appears above main navigation when reflection has been run)
             if reflectionViewModel.hasBeenRun && !isWeeklyReflection {
@@ -906,50 +770,8 @@ struct ContentView: View {
             // Main navigation bar
             ZStack {
                 HStack {
-                    // Left side - Style button, theme toggle, and settings
+                    // Left side - Settings, Reflect, and Timer
                     HStack(spacing: 8) {
-                        // Style toggle button
-                        Button("Style") {
-                            showStyleOptions.toggle()
-                        }
-                        .buttonStyle(.plain)
-                        .foregroundColor(isHoveringStyle ? textHoverColor : textColor)
-                        .onHover { hovering in
-                            isHoveringStyle = hovering
-                            isHoveringBottomNav = hovering
-                            if hovering {
-                                NSCursor.pointingHand.push()
-                            } else {
-                                NSCursor.pop()
-                            }
-                        }
-                        
-                        Text("•")
-                            .foregroundColor(.gray)
-
-                        // Theme toggle button
-                        Button(action: {
-                            colorScheme = colorScheme == .light ? .dark : .light
-                            // Save preference
-                            UserDefaults.standard.set(colorScheme == .light ? "light" : "dark", forKey: "colorScheme")
-                        }) {
-                            Image(systemName: colorScheme == .light ? "moon.fill" : "sun.max.fill")
-                                .foregroundColor(isHoveringThemeToggle ? textHoverColor : textColor)
-                        }
-                        .buttonStyle(.plain)
-                        .onHover { hovering in
-                            isHoveringThemeToggle = hovering
-                            isHoveringBottomNav = hovering
-                            if hovering {
-                                NSCursor.pointingHand.push()
-                            } else {
-                                NSCursor.pop()
-                            }
-                        }
-
-                        Text("•")
-                            .foregroundColor(.gray)
-                        
                         // Settings button
                         Button(action: {
                             withAnimation(.easeInOut(duration: 0.2)) {
@@ -969,17 +791,12 @@ struct ContentView: View {
                                 NSCursor.pop()
                             }
                         }
-                    }
-                    .padding(8)
-                    .cornerRadius(6)
-                    .onHover { hovering in
-                        isHoveringBottomNav = hovering
-                    }
-                    Spacer()
-                    // Right side buttons
-                    HStack(spacing: 8) {
+                        
                         // Only show Reflect button for non-weekly entries
                         if !isWeeklyReflection {
+                            Text("•")
+                                .foregroundColor(.gray)
+                            
                             Button(action: {
                                 isWeeklyReflection = false
                                 showReflectionPanel = true
@@ -1004,11 +821,65 @@ struct ContentView: View {
                                     NSCursor.pop()
                                 }
                             }
-
+                            
                             Text("•")
                                 .foregroundColor(.gray)
+                            
+                            // Timer button
+                            Button(timerButtonTitle) {
+                                if timerIsRunning {
+                                    timerIsRunning = false
+                                    if !isHoveringBottomNav {
+                                        withAnimation(.easeOut(duration: 1.0)) {
+                                            bottomNavOpacity = 1.0
+                                        }
+                                    }
+                                } else {
+                                    timerIsRunning = true
+                                    withAnimation(.easeIn(duration: 1.0)) {
+                                        bottomNavOpacity = 0.0
+                                    }
+                                }
+                            }
+                            .buttonStyle(.plain)
+                            .foregroundColor(timerColor)
+                            .onHover { hovering in
+                                isHoveringTimer = hovering
+                                isHoveringBottomNav = hovering
+                                if hovering {
+                                    NSCursor.pointingHand.push()
+                                } else {
+                                    NSCursor.pop()
+                                }
+                            }
+                            .onAppear {
+                                NSEvent.addLocalMonitorForEvents(matching: .scrollWheel) { event in
+                                    if isHoveringTimer {
+                                        let scrollBuffer = event.deltaY * 0.25
+                                        
+                                        if abs(scrollBuffer) >= 0.1 {
+                                            let currentMinutes = timeRemaining / 60
+                                            NSHapticFeedbackManager.defaultPerformer.perform(.generic, performanceTime: .now)
+                                            let direction = -scrollBuffer > 0 ? 5 : -5
+                                            let newMinutes = currentMinutes + direction
+                                            let roundedMinutes = (newMinutes / 5) * 5
+                                            let newTime = roundedMinutes * 60
+                                            timeRemaining = min(max(newTime, 0), 2700)
+                                        }
+                                    }
+                                    return event
+                                }
+                            }
                         }
-                        
+                    }
+                    .padding(8)
+                    .cornerRadius(6)
+                    .onHover { hovering in
+                        isHoveringBottomNav = hovering
+                    }
+                    Spacer()
+                    // Right side buttons
+                    HStack(spacing: 8) {
                         Button(action: {
                             createNewEntry()
                         }) {
@@ -1205,7 +1076,12 @@ struct ContentView: View {
                         showingSettings: $showingSettings,
                         selectedSettingsTab: $selectedSettingsTab,
                         apiKey: $openAIAPIKey,
-                        onRunWeekly: runWeeklyReflection
+                        onRunWeekly: runWeeklyReflection,
+                        colorScheme: $colorScheme,
+                        userFontSize: $userFontSize,
+                        userSelectedFont: $userSelectedFont,
+                        aiFontSize: $aiFontSize,
+                        aiSelectedFont: $aiSelectedFont
                     )
                 }
             }
@@ -1238,16 +1114,16 @@ struct ContentView: View {
                         }
                     ))
                     .background(Color(colorScheme == .light ? .white : .black))
-                    .font(.custom(selectedFont, size: fontSize))
+                    .font(.custom(userSelectedFont, size: userFontSize))
                     .foregroundColor(colorScheme == .light ? Color(red: 0.20, green: 0.20, blue: 0.20) : Color(red: 0.9, green: 0.9, blue: 0.9))
                     .scrollContentBackground(.hidden)
                     .scrollIndicators(.never)
-                    .lineSpacing(lineHeight)
+                    .lineSpacing(userLineHeight)
                     .frame(maxWidth: 650)
                     .allowsHitTesting(!isVoiceInputMode && !showingSettings) // Disable interactions during voice input or settings modal
                     
           
-                    .id("\(selectedFont)-\(fontSize)-\(colorScheme)")
+                    .id("\(userSelectedFont)-\(userFontSize)-\(colorScheme)")
                     .padding(.bottom, bottomNavOpacity > 0 ? navHeight : 0)
                     .ignoresSafeArea()
                     .colorScheme(colorScheme)
@@ -1259,7 +1135,7 @@ struct ContentView: View {
                         ZStack(alignment: .topLeading) {
                             if text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
                                 Text(placeholderText)
-                                    .font(.custom(selectedFont, size: fontSize))
+                                    .font(.custom(userSelectedFont, size: userFontSize))
                                     .foregroundColor(colorScheme == .light ? .gray.opacity(0.5) : .gray.opacity(0.6))
                                     .allowsHitTesting(false)
                                     .offset(x: 5, y: placeholderOffset)
@@ -1298,7 +1174,7 @@ struct ContentView: View {
                             VStack(alignment: .leading, spacing: 4) {
                                 HStack(spacing: 4) {
                                 Text("Journal")
-                                        .font(.system(size: 13))
+                                        .font(.system(size: 16))
                                         .foregroundColor(isHoveringHistory ? textHoverColor : textColor)
                                     Image(systemName: "arrow.up.right")
                                         .font(.system(size: 10))
@@ -1671,9 +1547,9 @@ struct ContentView: View {
         
         // Configure text formatting attributes
         let paragraphStyle = NSMutableParagraphStyle()
-        paragraphStyle.lineSpacing = lineHeight
+        paragraphStyle.lineSpacing = userLineHeight
         
-        let font = NSFont(name: selectedFont, size: fontSize) ?? .systemFont(ofSize: fontSize)
+        let font = NSFont(name: userSelectedFont, size: userFontSize) ?? .systemFont(ofSize: userFontSize)
         let textAttributes: [NSAttributedString.Key: Any] = [
             .font: font,
             .foregroundColor: NSColor(red: 0.20, green: 0.20, blue: 0.20, alpha: 1.0),
@@ -1951,7 +1827,7 @@ struct ContentView: View {
                     if !cleanedText.isEmpty && cleanedText.count > 2 {
                         // Insert the transcribed text at the end of current text
                         let separator = self.text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? "" : " "
-                        self.text += separator + cleanedText
+                        self.text += separator + cleanedText.prefix(1).capitalized + cleanedText.dropFirst()
                     }
                 } else {
                     print("Failed to parse DeepGram response for chunk \(chunkIndex)")
@@ -2023,7 +1899,7 @@ struct ContentView: View {
                    let firstAlternative = alternatives.first,
                    let textResult = firstAlternative["transcript"] as? String {
                     // Insert the transcribed text at the end of current text
-                    self.text += (self.text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? "" : " ") + textResult
+                    self.text += (self.text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? "" : " ") + textResult.prefix(1).capitalized + textResult.dropFirst()
                     self.showToast(message: "Text transcribed successfully", type: .success)
                 } else {
                     self.showToast(message: "Failed to parse transcription response", type: .error)
@@ -2296,8 +2172,8 @@ struct ContentView: View {
                 ToastView(
                     message: toastMessage, 
                     type: toastType,
-                    selectedFont: selectedFont,
-                    fontSize: fontSize,
+                    selectedFont: userSelectedFont,
+                    fontSize: userFontSize,
                     colorScheme: colorScheme
                 )
                 .transition(.move(edge: .top))
@@ -2315,7 +2191,7 @@ struct ContentView: View {
                     OscillatingDotView(colorScheme: colorScheme)
                     Spacer()
                 }
-                .padding(.top, (fontSize + lineHeight) * 2)
+                .padding(.top, (userFontSize + userLineHeight) * 2)
                 .padding(.horizontal, 24)
             } else if let error = reflectionViewModel.error {
                 Text("Error: \(error)")
@@ -2328,10 +2204,10 @@ struct ContentView: View {
                     ScrollView {
                         MarkdownTextView(
                             content: reflectionViewModel.reflectionResponse,
-                            font: selectedFont,
-                            fontSize: fontSize,
+                            font: aiSelectedFont,
+                            fontSize: aiFontSize,
                             colorScheme: colorScheme,
-                            lineHeight: lineHeight
+                            lineHeight: aiLineHeight
                         )
                         .frame(maxWidth: .infinity, alignment: .leading)
                         .padding(.horizontal, 24)
@@ -2370,7 +2246,7 @@ struct ContentView: View {
                         Spacer()
                     }
                     .frame(maxWidth: 650, alignment: .leading)
-                    .padding(.top, ((fontSize + lineHeight) * 2) + 1.5)
+                    .padding(.top, ((userFontSize + userLineHeight) * 2) + 1.5)
                     .padding(.horizontal, 24)
                     .padding(.bottom, bottomNavOpacity > 0 ? navHeight : 0)
                     .onGeometryChange(for: CGFloat.self) { proxy in
@@ -2399,10 +2275,10 @@ struct ContentView: View {
                             ScrollView {
                                 MarkdownTextView(
                                     content: reflectionViewModel.reflectionResponse,
-                                    font: selectedFont,
-                                    fontSize: fontSize,
+                                    font: aiSelectedFont,
+                                    fontSize: aiFontSize,
                                     colorScheme: colorScheme,
-                                    lineHeight: lineHeight
+                                    lineHeight: aiLineHeight
                                 )
                                 .frame(maxWidth: 650, alignment: .leading)
                                 .padding(.horizontal, 24)
@@ -2468,11 +2344,11 @@ struct ContentView: View {
                         }
                     ))
                     .background(Color(colorScheme == .light ? .white : .black))
-                    .font(.custom(selectedFont, size: fontSize))
+                    .font(.custom(userSelectedFont, size: userFontSize))
                     .foregroundColor(colorScheme == .light ? Color(red: 0.20, green: 0.20, blue: 0.20) : Color(red: 0.9, green: 0.9, blue: 0.9))
                     .scrollContentBackground(.hidden)
                     .scrollIndicators(.never)
-                    .lineSpacing(lineHeight)
+                    .lineSpacing(userLineHeight)
                     .frame(maxWidth: .infinity)
                     .allowsHitTesting(!isVoiceInputMode && !showingSettings)
                     .padding(.horizontal, 24)
@@ -2483,7 +2359,7 @@ struct ContentView: View {
                         ZStack(alignment: .topLeading) {
                             if text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
                                 Text(placeholderText)
-                                    .font(.custom(selectedFont, size: fontSize))
+                                    .font(.custom(userSelectedFont, size: userFontSize))
                                     .foregroundColor(colorScheme == .light ? .gray.opacity(0.5) : .gray.opacity(0.6))
                                     .allowsHitTesting(false)
                                     .offset(x: 29, y: placeholderOffset)
@@ -2519,13 +2395,25 @@ struct SettingsModal: View {
     @Binding var apiKey: String
     let onRunWeekly: () -> Void
     
+    // Style bindings
+    @Binding var colorScheme: ColorScheme
+    @Binding var userFontSize: CGFloat
+    @Binding var userSelectedFont: String
+    @Binding var aiFontSize: CGFloat
+    @Binding var aiSelectedFont: String
+    
     var body: some View {
         HStack(spacing: 0) {
             SettingsSidebar(selectedTab: $selectedSettingsTab)
             SettingsContent(
                 selectedTab: selectedSettingsTab,
                 apiKey: $apiKey,
-                onRunWeekly: onRunWeekly
+                onRunWeekly: onRunWeekly,
+                colorScheme: $colorScheme,
+                userFontSize: $userFontSize,
+                userSelectedFont: $userSelectedFont,
+                aiFontSize: $aiFontSize,
+                aiSelectedFont: $aiSelectedFont
             )
         }
         .frame(width: 600, height: 400)
@@ -2554,6 +2442,13 @@ struct SettingsSidebar: View {
             // Sidebar Items
             VStack(alignment: .leading, spacing: 2) {
                 SettingsSidebarItem(
+                    title: "Reflections",
+                    icon: "calendar",
+                    isSelected: selectedTab == .reflections,
+                    action: { selectedTab = .reflections }
+                )
+                
+                SettingsSidebarItem(
                     title: "AI",
                     icon: "brain.head.profile.fill",
                     isSelected: selectedTab == .ai,
@@ -2565,13 +2460,6 @@ struct SettingsSidebar: View {
                     icon: "paintpalette.fill",
                     isSelected: selectedTab == .style,
                     action: { selectedTab = .style }
-                )
-                
-                SettingsSidebarItem(
-                    title: "Reflections",
-                    icon: "calendar",
-                    isSelected: selectedTab == .reflections,
-                    action: { selectedTab = .reflections }
                 )
             }
             .padding(.horizontal, 8)
@@ -2607,6 +2495,7 @@ struct SettingsSidebarItem: View {
                 RoundedRectangle(cornerRadius: 6)
                     .fill(isSelected ? .primary : Color.clear)
             )
+            .contentShape(Rectangle())
         }
         .buttonStyle(PlainButtonStyle())
     }
@@ -2617,13 +2506,26 @@ struct SettingsContent: View {
     @Binding var apiKey: String
     let onRunWeekly: () -> Void
     
+    // Style bindings
+    @Binding var colorScheme: ColorScheme
+    @Binding var userFontSize: CGFloat
+    @Binding var userSelectedFont: String
+    @Binding var aiFontSize: CGFloat
+    @Binding var aiSelectedFont: String
+    
     var body: some View {
         VStack(alignment: .leading, spacing: 16) {
             switch selectedTab {
             case .ai:
                 AISettingsView(apiKey: $apiKey)
             case .style:
-                StyleSettingsView()
+                StyleSettingsView(
+                    colorScheme: $colorScheme,
+                    userFontSize: $userFontSize,
+                    userSelectedFont: $userSelectedFont,
+                    aiFontSize: $aiFontSize,
+                    aiSelectedFont: $aiSelectedFont
+                )
             case .reflections:
                 ReflectionsSettingsView(onRunNow: onRunWeekly)
             }
@@ -2722,9 +2624,209 @@ struct AISettingsView: View {
 }
 
 struct StyleSettingsView: View {
+    @Binding var colorScheme: ColorScheme
+    @Binding var userFontSize: CGFloat
+    @Binding var userSelectedFont: String
+    @Binding var aiFontSize: CGFloat
+    @Binding var aiSelectedFont: String
+    
+    let fontSizes: [CGFloat] = [16, 18, 20, 22, 24, 26]
+    let standardFonts = ["Lato-Regular", "Arial", ".AppleSystemUIFont", "Times New Roman"]
+    let availableFonts = NSFontManager.shared.availableFontFamilies
+    
+    @State private var userHoveredFont: String? = nil
+    @State private var aiHoveredFont: String? = nil
+    @State private var currentRandomFont: String = ""
+    @State private var currentAIRandomFont: String = ""
+    
     var body: some View {
-        VStack(alignment: .leading, spacing: 16) {
-            // Add style-specific settings here in the future
+        VStack(alignment: .leading, spacing: 24) {
+            // Theme Toggle
+            HStack {
+                Text("Theme")
+                    .font(.system(size: 14, weight: .medium))
+                Spacer()
+                Button(action: {
+                    colorScheme = colorScheme == .light ? .dark : .light
+                    UserDefaults.standard.set(colorScheme == .light ? "light" : "dark", forKey: "colorScheme")
+                }) {
+                    Image(systemName: colorScheme == .light ? "moon.fill" : "sun.max.fill")
+                        .foregroundColor(.primary)
+                }
+                .buttonStyle(.plain)
+            }
+            
+            Divider()
+            
+            // My Writing Style
+            VStack(alignment: .leading, spacing: 12) {
+                Text("My Writing Style")
+                    .font(.system(size: 14, weight: .medium))
+                
+                HStack {
+                    Text("Font Size")
+                        .font(.system(size: 13))
+                    Spacer()
+                    Picker("Font Size", selection: $userFontSize) {
+                        ForEach(fontSizes, id: \.self) { size in
+                            Text("\(Int(size))px").tag(size)
+                        }
+                    }
+                    .pickerStyle(MenuPickerStyle())
+                    .frame(width: 100)
+                }
+                
+                VStack(spacing: 8) {
+                    HStack(spacing: 12) {
+                        Text("Font Family")
+                            .font(.system(size: 13))
+                        Spacer()
+                        FontButton(title: "Lato", selectedFont: $userSelectedFont, hoveredFont: $userHoveredFont, fontName: "Lato-Regular")
+                        FontButton(title: "Arial", selectedFont: $userSelectedFont, hoveredFont: $userHoveredFont, fontName: "Arial")
+                        FontButton(title: "System", selectedFont: $userSelectedFont, hoveredFont: $userHoveredFont, fontName: ".AppleSystemUIFont")
+                        FontButton(title: "Serif", selectedFont: $userSelectedFont, hoveredFont: $userHoveredFont, fontName: "Times New Roman")
+                    }
+                    
+                    HStack {
+                        Spacer()
+                        Button(currentRandomFont.isEmpty ? "Random" : "Random [\(currentRandomFont)]") {
+                            if let randomFont = availableFonts.randomElement() {
+                                userSelectedFont = randomFont
+                                currentRandomFont = randomFont
+                            }
+                        }
+                        .buttonStyle(.plain)
+                        .font(.system(size: 13))
+                        .foregroundColor(userHoveredFont == "Random" ? .primary : .secondary)
+                        .padding(.horizontal, 10)
+                        .padding(.vertical, 5)
+                        .background(
+                            RoundedRectangle(cornerRadius: 6)
+                                .fill(userHoveredFont == "Random" ? Color.primary.opacity(0.1) : Color.clear)
+                        )
+                        .onHover { hovering in
+                            withAnimation(.easeInOut(duration: 0.1)) {
+                                userHoveredFont = hovering ? "Random" : nil
+                            }
+                        }
+                    }
+                }
+            }
+            
+            Divider()
+            
+            // AI Writing Style
+            VStack(alignment: .leading, spacing: 12) {
+                Text("AI Writing Style")
+                    .font(.system(size: 14, weight: .medium))
+                
+                HStack {
+                    Text("Font Size")
+                        .font(.system(size: 13))
+                    Spacer()
+                    Picker("Font Size", selection: $aiFontSize) {
+                        ForEach(fontSizes, id: \.self) { size in
+                            Text("\(Int(size))px").tag(size)
+                        }
+                    }
+                    .pickerStyle(MenuPickerStyle())
+                    .frame(width: 100)
+                }
+                
+                VStack(spacing: 8) {
+                    HStack(spacing: 12) {
+                        Text("Font Family")
+                            .font(.system(size: 13))
+                        Spacer()
+                        FontButton(title: "Lato", selectedFont: $aiSelectedFont, hoveredFont: $aiHoveredFont, fontName: "Lato-Regular")
+                        FontButton(title: "Arial", selectedFont: $aiSelectedFont, hoveredFont: $aiHoveredFont, fontName: "Arial")
+                        FontButton(title: "System", selectedFont: $aiSelectedFont, hoveredFont: $aiHoveredFont, fontName: ".AppleSystemUIFont")
+                        FontButton(title: "Serif", selectedFont: $aiSelectedFont, hoveredFont: $aiHoveredFont, fontName: "Times New Roman")
+                    }
+                    
+                    HStack {
+                        Spacer()
+                        Button(currentAIRandomFont.isEmpty ? "Random" : "Random [\(currentAIRandomFont)]") {
+                            if let randomFont = availableFonts.randomElement() {
+                                aiSelectedFont = randomFont
+                                currentAIRandomFont = randomFont
+                            }
+                        }
+                        .buttonStyle(.plain)
+                        .font(.system(size: 13))
+                        .foregroundColor(aiHoveredFont == "Random" ? .primary : .secondary)
+                        .padding(.horizontal, 10)
+                        .padding(.vertical, 5)
+                        .background(
+                            RoundedRectangle(cornerRadius: 6)
+                                .fill(aiHoveredFont == "Random" ? Color.primary.opacity(0.1) : Color.clear)
+                        )
+                        .onHover { hovering in
+                            withAnimation(.easeInOut(duration: 0.1)) {
+                                aiHoveredFont = hovering ? "Random" : nil
+                            }
+                        }
+                    }
+                }
+            }
+            Spacer()
+        }
+    }
+}
+
+struct FontButton: View {
+    let title: String
+    @Binding var selectedFont: String
+    @Binding var hoveredFont: String?
+    let fontName: String
+    
+    @Environment(\.colorScheme) var colorScheme
+    
+    private var isSelected: Bool {
+        selectedFont == fontName
+    }
+    
+    private var isHovered: Bool {
+        hoveredFont == title
+    }
+    
+    private var textColor: Color {
+        if isSelected {
+            return .white
+        }
+        if isHovered {
+            return colorScheme == .light ? .black : .white
+        }
+        return .secondary
+    }
+    
+    private var backgroundColor: Color {
+        if isSelected {
+            return .primary
+        }
+        if isHovered {
+            return Color.primary.opacity(0.1)
+        }
+        return .clear
+    }
+    
+    var body: some View {
+        Button(title) {
+            selectedFont = fontName
+        }
+        .buttonStyle(.plain)
+        .font(.system(size: 13))
+        .foregroundColor(textColor)
+        .padding(.horizontal, 10)
+        .padding(.vertical, 5)
+        .background(
+            RoundedRectangle(cornerRadius: 6)
+                .fill(backgroundColor)
+        )
+        .onHover { hovering in
+            withAnimation(.easeInOut(duration: 0.1)) {
+                hoveredFont = hovering ? title : nil
+            }
         }
     }
 }
