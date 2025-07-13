@@ -33,7 +33,7 @@ struct HumanEntry: Identifiable {
         return HumanEntry(
             id: id,
             date: displayDate,
-            filename: "[\(dateString)]-[\(id)].md",
+            filename: "[Daily]-[\(dateString)].md",
             previewText: ""
         )
     }
@@ -42,6 +42,7 @@ struct HumanEntry: Identifiable {
 enum SettingsTab: String, CaseIterable {
     case ai = "AI"
     case style = "Style"
+    case reflections = "Reflections"
 }
 
 struct HeartEmoji: Identifiable {
@@ -282,6 +283,146 @@ struct ContentView: View {
         }
     }
     
+    // Function to run weekly reflection
+    private func runWeeklyReflection() {
+        // Calculate date range (7 days ago to today)
+        let today = Date()
+        let calendar = Calendar.current
+        let sevenDaysAgo = calendar.date(byAdding: .day, value: -7, to: today)!
+        
+        // Gather entries from the last 7 days
+        let weeklyContent = gatherWeeklyEntries(from: sevenDaysAgo, to: today)
+        
+        // Check if there are any entries for the week
+        if weeklyContent.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            showToast(message: "No entries found for the past week", type: .error)
+            return
+        }
+        
+        // Format the date range for the title
+        let dateFormatter = DateFormatter()
+        dateFormatter.dateFormat = "MMMM d"
+        let startDateString = dateFormatter.string(from: sevenDaysAgo)
+        let endDateString = dateFormatter.string(from: today)
+        
+        // Create title with date range
+        let weeklyTitle = "Weekly: \(startDateString)-\(endDateString)"
+        
+        // Create new weekly entry
+        let newEntry = createWeeklyEntry(title: weeklyTitle, startDate: sevenDaysAgo, endDate: today)
+        
+        // Start reflection with the gathered content
+        reflectionViewModel.startWeeklyReflection(apiKey: openAIAPIKey, weeklyContent: weeklyContent) {
+            // Save the entry after reflection is complete
+            self.saveEntry(entry: newEntry)
+        }
+        
+        // Show reflection panel
+        showReflectionPanel = true
+        showingSettings = false
+    }
+    
+    // Function to gather entries from the last 7 days
+    private func gatherWeeklyEntries(from startDate: Date, to endDate: Date) -> String {
+        let documentsDirectory = getDocumentsDirectory()
+        var weeklyContent = ""
+        
+        do {
+            let fileURLs = try fileManager.contentsOfDirectory(at: documentsDirectory, includingPropertiesForKeys: nil)
+            let mdFiles = fileURLs.filter { $0.pathExtension == "md" }
+            
+            let calendar = Calendar.current
+            let startOfStartDate = calendar.startOfDay(for: startDate)
+            let startOfEndDate = calendar.startOfDay(for: endDate)
+            
+            for fileURL in mdFiles {
+                let filename = fileURL.lastPathComponent
+                var fileDate: Date?
+                
+                // Handle Daily entries: [Daily]-[MM-dd-yyyy-HH-mm-ss].md
+                if filename.hasPrefix("[Daily]-") {
+                    if let dateMatch = filename.range(of: "\\[(\\d{2}-\\d{2}-\\d{4}-\\d{2}-\\d{2}-\\d{2})\\]", options: .regularExpression) {
+                        let dateString = String(filename[dateMatch].dropFirst().dropLast())
+                        let dateFormatter = DateFormatter()
+                        dateFormatter.dateFormat = "MM-dd-yyyy-HH-mm-ss"
+                        fileDate = dateFormatter.date(from: dateString)
+                    }
+                }
+                // Skip Weekly entries - we don't want to include them in weekly reflections
+                else if filename.hasPrefix("[Weekly]-") {
+                    continue
+                }
+                
+                if let validFileDate = fileDate {
+                    let startOfFileDate = calendar.startOfDay(for: validFileDate)
+                    
+                    // Check if file date is within our 7-day range
+                    if startOfFileDate >= startOfStartDate && startOfFileDate <= startOfEndDate {
+                        do {
+                            let content = try String(contentsOf: fileURL, encoding: .utf8)
+                            let cleanContent = content.trimmingCharacters(in: .whitespacesAndNewlines)
+                            
+                            if !cleanContent.isEmpty {
+                                // Format the date for display
+                                let dateFormatter = DateFormatter()
+                                dateFormatter.dateFormat = "MMMM d"
+                                let displayDate = dateFormatter.string(from: validFileDate)
+                                
+                                weeklyContent += "\n\n--- \(displayDate) ---\n\n"
+                                weeklyContent += cleanContent
+                            }
+                        } catch {
+                            print("Error reading file \(filename): \(error)")
+                        }
+                    }
+                }
+            }
+        } catch {
+            print("Error gathering weekly entries: \(error)")
+        }
+        
+        return weeklyContent
+    }
+    
+    // Function to create a new weekly entry
+    private func createWeeklyEntry(title: String, startDate: Date, endDate: Date) -> HumanEntry {
+        let id = UUID()
+        let now = Date()
+        let dateFormatter = DateFormatter()
+        
+        // Create filename with new format [Weekly]-[start-date]-[end-date]-[time]
+        dateFormatter.dateFormat = "MM-dd-yyyy"
+        let startDateString = dateFormatter.string(from: startDate)
+        let endDateString = dateFormatter.string(from: endDate)
+        
+        dateFormatter.dateFormat = "HH-mm-ss"
+        let timeString = dateFormatter.string(from: now)
+        
+        let filename = "[Weekly]-[\(startDateString)]-[\(endDateString)]-[\(timeString)].md"
+        
+        // For display date
+        dateFormatter.dateFormat = "MMM d"
+        let startDisplayDate = dateFormatter.string(from: startDate)
+        let endDisplayDate = dateFormatter.string(from: endDate)
+        let displayDate = "\(startDisplayDate) - \(endDisplayDate)"
+        
+        let newEntry = HumanEntry(
+            id: id,
+            date: displayDate,
+            filename: filename,
+            previewText: title
+        )
+        
+        // Add to entries and select it
+        entries.insert(newEntry, at: 0)
+        selectedEntryId = newEntry.id
+        
+        // Set the text to just the title for now (reflection will be added)
+        text = "\n\n# \(title)\n\n"
+        
+        return newEntry
+    }
+    
     // Add function to load existing entries
     private func loadExistingEntries() {
         let documentsDirectory = getDocumentsDirectory()
@@ -298,20 +439,55 @@ struct ContentView: View {
                 let filename = fileURL.lastPathComponent
                 print("Processing: \(filename)")
                 
-                // Extract UUID and date from filename - pattern [uuid]-[yyyy-MM-dd-HH-mm-ss].md
-                guard let uuidMatch = filename.range(of: "\\[(.*?)\\]", options: .regularExpression),
-                      let dateMatch = filename.range(of: "\\[(\\d{4}-\\d{2}-\\d{2}-\\d{2}-\\d{2}-\\d{2})\\]", options: .regularExpression),
-                      let uuid = UUID(uuidString: String(filename[uuidMatch].dropFirst().dropLast())) else {
-                    print("Failed to extract UUID or date from filename: \(filename)")
-                    return nil
+                var fileDate: Date?
+                var displayDate: String = ""
+                let uuid = UUID() // Generate new UUID for each entry
+                
+                // Handle Daily entries: [Daily]-[MM-dd-yyyy-HH-mm-ss].md
+                if filename.hasPrefix("[Daily]-") {
+                    if let dateMatch = filename.range(of: "\\[(\\d{2}-\\d{2}-\\d{4}-\\d{2}-\\d{2}-\\d{2})\\]", options: .regularExpression) {
+                        let dateString = String(filename[dateMatch].dropFirst().dropLast())
+                        let dateFormatter = DateFormatter()
+                        dateFormatter.dateFormat = "MM-dd-yyyy-HH-mm-ss"
+                        
+                        if let parsedDate = dateFormatter.date(from: dateString) {
+                            fileDate = parsedDate
+                            dateFormatter.dateFormat = "MMM d"
+                            displayDate = dateFormatter.string(from: parsedDate)
+                        }
+                    }
+                }
+                // Handle Weekly entries: [Weekly]-[MM-dd-yyyy]-[MM-dd-yyyy]-[HH-mm-ss].md
+                else if filename.hasPrefix("[Weekly]-") {
+                    let pattern = "\\[Weekly\\]-\\[(\\d{2}-\\d{2}-\\d{4})\\]-\\[(\\d{2}-\\d{2}-\\d{4})\\]-\\[(\\d{2}-\\d{2}-\\d{2})\\]"
+                    if let match = filename.range(of: pattern, options: .regularExpression) {
+                        let matchString = String(filename[match])
+                        let components = matchString.components(separatedBy: "]-[")
+                        
+                        if components.count >= 4 {
+                            let startDateString = components[1]
+                            let endDateString = components[2]
+                            let timeString = components[3].replacingOccurrences(of: "]", with: "")
+                            
+                            let dateFormatter = DateFormatter()
+                            dateFormatter.dateFormat = "MM-dd-yyyy"
+                            
+                            if let startDate = dateFormatter.date(from: startDateString),
+                               let endDate = dateFormatter.date(from: endDateString) {
+                                // Use end date as the file date for sorting
+                                fileDate = endDate
+                                
+                                // Format display date as range
+                                dateFormatter.dateFormat = "MMM d"
+                                let startDisplay = dateFormatter.string(from: startDate)
+                                let endDisplay = dateFormatter.string(from: endDate)
+                                displayDate = "\(startDisplay) - \(endDisplay)"
+                            }
+                        }
+                    }
                 }
                 
-                // Parse the date string
-                let dateString = String(filename[dateMatch].dropFirst().dropLast())
-                let dateFormatter = DateFormatter()
-                dateFormatter.dateFormat = "MM-dd-yyyy-HH-mm-ss"
-                
-                guard let fileDate = dateFormatter.date(from: dateString) else {
+                guard let validFileDate = fileDate else {
                     print("Failed to parse date from filename: \(filename)")
                     return nil
                 }
@@ -324,10 +500,6 @@ struct ContentView: View {
                         .trimmingCharacters(in: .whitespacesAndNewlines)
                     let truncated = preview.isEmpty ? "" : (preview.count > 30 ? String(preview.prefix(30)) + "..." : preview)
                     
-                    // Format display date
-                    dateFormatter.dateFormat = "MMM d"
-                    let displayDate = dateFormatter.string(from: fileDate)
-                    
                     return (
                         entry: HumanEntry(
                             id: uuid,
@@ -335,7 +507,7 @@ struct ContentView: View {
                             filename: filename,
                             previewText: truncated
                         ),
-                        date: fileDate,
+                        date: validFileDate,
                         content: content  // Store the full content to check for welcome message
                     )
                 } catch {
@@ -932,7 +1104,8 @@ struct ContentView: View {
                     SettingsModal(
                         showingSettings: $showingSettings,
                         selectedSettingsTab: $selectedSettingsTab,
-                        apiKey: $openAIAPIKey
+                        apiKey: $openAIAPIKey,
+                        onRunWeekly: runWeeklyReflection
                     )
                 }
             }
@@ -1066,8 +1239,8 @@ struct ContentView: View {
                                     HStack(alignment: .top) {
                                         VStack(alignment: .leading, spacing: 4) {
                                             HStack {
-                                                Text(entry.previewText)
-                                                    .font(.system(size: 13))
+                                                Text(entry.date)
+                                                    .font(.system(size: 14))
                                                     .lineLimit(1)
                                                     .foregroundColor(.primary)
                                                 
@@ -1122,7 +1295,7 @@ struct ContentView: View {
                                                 }
                                             }
                                             
-                                            Text(entry.date)
+                                            Text(entry.previewText)
                                                 .font(.system(size: 12))
                                                 .foregroundColor(.secondary)
                                         }
@@ -1822,6 +1995,26 @@ struct ContentView: View {
 
             streamOpenAIResponse(apiKey: apiKey, entryText: entryText)
         }
+        
+        func startWeeklyReflection(apiKey: String, weeklyContent: String, onComplete: @escaping () -> Void) {
+            guard !apiKey.isEmpty else {
+                self.error = "Please enter your OpenAI API key in Settings"
+                return
+            }
+            
+            guard !weeklyContent.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+                self.error = "No entries found for the past week."
+                return
+            }
+
+            self.reflectionResponse = ""
+            self.isLoading = true
+            self.error = nil
+            self.hasBeenRun = true
+            self.onComplete = onComplete
+
+            streamWeeklyOpenAIResponse(apiKey: apiKey, weeklyContent: weeklyContent)
+        }
 
         private func streamOpenAIResponse(apiKey: String, entryText: String) {
             let endpoint = URL(string: "https://api.openai.com/v1/chat/completions")!
@@ -1836,7 +2029,7 @@ struct ContentView: View {
 
             Keep it casual, dont say yo, help me make new connections i don't see, comfort, validate, challenge, all of it. dont be afraid to say a lot. format with markdown headings if needed. use new paragrahs to make what you say more readable.
 
-            do not just go through every single thing i say, and say it back to me. you need to proccess everything i say, make connections i don't see it, and deliver it all back to me as a story that makes me feel what you think i wanna feel. thats what the best therapists do.
+            do not just go through every single thing i say, and say it back to me. you need to process everything i say, make connections i don't see it, and deliver it all back to me as a story that makes me feel what you think i wanna feel. thats what the best therapists do.
 
             ideally, you're style/tone should sound like the user themselves. it's as if the user is hearing their own tone but it should still feel different, because you have different things to say and don't just repeat back they say.
 
@@ -1864,6 +2057,53 @@ struct ContentView: View {
                 "messages": [
                     ["role": "system", "content": systemPrompt],
                     ["role": "user", "content": entryText]
+                ],
+                "stream": true
+            ]
+            
+            do {
+                request.httpBody = try JSONSerialization.data(withJSONObject: payload)
+            } catch {
+                DispatchQueue.main.async {
+                    self.isLoading = false
+                    self.error = "Failed to prepare request."
+                }
+                return
+            }
+            
+            let session = URLSession(configuration: .default, delegate: self, delegateQueue: nil)
+            streamingTask = session.dataTask(with: request)
+            streamingTask?.resume()
+        }
+        
+        private func streamWeeklyOpenAIResponse(apiKey: String, weeklyContent: String) {
+            let endpoint = URL(string: "https://api.openai.com/v1/chat/completions")!
+            
+            var request = URLRequest(url: endpoint)
+            request.httpMethod = "POST"
+            request.setValue("Bearer \(apiKey)", forHTTPHeaderField: "Authorization")
+            request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+            
+            let systemPrompt = """
+            below are my journal entries for the week. sometimes with reflections from a friend. wyt? talk through it with me like a friend. don't therapize me and give me a whole breakdown, don't repeat my thoughts with headings. really take all of this, and tell me back stuff truly as if you're an old homie.
+
+            Keep it casual, dont say yo, help me make new connections i don't see, comfort, validate, challenge, all of it. dont be afraid to say a lot. format with markdown headings if needed. use new paragrahs to make what you say more readable.
+
+            do not just go through every single thing i say, and say it back to me. you need to process everything i say, make connections i don't see it, and deliver it all back to me as a story that makes me feel what you think i wanna feel. thats what the best therapists do.
+
+            ideally, you're style/tone should sound like the user themselves. it's as if the user is hearing their own tone but it should still feel different, because you have different things to say and don't just repeat back they say.
+
+            else, start by saying, "hey, thanks for showing me this. my thoughts:"
+
+            my entries:
+
+            """
+            
+            let payload: [String: Any] = [
+                "model": "gpt-4o",
+                "messages": [
+                    ["role": "system", "content": systemPrompt],
+                    ["role": "user", "content": weeklyContent]
                 ],
                 "stream": true
             ]
@@ -2069,11 +2309,16 @@ struct SettingsModal: View {
     @Binding var showingSettings: Bool
     @Binding var selectedSettingsTab: SettingsTab
     @Binding var apiKey: String
+    let onRunWeekly: () -> Void
     
     var body: some View {
         HStack(spacing: 0) {
             SettingsSidebar(selectedTab: $selectedSettingsTab)
-            SettingsContent(selectedTab: selectedSettingsTab, apiKey: $apiKey)
+            SettingsContent(
+                selectedTab: selectedSettingsTab,
+                apiKey: $apiKey,
+                onRunWeekly: onRunWeekly
+            )
         }
         .frame(width: 600, height: 400)
         .background(Color(NSColor.windowBackgroundColor))
@@ -2112,6 +2357,13 @@ struct SettingsSidebar: View {
                     icon: "paintpalette.fill",
                     isSelected: selectedTab == .style,
                     action: { selectedTab = .style }
+                )
+                
+                SettingsSidebarItem(
+                    title: "Reflections",
+                    icon: "calendar",
+                    isSelected: selectedTab == .reflections,
+                    action: { selectedTab = .reflections }
                 )
             }
             .padding(.horizontal, 8)
@@ -2155,6 +2407,7 @@ struct SettingsSidebarItem: View {
 struct SettingsContent: View {
     let selectedTab: SettingsTab
     @Binding var apiKey: String
+    let onRunWeekly: () -> Void
     
     var body: some View {
         VStack(alignment: .leading, spacing: 16) {
@@ -2163,6 +2416,8 @@ struct SettingsContent: View {
                 AISettingsView(apiKey: $apiKey)
             case .style:
                 StyleSettingsView()
+            case .reflections:
+                ReflectionsSettingsView(onRunNow: onRunWeekly)
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
@@ -2262,6 +2517,49 @@ struct StyleSettingsView: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 16) {
             // Add style-specific settings here in the future
+        }
+    }
+}
+
+struct ReflectionsSettingsView: View {
+    @State private var selectedDay: String = "Sunday"
+    @State private var reflectionTime: Date = Calendar.current.date(from: DateComponents(hour: 10, minute: 0)) ?? Date()
+    let daysOfWeek = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"]
+    let onRunNow: () -> Void
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 16) {
+            Text("Weekly")
+                .font(.headline)
+                .fontWeight(.semibold)
+            
+            HStack {
+                Text("Reflect every")
+                    .font(.subheadline)
+                    .foregroundColor(.secondary)
+                
+                Picker("Day", selection: $selectedDay) {
+                    ForEach(daysOfWeek, id: \.self) { day in
+                        Text(day)
+                            .font(.subheadline)
+                            .foregroundColor(.primary)
+                    }
+                }
+                .font(.system(size: 14))
+                .pickerStyle(MenuPickerStyle())
+                
+                DatePicker("at", selection: $reflectionTime, displayedComponents: .hourAndMinute)
+                    .font(.system(size: 14))
+                    .datePickerStyle(CompactDatePickerStyle())
+                
+                Text("•")
+                    .foregroundColor(.secondary)
+                
+                Button("Run now") {
+                    onRunNow()
+                }
+            }
+            .foregroundColor(.secondary)
         }
     }
 }
