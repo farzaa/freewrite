@@ -978,33 +978,36 @@ struct ContentView: View {
                     Spacer()
                     // Right side buttons
                     HStack(spacing: 8) {
-                        Button(action: {
-                            isWeeklyReflection = false
-                            showReflectionPanel = true
-                            reflectionViewModel.start(apiKey: openAIAPIKey, entryText: text) {
-                                if let currentId = self.selectedEntryId,
-                                   let entry = self.entries.first(where: { $0.id == currentId }) {
-                                    self.saveEntry(entry: entry)
+                        // Only show Reflect button for non-weekly entries
+                        if !isWeeklyReflection {
+                            Button(action: {
+                                isWeeklyReflection = false
+                                showReflectionPanel = true
+                                reflectionViewModel.start(apiKey: openAIAPIKey, entryText: text) {
+                                    if let currentId = self.selectedEntryId,
+                                       let entry = self.entries.first(where: { $0.id == currentId }) {
+                                        self.saveEntry(entry: entry)
+                                    }
+                                }
+                            }) {
+                                Text("Reflect")
+                                    .font(.system(size: 13))
+                            } 
+                            .buttonStyle(.plain)
+                            .foregroundColor(isHoveringReflect ? textHoverColor : textColor)
+                            .onHover { hovering in
+                                isHoveringReflect = hovering
+                                isHoveringBottomNav = hovering
+                                if hovering {
+                                    NSCursor.pointingHand.push()
+                                } else {
+                                    NSCursor.pop()
                                 }
                             }
-                        }) {
-                            Text("Reflect")
-                                .font(.system(size: 13))
-                        }
-                        .buttonStyle(.plain)
-                        .foregroundColor(isHoveringReflect ? textHoverColor : textColor)
-                        .onHover { hovering in
-                            isHoveringReflect = hovering
-                            isHoveringBottomNav = hovering
-                            if hovering {
-                                NSCursor.pointingHand.push()
-                            } else {
-                                NSCursor.pop()
-                            }
-                        }
 
-                        Text("•")
-                            .foregroundColor(.gray)
+                            Text("•")
+                                .foregroundColor(.gray)
+                        }
                         
                         Button(action: {
                             createNewEntry()
