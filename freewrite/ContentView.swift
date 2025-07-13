@@ -723,54 +723,11 @@ struct ContentView: View {
         let textHoverColor = colorScheme == .light ? Color.black : Color.white
         
         VStack(spacing: 0) {
-
-            
-            // Brain icon toggle bar (appears above main navigation when reflection has been run)
-            if reflectionViewModel.hasBeenRun && !isWeeklyReflection {
-                HStack {
-                    Spacer()
-                    
-                    Button(action: {
-                        showReflectionPanel.toggle()
-                        if !showReflectionPanel {
-                            isWeeklyReflection = false
-                        }
-                    }) {
-                        Image(systemName: "brain.head.profile.fill")
-                            .foregroundColor(isHoveringBrain ? textHoverColor : textColor)
-                    }
-                    .buttonStyle(.plain)
-                    .onHover { hovering in
-                        isHoveringBrain = hovering
-                        isHoveringBottomNav = hovering
-                        if hovering {
-                            NSCursor.pointingHand.push()
-                        } else {
-                            NSCursor.pop()
-                        }
-                    }
-                }
-                .padding(.horizontal, 24) // Match the main nav padding
-                .background(.clear)
-                .opacity(bottomNavOpacity)
-                .onHover { hovering in
-                    isHoveringBottomNav = hovering
-                    if hovering {
-                        withAnimation(.easeOut(duration: 0.2)) {
-                            bottomNavOpacity = 1.0
-                        }
-                    } else if timerIsRunning {
-                        withAnimation(.easeIn(duration: 1.0)) {
-                            bottomNavOpacity = 0.0
-                        }
-                    }
-                }
-            }
             
             // Main navigation bar
             ZStack {
                 HStack {
-                    // Left side - Settings, Reflect, and Timer
+                    // Left side - Settings and Reflect (with brain icon)
                     HStack(spacing: 8) {
                         // Settings button
                         Button(action: {
@@ -822,10 +779,45 @@ struct ContentView: View {
                                 }
                             }
                             
-                            Text("•")
-                                .foregroundColor(.gray)
-                            
-                            // Timer button
+                            // Brain icon appears right after Reflect button when reflection has been run
+                            if reflectionViewModel.hasBeenRun {
+                                Text("•")
+                                    .foregroundColor(.gray)
+                                
+                                Button(action: {
+                                    withAnimation(.easeInOut(duration: 0.2)) {
+                                        showReflectionPanel.toggle()
+                                    }
+                                    if !showReflectionPanel {
+                                        isWeeklyReflection = false
+                                    }
+                                }) {
+                                    Image(systemName: "brain.head.profile.fill")
+                                        .foregroundColor(isHoveringBrain ? textHoverColor : textColor)
+                                }
+                                .buttonStyle(.plain)
+                                .onHover { hovering in
+                                    isHoveringBrain = hovering
+                                    isHoveringBottomNav = hovering
+                                    if hovering {
+                                        NSCursor.pointingHand.push()
+                                    } else {
+                                        NSCursor.pop()
+                                    }
+                                }
+                            }
+                        }
+                    }
+                    .padding(8)
+                    .cornerRadius(6)
+                    .onHover { hovering in
+                        isHoveringBottomNav = hovering
+                    }
+                    Spacer()
+                    // Right side buttons - Timer, New Entry, History
+                    HStack(spacing: 8) {
+                        // Timer button (moved to right side)
+                        if !isWeeklyReflection {
                             Button(timerButtonTitle) {
                                 if timerIsRunning {
                                     timerIsRunning = false
@@ -870,16 +862,11 @@ struct ContentView: View {
                                     return event
                                 }
                             }
+                            
+                            Text("•")
+                                .foregroundColor(.gray)
                         }
-                    }
-                    .padding(8)
-                    .cornerRadius(6)
-                    .onHover { hovering in
-                        isHoveringBottomNav = hovering
-                    }
-                    Spacer()
-                    // Right side buttons
-                    HStack(spacing: 8) {
+                        
                         Button(action: {
                             createNewEntry()
                         }) {
@@ -1014,6 +1001,7 @@ struct ContentView: View {
                         mainContent
                     }
                 }
+                .animation(.easeInOut(duration: 0.2), value: showReflectionPanel)
                 
                 // Navigation is an overlay within each of those views
             }
@@ -2219,8 +2207,11 @@ struct ContentView: View {
                     }
                     .scrollIndicators(.never)
                     .onChange(of: reflectionViewModel.reflectionResponse) { _ in
-                        withAnimation {
-                            proxy.scrollTo("bottomAnchor", anchor: .bottom)
+                        // Only auto-scroll to bottom when AI is actively streaming
+                        if reflectionViewModel.isLoading {
+                            withAnimation {
+                                proxy.scrollTo("bottomAnchor", anchor: .bottom)
+                            }
                         }
                     }
                 }
@@ -2296,8 +2287,11 @@ struct ContentView: View {
                             }
                             .scrollIndicators(.never)
                             .onChange(of: reflectionViewModel.reflectionResponse) { _ in
-                                withAnimation {
-                                    proxy.scrollTo("bottomAnchor", anchor: .bottom)
+                                // Only auto-scroll to bottom when AI is actively streaming
+                                if reflectionViewModel.isLoading {
+                                    withAnimation {
+                                        proxy.scrollTo("bottomAnchor", anchor: .bottom)
+                                    }
                                 }
                             }
                         }
