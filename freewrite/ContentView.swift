@@ -30,10 +30,14 @@ struct HumanEntry: Identifiable {
         dateFormatter.dateFormat = "MMM d"
         let displayDate = dateFormatter.string(from: now)
         
+        let dateParts = dateString.split(separator: "-")
+        let dateComponent = "\(dateParts[0])-\(dateParts[1])-\(dateParts[2])"
+        let timeComponent = "\(dateParts[3])-\(dateParts[4])-\(dateParts[5])"
+        
         return HumanEntry(
             id: id,
             date: displayDate,
-            filename: "[Daily]-[\(dateString)].md",
+            filename: "[Daily]-[\(dateComponent)]-[\(timeComponent)].md",
             previewText: ""
         )
     }
@@ -174,6 +178,7 @@ struct ContentView: View {
     
     // Add state for reflection functionality
     @State private var showReflectionPanel: Bool = false
+    @State private var isWeeklyReflection: Bool = false
     
     let timer = Timer.publish(every: 1, on: .main, in: .common).autoconnect()
     let entryHeight: CGFloat = 40
@@ -317,7 +322,8 @@ struct ContentView: View {
             self.saveEntry(entry: newEntry)
         }
         
-        // Show reflection panel
+        // Show reflection panel as weekly reflection
+        isWeeklyReflection = true
         showReflectionPanel = true
         showingSettings = false
     }
@@ -326,10 +332,16 @@ struct ContentView: View {
     private func gatherWeeklyEntries(from startDate: Date, to endDate: Date) -> String {
         let documentsDirectory = getDocumentsDirectory()
         var weeklyContent = ""
+        var processedFiles: [String] = []
+        
+        print("=== GATHERING WEEKLY ENTRIES ===")
+        print("Target date range: \(startDate) to \(endDate)")
         
         do {
             let fileURLs = try fileManager.contentsOfDirectory(at: documentsDirectory, includingPropertiesForKeys: nil)
             let mdFiles = fileURLs.filter { $0.pathExtension == "md" }
+            
+            print("Found \(mdFiles.count) .md files to process")
             
             let calendar = Calendar.current
             let startOfStartDate = calendar.startOfDay(for: startDate)
@@ -337,49 +349,104 @@ struct ContentView: View {
             
             for fileURL in mdFiles {
                 let filename = fileURL.lastPathComponent
-                var fileDate: Date?
+                var shouldInclude = false
+                var displayDate = ""
                 
-                // Handle Daily entries: [Daily]-[MM-dd-yyyy-HH-mm-ss].md
+                // Handle Daily entries: [Daily]-[MM-dd-yyyy]-[HH-mm-ss].md
                 if filename.hasPrefix("[Daily]-") {
-                    if let dateMatch = filename.range(of: "\\[(\\d{2}-\\d{2}-\\d{4}-\\d{2}-\\d{2}-\\d{2})\\]", options: .regularExpression) {
-                        let dateString = String(filename[dateMatch].dropFirst().dropLast())
-                        let dateFormatter = DateFormatter()
-                        dateFormatter.dateFormat = "MM-dd-yyyy-HH-mm-ss"
-                        fileDate = dateFormatter.date(from: dateString)
-                    }
-                }
-                // Skip Weekly entries - we don't want to include them in weekly reflections
-                else if filename.hasPrefix("[Weekly]-") {
-                    continue
-                }
-                
-                if let validFileDate = fileDate {
-                    let startOfFileDate = calendar.startOfDay(for: validFileDate)
-                    
-                    // Check if file date is within our 7-day range
-                    if startOfFileDate >= startOfStartDate && startOfFileDate <= startOfEndDate {
-                        do {
-                            let content = try String(contentsOf: fileURL, encoding: .utf8)
-                            let cleanContent = content.trimmingCharacters(in: .whitespacesAndNewlines)
+                    if let dateMatch = filename.range(of: "\\[(\\d{2}-\\d{2}-\\d{4})\\]-\\[(\\d{2}-\\d{2}-\\d{2})\\]", options: .regularExpression) {
+                        let matchString = String(filename[dateMatch])
+                        let components = matchString.components(separatedBy: "]-[")
+                        
+                        if components.count >= 2 {
+                            let dateComponent = components[0].replacingOccurrences(of: "[", with: "")
+                            let timeComponent = components[1].replacingOccurrences(of: "]", with: "")
                             
-                            if !cleanContent.isEmpty {
-                                // Format the date for display
-                                let dateFormatter = DateFormatter()
-                                dateFormatter.dateFormat = "MMMM d"
-                                let displayDate = dateFormatter.string(from: validFileDate)
+                            let dateTimeString = "\(dateComponent)-\(timeComponent)"
+                            let dateFormatter = DateFormatter()
+                            dateFormatter.dateFormat = "MM-dd-yyyy-HH-mm-ss"
+                            
+                            if let fileDate = dateFormatter.date(from: dateTimeString) {
+                                let startOfFileDate = calendar.startOfDay(for: fileDate)
                                 
-                                weeklyContent += "\n\n--- \(displayDate) ---\n\n"
-                                weeklyContent += cleanContent
+                                // Check if file date is within our 7-day range
+                                if startOfFileDate >= startOfStartDate && startOfFileDate <= startOfEndDate {
+                                    shouldInclude = true
+                                    dateFormatter.dateFormat = "MMMM d"
+                                    displayDate = dateFormatter.string(from: fileDate)
+                                }
                             }
-                        } catch {
-                            print("Error reading file \(filename): \(error)")
                         }
                     }
                 }
+                // Handle Weekly entries: [Weekly]-[MM-dd-yyyy]-[MM-dd-yyyy]-[HH-mm-ss].md
+                else if filename.hasPrefix("[Weekly]-") {
+                    let pattern = "\\[Weekly\\]-\\[(\\d{2}-\\d{2}-\\d{4})\\]-\\[(\\d{2}-\\d{2}-\\d{4})\\]-\\[(\\d{2}-\\d{2}-\\d{2})\\]"
+                    if let match = filename.range(of: pattern, options: .regularExpression) {
+                        let matchString = String(filename[match])
+                        let components = matchString.components(separatedBy: "]-[")
+                        
+                        if components.count >= 4 {
+                            let weeklyStartDateString = components[1]
+                            let weeklyEndDateString = components[2]
+                            
+                            let dateFormatter = DateFormatter()
+                            dateFormatter.dateFormat = "MM-dd-yyyy"
+                            
+                            if let weeklyStartDate = dateFormatter.date(from: weeklyStartDateString),
+                               let weeklyEndDate = dateFormatter.date(from: weeklyEndDateString) {
+                                
+                                let startOfWeeklyStart = calendar.startOfDay(for: weeklyStartDate)
+                                let startOfWeeklyEnd = calendar.startOfDay(for: weeklyEndDate)
+                                
+                                // Check if weekly entry's date range overlaps with our target 7-day range
+                                // Overlap exists if: weeklyStart <= targetEnd AND weeklyEnd >= targetStart
+                                if startOfWeeklyStart <= startOfEndDate && startOfWeeklyEnd >= startOfStartDate {
+                                    shouldInclude = true
+                                    dateFormatter.dateFormat = "MMMM d"
+                                    let startDisplay = dateFormatter.string(from: weeklyStartDate)
+                                    let endDisplay = dateFormatter.string(from: weeklyEndDate)
+                                    displayDate = "Weekly: \(startDisplay) - \(endDisplay)"
+                                }
+                            }
+                        }
+                    }
+                }
+                
+                if shouldInclude {
+                    do {
+                        let content = try String(contentsOf: fileURL, encoding: .utf8)
+                        let cleanContent = content.trimmingCharacters(in: .whitespacesAndNewlines)
+                        
+                        if !cleanContent.isEmpty {
+                            print("✓ Including file: \(filename)")
+                            print("  Display date: \(displayDate)")
+                            print("  Content length: \(cleanContent.count) characters")
+                            print("  Content preview: \(String(cleanContent.prefix(100)))...")
+                            
+                            weeklyContent += "\n\n--- \(displayDate) ---\n\n"
+                            weeklyContent += cleanContent
+                            processedFiles.append(filename)
+                        } else {
+                            print("⚠ Skipping empty file: \(filename)")
+                        }
+                    } catch {
+                        print("❌ Error reading file \(filename): \(error)")
+                    }
+                } else {
+                    print("⏭ Skipping file (outside date range): \(filename)")
+                }
             }
         } catch {
-            print("Error gathering weekly entries: \(error)")
+            print("❌ Error gathering weekly entries: \(error)")
         }
+        
+        print("\n=== WEEKLY REFLECTION SUMMARY ===")
+        print("Processed \(processedFiles.count) files:")
+        for file in processedFiles {
+            print("  - \(file)")
+        }
+        print("Total content length: \(weeklyContent.count) characters")
         
         return weeklyContent
     }
@@ -417,9 +484,6 @@ struct ContentView: View {
         entries.insert(newEntry, at: 0)
         selectedEntryId = newEntry.id
         
-        // Set the text to just the title for now (reflection will be added)
-        text = "\n\n# \(title)\n\n"
-        
         return newEntry
     }
     
@@ -443,17 +507,25 @@ struct ContentView: View {
                 var displayDate: String = ""
                 let uuid = UUID() // Generate new UUID for each entry
                 
-                // Handle Daily entries: [Daily]-[MM-dd-yyyy-HH-mm-ss].md
+                // Handle Daily entries: [Daily]-[MM-dd-yyyy]-[HH-mm-ss].md
                 if filename.hasPrefix("[Daily]-") {
-                    if let dateMatch = filename.range(of: "\\[(\\d{2}-\\d{2}-\\d{4}-\\d{2}-\\d{2}-\\d{2})\\]", options: .regularExpression) {
-                        let dateString = String(filename[dateMatch].dropFirst().dropLast())
-                        let dateFormatter = DateFormatter()
-                        dateFormatter.dateFormat = "MM-dd-yyyy-HH-mm-ss"
+                    if let dateMatch = filename.range(of: "\\[(\\d{2}-\\d{2}-\\d{4})\\]-\\[(\\d{2}-\\d{2}-\\d{2})\\]", options: .regularExpression) {
+                        let matchString = String(filename[dateMatch])
+                        let components = matchString.components(separatedBy: "]-[")
                         
-                        if let parsedDate = dateFormatter.date(from: dateString) {
-                            fileDate = parsedDate
-                            dateFormatter.dateFormat = "MMM d"
-                            displayDate = dateFormatter.string(from: parsedDate)
+                        if components.count >= 2 {
+                            let dateComponent = components[0].replacingOccurrences(of: "[", with: "")
+                            let timeComponent = components[1].replacingOccurrences(of: "]", with: "")
+                            
+                            let dateTimeString = "\(dateComponent)-\(timeComponent)"
+                            let dateFormatter = DateFormatter()
+                            dateFormatter.dateFormat = "MM-dd-yyyy-HH-mm-ss"
+                            
+                            if let parsedDate = dateFormatter.date(from: dateTimeString) {
+                                fileDate = parsedDate
+                                dateFormatter.dateFormat = "MMM d"
+                                displayDate = dateFormatter.string(from: parsedDate)
+                            }
                         }
                     }
                 }
@@ -474,8 +546,10 @@ struct ContentView: View {
                             
                             if let startDate = dateFormatter.date(from: startDateString),
                                let endDate = dateFormatter.date(from: endDateString) {
-                                // Use end date as the file date for sorting
-                                fileDate = endDate
+                                // Combine end date with time for proper sorting
+                                dateFormatter.dateFormat = "MM-dd-yyyy-HH-mm-ss"
+                                let endDateWithTime = "\(endDateString)-\(timeString)"
+                                fileDate = dateFormatter.date(from: endDateWithTime)
                                 
                                 // Format display date as range
                                 dateFormatter.dateFormat = "MMM d"
@@ -495,7 +569,11 @@ struct ContentView: View {
                 // Read file contents for preview
                 do {
                     let content = try String(contentsOf: fileURL, encoding: .utf8)
-                    let preview = content
+                    
+                    let separator = "\n\n--- REFLECTION ---\n\n"
+                    let contentForPreview = content.replacingOccurrences(of: separator, with: " ")
+                    
+                    let preview = contentForPreview
                         .replacingOccurrences(of: "\n", with: " ")
                         .trimmingCharacters(in: .whitespacesAndNewlines)
                     let truncated = preview.isEmpty ? "" : (preview.count > 30 ? String(preview.prefix(30)) + "..." : preview)
@@ -784,12 +862,15 @@ struct ContentView: View {
             }
             
             // Brain icon toggle bar (appears above main navigation when reflection has been run)
-            if reflectionViewModel.hasBeenRun {
+            if reflectionViewModel.hasBeenRun && !isWeeklyReflection {
                 HStack {
                     Spacer()
                     
                     Button(action: {
                         showReflectionPanel.toggle()
+                        if !showReflectionPanel {
+                            isWeeklyReflection = false
+                        }
                     }) {
                         Image(systemName: "brain.head.profile.fill")
                             .foregroundColor(isHoveringBrain ? textHoverColor : textColor)
@@ -898,6 +979,7 @@ struct ContentView: View {
                     // Right side buttons
                     HStack(spacing: 8) {
                         Button(action: {
+                            isWeeklyReflection = false
                             showReflectionPanel = true
                             reflectionViewModel.start(apiKey: openAIAPIKey, entryText: text) {
                                 if let currentId = self.selectedEntryId,
@@ -1044,14 +1126,29 @@ struct ContentView: View {
     }
     
     var body: some View {
-        Group {
-            if showReflectionPanel {
-                mainContentWithReflection
-            } else {
-                HStack(spacing: 0) {
-                    mainContent
-                    sidebar
+        HStack(spacing: 0) {
+            ZStack {
+                // Main content area
+                Group {
+                    if showReflectionPanel {
+                        if isWeeklyReflection {
+                            centeredReflectionView
+                        } else {
+                            mainContentWithReflection
+                        }
+                    } else {
+                        mainContent
+                    }
                 }
+                
+                // Navigation is an overlay within each of those views
+            }
+            .background(Color(colorScheme == .light ? .white : .black))
+
+
+            // Sidebar
+            if showingSidebar {
+                sidebar
             }
         }
         .frame(minWidth: 1100, minHeight: 600)
@@ -1144,7 +1241,7 @@ struct ContentView: View {
                     .scrollIndicators(.never)
                     .lineSpacing(lineHeight)
                     .frame(maxWidth: 650)
-            .allowsHitTesting(!isVoiceInputMode && !showingSettings) // Disable interactions during voice input or settings modal
+                    .allowsHitTesting(!isVoiceInputMode && !showingSettings) // Disable interactions during voice input or settings modal
                     
           
                     .id("\(selectedFont)-\(fontSize)-\(colorScheme)")
@@ -1177,6 +1274,7 @@ struct ContentView: View {
                     Spacer()
                     bottomNavigationView
                 }
+                .ignoresSafeArea(.keyboard) // Prevent keyboard from pushing nav up
             }
     }
     
@@ -1348,8 +1446,11 @@ struct ContentView: View {
         let fileURL = documentsDirectory.appendingPathComponent(entry.filename)
         
         do {
-            let content = try String(contentsOf: fileURL, encoding: .utf8)
-            let preview = content
+            let fullContent = try String(contentsOf: fileURL, encoding: .utf8)
+            let separator = "\n\n--- REFLECTION ---\n\n"
+            let contentForPreview = fullContent.replacingOccurrences(of: separator, with: " ")
+            
+            let preview = contentForPreview
                 .replacingOccurrences(of: "\n", with: " ")
                 .trimmingCharacters(in: .whitespacesAndNewlines)
             let truncated = preview.isEmpty ? "" : (preview.count > 30 ? String(preview.prefix(30)) + "..." : preview)
@@ -1402,6 +1503,12 @@ struct ContentView: View {
                     showReflectionPanel = false
                 }
                 
+                if entry.filename.hasPrefix("[Weekly]-") {
+                    isWeeklyReflection = true
+                } else {
+                    isWeeklyReflection = false
+                }
+                
                 print("Successfully loaded entry: \(entry.filename)")
             }
         } catch {
@@ -1413,6 +1520,14 @@ struct ContentView: View {
         let newEntry = HumanEntry.createNew()
         entries.insert(newEntry, at: 0) // Add to the beginning
         selectedEntryId = newEntry.id
+        
+        // Reset all reflection-related state for a clean slate
+        reflectionViewModel.reflectionResponse = ""
+        reflectionViewModel.isLoading = false
+        reflectionViewModel.error = nil
+        reflectionViewModel.hasBeenRun = false
+        showReflectionPanel = false
+        isWeeklyReflection = false
         
         // If this is the first entry (entries was empty before adding this one)
         if entries.count == 1 {
@@ -2219,7 +2334,7 @@ struct ContentView: View {
                         .padding(.horizontal, 24)
                         .padding(.bottom, bottomNavOpacity > 0 ? navHeight : 0)
 
-                        Color.clear
+                        Color.white
                             .frame(height: 1)
                             .id("bottomAnchor")
                     }
@@ -2235,6 +2350,95 @@ struct ContentView: View {
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .background(Color(colorScheme == .light ? .white : .black))
+    }
+
+    @ViewBuilder
+    private var centeredReflectionView: some View {
+        let navHeight: CGFloat = 68
+        
+        ZStack {
+            Color(colorScheme == .light ? .white : .black)
+                .ignoresSafeArea()
+            
+            if reflectionViewModel.isLoading && reflectionViewModel.reflectionResponse.isEmpty {
+                ScrollView {
+                    HStack(alignment: .top, spacing: 0) {
+                        OscillatingDotView(colorScheme: colorScheme)
+                        Spacer()
+                    }
+                    .frame(maxWidth: 650, alignment: .leading)
+                    .padding(.top, ((fontSize + lineHeight) * 2) + 1.5)
+                    .padding(.horizontal, 24)
+                    .padding(.bottom, bottomNavOpacity > 0 ? navHeight : 0)
+                    .onGeometryChange(for: CGFloat.self) { proxy in
+                        proxy.size.height
+                    } action: { height in
+                        viewHeight = height
+                    }
+                    .contentMargins(.bottom, viewHeight / 4)
+                }
+                .scrollIndicators(.never)
+            } else if let error = reflectionViewModel.error {
+                VStack {
+                    Text("Error: \(error)")
+                        .foregroundColor(.red)
+                        .frame(maxWidth: 650)
+                    Spacer()
+                }
+                .padding(.top, 16)
+            } else {
+                ZStack {
+                    Color(colorScheme == .light ? .white : .black)
+                        .ignoresSafeArea()
+                    
+                    VStack {
+                        ScrollViewReader { proxy in
+                            ScrollView {
+                                MarkdownTextView(
+                                    content: reflectionViewModel.reflectionResponse,
+                                    font: selectedFont,
+                                    fontSize: fontSize,
+                                    colorScheme: colorScheme,
+                                    lineHeight: lineHeight
+                                )
+                                .frame(maxWidth: 650, alignment: .leading)
+                                .padding(.horizontal, 24)
+                                .padding(.bottom, bottomNavOpacity > 0 ? navHeight : 0)
+                                .onGeometryChange(for: CGFloat.self) { proxy in
+                                    proxy.size.height
+                                } action: { height in
+                                    viewHeight = height
+                                }
+                                .contentMargins(.bottom, viewHeight / 4)
+
+                                Color.white
+                                    .frame(height: 1)
+                                    .id("bottomAnchor")
+                            }
+                            .scrollIndicators(.never)
+                            .onChange(of: reflectionViewModel.reflectionResponse) { _ in
+                                withAnimation {
+                                    proxy.scrollTo("bottomAnchor", anchor: .bottom)
+                                }
+                            }
+                        }
+                    }
+                    
+                    VStack {
+                        Spacer()
+                        ZStack {
+                            // Always-visible background to prevent text bleed-through
+                            Rectangle()
+                                .fill(Color(colorScheme == .light ? .white : .black))
+                                .frame(height: 68)
+                            
+                            bottomNavigationView
+                        }
+                    }
+                    .ignoresSafeArea(.keyboard)
+                }
+            }
+        }
     }
 
     @ViewBuilder
@@ -2300,6 +2504,7 @@ struct ContentView: View {
                 Spacer()
                 bottomNavigationView
             }
+            .ignoresSafeArea(.keyboard)
         }
     }
 }
@@ -2533,15 +2738,11 @@ struct ReflectionsSettingsView: View {
                 .font(.headline)
                 .fontWeight(.semibold)
             
-            HStack {
-                Text("Reflect every")
-                    .font(.subheadline)
-                    .foregroundColor(.secondary)
-                
-                Picker("Day", selection: $selectedDay) {
+            HStack(spacing: 8) {
+                Picker("Reflect every", selection: $selectedDay) {
                     ForEach(daysOfWeek, id: \.self) { day in
                         Text(day)
-                            .font(.subheadline)
+                            .font(.system(size: 14))
                             .foregroundColor(.primary)
                     }
                 }
