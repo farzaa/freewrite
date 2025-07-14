@@ -152,7 +152,7 @@ struct ContentView: View {
     @State private var timeRemaining: Int = 900  // Changed to 900 seconds (15 minutes)
     @State private var timerIsRunning = false
     @State private var isHoveringTimer = false
-    @State private var isHoveringFullscreen = false
+    @State private var isHoveringTheme = false
     @State private var userFontSize: CGFloat = 18 // Renamed from fontSize
     @State private var aiFontSize: CGFloat = 18 // For AI reflections
     @State private var blinkCount = 0
@@ -166,7 +166,6 @@ struct ContentView: View {
     @State private var scrollOffset: CGFloat = 0
     @State private var selectedEntryId: UUID? = nil
     @State private var hoveredEntryId: UUID? = nil
-    @State private var isHoveringChat = false  // Add this state variable
     @State private var showingChatMenu = false
     @State private var chatMenuAnchor: CGPoint = .zero
     @State private var showingSidebar = false  // Add this state variable
@@ -237,14 +236,6 @@ struct ContentView: View {
         "Type your first thought",
         "Start with one sentence",
         "Just say it"
-    ]
-
-    let followUpOptions = [
-        "Continue writing",
-        "Keep going",
-        "Anything else on your mind?",
-        "Type your next thought",
-        "Another thought, another sentence :)"
     ]
     
     // Add file manager and save timer
@@ -787,7 +778,9 @@ struct ContentView: View {
                             let fontSizes: [CGFloat] = [16, 18, 20, 22, 24, 26]
                             if let currentIndex = fontSizes.firstIndex(of: userFontSize) {
                                 let nextIndex = (currentIndex + 1) % fontSizes.count
-                                userFontSize = fontSizes[nextIndex]
+                                let newSize = fontSizes[nextIndex]
+                                userFontSize = newSize
+                                aiFontSize = newSize
                             }
                         }
                         .buttonStyle(.plain)
@@ -908,10 +901,11 @@ struct ContentView: View {
                             UserDefaults.standard.set(colorScheme == .light ? "light" : "dark", forKey: "colorScheme")
                         }) {
                             Image(systemName: colorScheme == .light ? "moon.fill" : "sun.max.fill")
-                                .foregroundColor(textColor)
+                                .foregroundColor(isHoveringTheme ? textHoverColor : textColor)
                         }
                         .buttonStyle(.plain)
                         .onHover { hovering in
+                            isHoveringTheme = hovering
                             isHoveringBottomNav = hovering
                             if hovering {
                                 NSCursor.pointingHand.push()
@@ -951,6 +945,15 @@ struct ContentView: View {
                                     if let currentId = selectedEntryId,
                                        let entry = entries.first(where: { $0.id == currentId }) {
                                         saveEntry(entry: entry)
+                                    }
+                                    // After reflection is done, append a new user section and focus it
+                                    sections.append(EntrySection(type: .user, text: ""))
+                                    editingText = ""
+                                    // Randomize placeholder for new user section
+                                    placeholderText = placeholderOptions.randomElement() ?? "Begin writing"
+                                    // Focus the new user editor
+                                    DispatchQueue.main.async {
+                                        self.isUserEditorFocused = true
                                     }
                                 } onStream: { streamedText in
                                     // Update the last reflection section as the AI streams
@@ -1282,7 +1285,7 @@ struct ContentView: View {
                                     }
                                 ))
                                 .font(.custom(userSelectedFont, size: userFontSize))
-                                .foregroundColor(Color(red: 0.20, green: 0.20, blue: 0.20))
+                                .foregroundColor(colorScheme == .light ? Color(red: 0.20, green: 0.20, blue: 0.20) : Color(red: 0.90, green: 0.90, blue: 0.90))
                                 .scrollContentBackground(.hidden)
                                 .scrollIndicators(.never)
                                 .lineSpacing(userLineHeight)
@@ -1333,7 +1336,7 @@ struct ContentView: View {
                                 .cornerRadius(12)
                                 .frame(maxWidth: 650)
                                 .padding(.horizontal, 16)
-                                .padding(.top, 32)
+                                .padding(.top, 84)
                             }
                         }
                         Spacer(minLength: 50)
@@ -2610,16 +2613,17 @@ struct SettingsSidebarItem: View {
     let icon: String
     let isSelected: Bool
     let action: () -> Void
+    @Environment(\.colorScheme) var colorScheme
     
     var body: some View {
         Button(action: action) {
             HStack(spacing: 10) {
                 Image(systemName: icon)
                     .frame(width: 16, height: 16)
-                    .foregroundColor(isSelected ? .white : .primary)
+                    .foregroundColor(isSelected ? (colorScheme == .dark ? .white : .white) : .primary)
                 
                 Text(title)
-                    .foregroundColor(isSelected ? .white : .primary)
+                    .foregroundColor(isSelected ? (colorScheme == .dark ? .white : .white) : .primary)
                 
                 Spacer()
             }
@@ -2627,7 +2631,7 @@ struct SettingsSidebarItem: View {
             .padding(.vertical, 8)
             .background(
                 RoundedRectangle(cornerRadius: 6)
-                    .fill(isSelected ? .primary : Color.clear)
+                    .fill(isSelected ? (colorScheme == .dark ? Color.black : Color.primary) : Color.clear)
             )
             .contentShape(Rectangle())
         }
@@ -2641,6 +2645,7 @@ struct SettingsContent: View {
     @Binding var deepgramApiKey: String
     @Binding var showMicrophone: Bool
     let onRunWeekly: () -> Void
+    @Environment(\.colorScheme) var colorScheme
     
     var body: some View {
         VStack(alignment: .leading, spacing: 16) {
@@ -2659,17 +2664,19 @@ struct SettingsContent: View {
 }
 
 struct APIKeysSettingsView: View {
+    @Environment(\.colorScheme) var colorScheme
     @Binding var openAIapiKey: String
     @Binding var deepgramApiKey: String
     
     @State private var tempOpenAIApiKey: String = ""
     @State private var tempDeepgramApiKey: String = ""
-    @State private var hasUnsavedChanges: Bool = false
-    @State private var showSaveConfirmation: Bool = false
+    @State private var hasUnsavedOpenAI: Bool = false
+    @State private var hasUnsavedDeepgram: Bool = false
+    @State private var showOpenAISaveConfirmation: Bool = false
+    @State private var showDeepgramSaveConfirmation: Bool = false
     
     var body: some View {
         VStack(alignment: .leading, spacing: 24) {
-            
             // OpenAI API Key Input
             VStack(alignment: .leading, spacing: 8) {
                 Text("OpenAI API Key")
@@ -2686,14 +2693,55 @@ struct APIKeysSettingsView: View {
                             .stroke(Color.gray.opacity(0.5), lineWidth: 1)
                     )
                     .onChange(of: tempOpenAIApiKey) { newValue in
-                        hasUnsavedChanges = (newValue != openAIapiKey || tempDeepgramApiKey != deepgramApiKey)
+                        hasUnsavedOpenAI = (newValue != openAIapiKey)
                     }
                 
-                Text("Used for daily and weekly reflections.")
+                Text("Used for reflections.")
                     .font(.caption)
                     .foregroundColor(.secondary)
+                
+                HStack(spacing: 12) {
+                    Button(action: {
+                        if !tempOpenAIApiKey.isEmpty {
+                            KeychainHelper.shared.saveAPIKey(tempOpenAIApiKey, for: .openAI)
+                            openAIapiKey = tempOpenAIApiKey
+                        } else {
+                            KeychainHelper.shared.deleteAPIKey(for: .openAI)
+                            openAIapiKey = ""
+                        }
+                        hasUnsavedOpenAI = false
+                        showOpenAISaveConfirmation = true
+                        DispatchQueue.main.asyncAfter(deadline: .now() + 2.0) {
+                            showOpenAISaveConfirmation = false
+                        }
+                    }) {
+                        Text("Save")
+                            .font(.system(size: 13, weight: .medium))
+                            .foregroundColor(.white)
+                            .padding(.horizontal, 16)
+                            .padding(.vertical, 8)
+                            .background(
+                                RoundedRectangle(cornerRadius: 6)
+                                    .fill(colorScheme == .dark ? Color.black : (hasUnsavedOpenAI ? .primary : .secondary))
+                            )
+                    }
+                    .buttonStyle(PlainButtonStyle())
+                    .disabled(!hasUnsavedOpenAI)
+                    
+                    if showOpenAISaveConfirmation {
+                        HStack(spacing: 6) {
+                            Image(systemName: "checkmark.circle.fill")
+                                .foregroundColor(.green)
+                                .font(.system(size: 12))
+                            Text("Saved")
+                                .font(.system(size: 12))
+                                .foregroundColor(.secondary)
+                        }
+                        .transition(.opacity)
+                    }
+                }
+                .animation(.easeInOut(duration: 0.2), value: showOpenAISaveConfirmation)
             }
-            
             // Deepgram API Key Input
             VStack(alignment: .leading, spacing: 8) {
                 Text("Deepgram API Key")
@@ -2710,77 +2758,63 @@ struct APIKeysSettingsView: View {
                             .stroke(Color.gray.opacity(0.5), lineWidth: 1)
                     )
                     .onChange(of: tempDeepgramApiKey) { newValue in
-                        hasUnsavedChanges = (newValue != deepgramApiKey || tempOpenAIApiKey != openAIapiKey)
+                        hasUnsavedDeepgram = (newValue != deepgramApiKey)
                     }
                 
-                Text("Used for voice-to-text transcription.")
+                Text("Used for speech-to-text transcription.")
                     .font(.caption)
                     .foregroundColor(.secondary)
-            }
-            
-            // Save button
-            HStack(spacing: 12) {
-                Button(action: {
-                    // Save OpenAI key
-                    if !tempOpenAIApiKey.isEmpty {
-                        KeychainHelper.shared.saveAPIKey(tempOpenAIApiKey, for: .openAI)
-                        openAIapiKey = tempOpenAIApiKey
-                    } else {
-                        KeychainHelper.shared.deleteAPIKey(for: .openAI)
-                        openAIapiKey = ""
-                    }
-                    
-                    // Save Deepgram key
-                    if !tempDeepgramApiKey.isEmpty {
-                        KeychainHelper.shared.saveAPIKey(tempDeepgramApiKey, for: .deepgram)
-                        deepgramApiKey = tempDeepgramApiKey
-                    } else {
-                        KeychainHelper.shared.deleteAPIKey(for: .deepgram)
-                        deepgramApiKey = ""
-                    }
-                    
-                    hasUnsavedChanges = false
-                    showSaveConfirmation = true
-                    
-                    // Hide confirmation after 2 seconds
-                    DispatchQueue.main.asyncAfter(deadline: .now() + 2.0) {
-                        showSaveConfirmation = false
-                    }
-                }) {
-                    Text("Save API Keys")
-                        .font(.system(size: 13, weight: .medium))
-                        .foregroundColor(.white)
-                        .padding(.horizontal, 16)
-                        .padding(.vertical, 8)
-                        .background(
-                            RoundedRectangle(cornerRadius: 6)
-                                .fill(hasUnsavedChanges ? .primary : .secondary)
-                        )
-                }
-                .buttonStyle(PlainButtonStyle())
-                .disabled(!hasUnsavedChanges)
                 
-                if showSaveConfirmation {
-                    HStack(spacing: 6) {
-                        Image(systemName: "checkmark.circle.fill")
-                            .foregroundColor(.green)
-                            .font(.system(size: 12))
-                        Text("Saved")
-                            .font(.system(size: 12))
-                            .foregroundColor(.secondary)
+                HStack(spacing: 12) {
+                    Button(action: {
+                        if !tempDeepgramApiKey.isEmpty {
+                            KeychainHelper.shared.saveAPIKey(tempDeepgramApiKey, for: .deepgram)
+                            deepgramApiKey = tempDeepgramApiKey
+                        } else {
+                            KeychainHelper.shared.deleteAPIKey(for: .deepgram)
+                            deepgramApiKey = ""
+                        }
+                        hasUnsavedDeepgram = false
+                        showDeepgramSaveConfirmation = true
+                        DispatchQueue.main.asyncAfter(deadline: .now() + 2.0) {
+                            showDeepgramSaveConfirmation = false
+                        }
+                    }) {
+                        Text("Save")
+                            .font(.system(size: 13, weight: .medium))
+                            .foregroundColor(.white)
+                            .padding(.horizontal, 16)
+                            .padding(.vertical, 8)
+                            .background(
+                                RoundedRectangle(cornerRadius: 6)
+                                    .fill(colorScheme == .dark ? Color.black : (hasUnsavedDeepgram ? .primary : .secondary))
+                            )
                     }
-                    .transition(.opacity)
+                    .buttonStyle(PlainButtonStyle())
+                    .disabled(!hasUnsavedDeepgram)
+                    
+                    if showDeepgramSaveConfirmation {
+                        HStack(spacing: 6) {
+                            Image(systemName: "checkmark.circle.fill")
+                                .foregroundColor(.green)
+                                .font(.system(size: 12))
+                            Text("Saved")
+                                .font(.system(size: 12))
+                                .foregroundColor(.secondary)
+                        }
+                        .transition(.opacity)
+                    }
                 }
+                .animation(.easeInOut(duration: 0.2), value: showDeepgramSaveConfirmation)
             }
-            .animation(.easeInOut(duration: 0.2), value: showSaveConfirmation)
-            
             Spacer()
         }
         .padding(.top, 8)
         .onAppear {
-            // Load keys when view appears
             tempOpenAIApiKey = openAIapiKey
             tempDeepgramApiKey = deepgramApiKey
+            hasUnsavedOpenAI = false
+            hasUnsavedDeepgram = false
         }
     }
 }
@@ -2800,15 +2834,20 @@ struct ReflectionsSettingsView: View {
     
     // Quarterly
     @State private var isQuarterlyEnabled: Bool = false
-    @State private var q1Date: Date = Date()
-    @State private var q2Date: Date = Date()
-    @State private var q3Date: Date = Date()
-    @State private var q4Date: Date = Date()
+    @State private var q1Month: Int = 0
+    @State private var q1Day: Int = 1
+    @State private var q2Month: Int = 3
+    @State private var q2Day: Int = 1
+    @State private var q3Month: Int = 6
+    @State private var q3Day: Int = 1
+    @State private var q4Month: Int = 9
+    @State private var q4Day: Int = 1
     @State private var quarterlyReflectionTime: Date = Calendar.current.date(from: DateComponents(hour: 10, minute: 0)) ?? Date()
     
     // Annually
     @State private var isAnnuallyEnabled: Bool = false
-    @State private var annualReflectionDate: Date = Date()
+    @State private var annualMonth: Int = 0 // 0 = January
+    @State private var annualDay: Int = 1   // 1 = first day
     @State private var annualReflectionTime: Date = Calendar.current.date(from: DateComponents(hour: 10, minute: 0)) ?? Date()
 
     let onRunNow: () -> Void
@@ -2824,7 +2863,7 @@ struct ReflectionsSettingsView: View {
                             .fontWeight(.semibold)
                     }
                     
-                    HStack(spacing: 8) {
+                    HStack(spacing: 12) {
                         Picker("Reflect every", selection: $selectedDay) {
                             ForEach(daysOfWeek, id: \.self) { day in Text(day) }
                         }
@@ -2855,7 +2894,7 @@ struct ReflectionsSettingsView: View {
                     }
                     
                     HStack(spacing: 8) {
-                        Text("Reflect on day")
+                        Text("Reflect every")
                         Picker("Day", selection: $selectedMonthDay) {
                             ForEach(daysOfMonth, id: \.self) { day in
                                 Text("\(day)").tag(day)
@@ -2863,13 +2902,12 @@ struct ReflectionsSettingsView: View {
                         }
                         .pickerStyle(MenuPickerStyle())
                         .labelsHidden()
-
-                        DatePicker("at", selection: $monthlyReflectionTime, displayedComponents: .hourAndMinute)
+                        Text("at")
+                            .foregroundColor(.secondary)
+                        DatePicker("", selection: $monthlyReflectionTime, displayedComponents: .hourAndMinute)
                             .datePickerStyle(CompactDatePickerStyle())
-                        
                         Text("•")
                             .foregroundColor(.secondary)
-                        
                         Button("Run now") {
                             // No action for now
                         }
@@ -2881,31 +2919,114 @@ struct ReflectionsSettingsView: View {
                 Divider()
 
                 // Quarterly Section
-                VStack(alignment: .leading, spacing: 8) {
+                VStack(alignment: .leading, spacing: 12) {
                     Toggle(isOn: $isQuarterlyEnabled) {
                         Text("Quarterly")
                             .font(.headline)
                             .fontWeight(.semibold)
                     }
                     
+                    // Quarterly pickers: Month and Day dropdowns for each quarter
+                    let months = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"]
+                    let days = Array(1...30)
                     HStack(spacing: 16) {
-                        VStack(alignment: .leading) {
-                            DatePicker("Q1", selection: $q1Date, displayedComponents: .date)
-                            DatePicker("Q2", selection: $q2Date, displayedComponents: .date)
+                        VStack(alignment: .leading, spacing: 4) {
+                            Text("Q1")
+                            HStack(spacing: 4) {
+                                Picker("", selection: $q1Month) {
+                                    ForEach(0..<months.count, id: \ .self) { idx in
+                                        Text(months[idx]).tag(idx)
+                                    }
+                                }
+                                .frame(width: 70)
+                                .labelsHidden()
+                                .disabled(!isQuarterlyEnabled)
+                                Picker("", selection: $q1Day) {
+                                    ForEach(days, id: \ .self) { day in
+                                        Text("\(day)").tag(day)
+                                    }
+                                }
+                                .frame(width: 50)
+                                .labelsHidden()
+                                .disabled(!isQuarterlyEnabled)
+                            }
                         }
-                        VStack(alignment: .leading) {
-                            DatePicker("Q3", selection: $q3Date, displayedComponents: .date)
-                            DatePicker("Q4", selection: $q4Date, displayedComponents: .date)
+                        VStack(alignment: .leading, spacing: 4) {
+                            Text("Q2")
+                            HStack(spacing: 4) {
+                                Picker("", selection: $q2Month) {
+                                    ForEach(0..<months.count, id: \ .self) { idx in
+                                        Text(months[idx]).tag(idx)
+                                    }
+                                }
+                                .frame(width: 70)
+                                .labelsHidden()
+                                .disabled(!isQuarterlyEnabled)
+                                Picker("", selection: $q2Day) {
+                                    ForEach(days, id: \ .self) { day in
+                                        Text("\(day)").tag(day)
+                                    }
+                                }
+                                .frame(width: 50)
+                                .labelsHidden()
+                                .disabled(!isQuarterlyEnabled)
+                            }
+                        }
+                    }
+                    HStack(spacing: 16) {
+                        VStack(alignment: .leading, spacing: 4) {
+                            Text("Q3")
+                            HStack(spacing: 4) {
+                                Picker("", selection: $q3Month) {
+                                    ForEach(0..<months.count, id: \ .self) { idx in
+                                        Text(months[idx]).tag(idx)
+                                    }
+                                }
+                                .frame(width: 70)
+                                .labelsHidden()
+                                .disabled(!isQuarterlyEnabled)
+                                Picker("", selection: $q3Day) {
+                                    ForEach(days, id: \ .self) { day in
+                                        Text("\(day)").tag(day)
+                                    }
+                                }
+                                .frame(width: 50)
+                                .labelsHidden()
+                                .disabled(!isQuarterlyEnabled)
+                            }
+                        }
+                        VStack(alignment: .leading, spacing: 4) {
+                            Text("Q4")
+                            HStack(spacing: 4) {
+                                Picker("", selection: $q4Month) {
+                                    ForEach(0..<months.count, id: \ .self) { idx in
+                                        Text(months[idx]).tag(idx)
+                                    }
+                                }
+                                .frame(width: 70)
+                                .labelsHidden()
+                                .disabled(!isQuarterlyEnabled)
+                                Picker("", selection: $q4Day) {
+                                    ForEach(days, id: \ .self) { day in
+                                        Text("\(day)").tag(day)
+                                    }
+                                }
+                                .frame(width: 50)
+                                .labelsHidden()
+                                .disabled(!isQuarterlyEnabled)
+                            }
                         }
                     }
                     
                     HStack(spacing: 8) {
+                    
                         DatePicker("at", selection: $quarterlyReflectionTime, displayedComponents: .hourAndMinute)
                             .datePickerStyle(CompactDatePickerStyle())
                         
+                        Spacer()
+
                         Text("•")
                             .foregroundColor(.secondary)
-                        
                         Button("Run now") {
                             // No action for now
                         }
@@ -2923,16 +3044,30 @@ struct ReflectionsSettingsView: View {
                             .font(.headline)
                             .fontWeight(.semibold)
                     }
-                    
+                    let months = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"]
+                    let days = Array(1...31)
                     HStack(spacing: 8) {
-                        DatePicker("Reflect on", selection: $annualReflectionDate, displayedComponents: .date)
-                        
+                        Picker("", selection: $annualMonth) {
+                            ForEach(0..<months.count, id: \ .self) { idx in
+                                Text(months[idx]).tag(idx)
+                            }
+                        }
+                        .frame(width: 70)
+                        .labelsHidden()
+                        .disabled(!isAnnuallyEnabled)
+                        Picker("", selection: $annualDay) {
+                            ForEach(days, id: \ .self) { day in
+                                Text("\(day)").tag(day)
+                            }
+                        }
+                        .frame(width: 50)
+                        .labelsHidden()
+                        .disabled(!isAnnuallyEnabled)
                         DatePicker("at", selection: $annualReflectionTime, displayedComponents: .hourAndMinute)
                             .datePickerStyle(CompactDatePickerStyle())
-                        
+                            .disabled(!isAnnuallyEnabled)
                         Text("•")
                             .foregroundColor(.secondary)
-                        
                         Button("Run now") {
                             // No action for now
                         }
@@ -2944,28 +3079,18 @@ struct ReflectionsSettingsView: View {
             .padding(.vertical, 20)
         }
         .onAppear(perform: setQuarterDates)
+        .scrollIndicators(.never)
     }
 
     private func setQuarterDates() {
-        q1Date = getFirstDayOfQuarter(quarter: 1)
-        q2Date = getFirstDayOfQuarter(quarter: 2)
-        q3Date = getFirstDayOfQuarter(quarter: 3)
-        q4Date = getFirstDayOfQuarter(quarter: 4)
-    }
-
-    private func getFirstDayOfQuarter(quarter: Int) -> Date {
-        let calendar = Calendar.current
-        let currentYear = calendar.component(.year, from: Date())
-        let month: Int
-        switch quarter {
-        case 1: month = 1
-        case 2: month = 4
-        case 3: month = 7
-        case 4: month = 10
-        default: month = 1
-        }
-        let components = DateComponents(year: currentYear, month: month, day: 1)
-        return calendar.date(from: components) ?? Date()
+        q1Month = 3
+        q1Day = 1
+        q2Month = 6
+        q2Day = 1
+        q3Month = 9
+        q3Day = 1
+        q4Month = 0
+        q4Day = 1
     }
 }
 
@@ -2974,17 +3099,13 @@ struct TranscriptionSettingsView: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 16) {
-            Text("Transcription")
-                .font(.headline)
-                .fontWeight(.semibold)
-                .padding(.bottom, 8)
 
             Toggle("Show microphone button", isOn: $showMicrophone)
                 .onChange(of: showMicrophone) { newValue in
                     UserDefaults.standard.set(newValue, forKey: "showMicrophone")
                 }
 
-            Text("Disable if you prefer using another speech-to-text app, like WhisperFlow.")
+            Text("Disable if you prefer using another speech-to-text app (Wispr Flow, Superwhisper, etc.).")
                 .font(.caption)
                 .foregroundColor(.secondary)
 
@@ -3157,7 +3278,7 @@ struct MarkdownTextView: View {
             let baseFont = NSFont(name: font, size: fontSize) ?? NSFont.systemFont(ofSize: fontSize)
             let textColor = colorScheme == .light ? 
                 NSColor(red: 0.20, green: 0.20, blue: 0.20, alpha: 1.0) : 
-                NSColor(red: 0.9, green: 0.9, blue: 0.9, alpha: 1.0)
+                NSColor(calibratedWhite: 0.90, alpha: 1.0)
             
             // Apply base styling to entire string
             parsed.font = baseFont
@@ -3217,7 +3338,7 @@ struct MarkdownTextView: View {
             fallback.font = NSFont(name: font, size: fontSize) ?? NSFont.systemFont(ofSize: fontSize)
             fallback.foregroundColor = colorScheme == .light ? 
                 NSColor(red: 0.20, green: 0.20, blue: 0.20, alpha: 1.0) : 
-                NSColor(red: 0.9, green: 0.9, blue: 0.9, alpha: 1.0)
+                NSColor(calibratedWhite: 0.90, alpha: 1.0)
             self.attributedString = fallback
         }
     }
@@ -3235,4 +3356,26 @@ func removeReflectionSeparators(from text: String) -> String {
         return trimmed != "--- REFLECTION ---" && trimmed != "--- USER ---"
     }
     return filtered.joined(separator: "\n")
+}
+
+// Add this helper view at the end of the file:
+import AppKit
+struct TextEditorCursorColorView: NSViewRepresentable {
+    let colorScheme: ColorScheme
+    func makeNSView(context: Context) -> NSView {
+        let view = NSView()
+        DispatchQueue.main.async {
+            if let window = view.window, let textView = window.firstResponder as? NSTextView {
+                textView.insertionPointColor = (colorScheme == .dark) ? .white : .black
+            }
+        }
+        return view
+    }
+    func updateNSView(_ nsView: NSView, context: Context) {
+        DispatchQueue.main.async {
+            if let window = nsView.window, let textView = window.firstResponder as? NSTextView {
+                textView.insertionPointColor = (colorScheme == .dark) ? .white : .black
+            }
+        }
+    }
 }
