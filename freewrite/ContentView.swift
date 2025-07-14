@@ -125,6 +125,21 @@ class ContentViewController: NSObject, URLSessionDataDelegate {
     // to keep ContentView cleaner. For now, we'll keep them in the extension.
 }
 
+// Section type for alternating user/reflection
+enum EntrySectionType {
+    case user
+    case reflection
+}
+
+struct EntrySection: Identifiable, Equatable {
+    let id = UUID()
+    var type: EntrySectionType
+    var text: String
+    static func == (lhs: EntrySection, rhs: EntrySection) -> Bool {
+        lhs.id == rhs.id && lhs.type == rhs.type && lhs.text == rhs.text
+    }
+}
+
 struct ContentView: View {
     @State private var entries: [HumanEntry] = []
     @State private var text: String = ""  // Initialize as empty string without "\n\n"
@@ -182,6 +197,11 @@ struct ContentView: View {
     @State private var showReflectionPanel: Bool = false
     @State private var isWeeklyReflection: Bool = false
     
+    @State private var sections: [EntrySection] = [] // Alternating user/reflection sections
+    @State private var editingText: String = "" // For the last user section
+    
+    @State private var shouldScrollToBottom: Bool = false
+    
     let timer = Timer.publish(every: 1, on: .main, in: .common).autoconnect()
     let entryHeight: CGFloat = 40
     
@@ -205,6 +225,7 @@ struct ContentView: View {
     
     // Focus states for text editors
     @FocusState private var isFollowUpFocused: Bool
+    @FocusState private var isUserEditorFocused: Bool
 
     let availableFonts = NSFontManager.shared.availableFontFamilies
     let placeholderOptions = [
@@ -590,8 +611,10 @@ struct ContentView: View {
                     
                     let separator = "\n\n--- REFLECTION ---\n\n"
                     let contentForPreview = content.replacingOccurrences(of: separator, with: " ")
+                    // Remove separators from preview
+                    let cleanedPreview = removeReflectionSeparators(from: contentForPreview)
                     
-                    let preview = contentForPreview
+                    let preview = cleanedPreview
                         .replacingOccurrences(of: "\n", with: " ")
                         .trimmingCharacters(in: .whitespacesAndNewlines)
                     let truncated = preview.isEmpty ? "" : (preview.count > 30 ? String(preview.prefix(30)) + "..." : preview)
@@ -618,6 +641,11 @@ struct ContentView: View {
                 .map { $0.entry }
             
             print("Successfully loaded and sorted \(entries.count) entries")
+            
+            // Ensure previewText is always cleaned of section headers
+            for entry in entries {
+                updatePreviewText(for: entry)
+            }
             
             // Check if we need to create a new entry
             let calendar = Calendar.current
@@ -898,33 +926,37 @@ struct ContentView: View {
                                 .foregroundColor(.gray)
                             
                             Button(action: {
-                                let reflectionSeparator = "\n\n--- REFLECTION ---\n\n"
-                                let followUpSeparator = "\n\n--- FOLLOW-UP ---\n\n"
-
-                                // 1. Combine all current text into a single block.
-                                var newBaseText = self.text.trimmingCharacters(in: .whitespacesAndNewlines)
-                                
-                                if reflectionViewModel.hasBeenRun && !reflectionViewModel.reflectionResponse.isEmpty {
-                                    newBaseText += reflectionSeparator + reflectionViewModel.reflectionResponse
+                                // Trim trailing whitespace from the last user section before sending to AI and saving
+                                if let lastUserIdx = sections.lastIndex(where: { $0.type == .user }) {
+                                    sections[lastUserIdx].text = sections[lastUserIdx].text.trimmingCharacters(in: .whitespacesAndNewlines)
                                 }
-                                
-                                if !followUpText.isEmpty {
-                                    newBaseText += followUpSeparator + followUpText.trimmingCharacters(in: .whitespacesAndNewlines)
-                                }
-
-                                // 2. This combined text becomes the new main text.
-                                self.text = newBaseText
-                                
-                                // 3. Reset the follow-up text field.
-                                self.followUpText = ""
-
-                                // 4. Start a new reflection on the combined text.
-                                isWeeklyReflection = false
-                                showReflectionPanel = true
-                                reflectionViewModel.start(apiKey: openAIAPIKey, entryText: self.text) {
-                                    if let currentId = self.selectedEntryId,
-                                       let entry = self.entries.first(where: { $0.id == currentId }) {
-                                        self.saveEntry(entry: entry)
+                                // Concatenate all sections as plain text (include section headers for clarity)
+                                let userSeparator = "--- USER ---"
+                                let reflectionSeparator = "--- REFLECTION ---"
+                                let fullText = sections.map { section in
+                                    switch section.type {
+                                    case .user: return userSeparator + "\n" + section.text
+                                    case .reflection: return reflectionSeparator + "\n" + section.text
+                                    }
+                                }.joined(separator: "\n")
+                                guard !fullText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return }
+                                // Set flag to scroll to bottom after appending reflection
+                                shouldScrollToBottom = true
+                                // Append a new reflection section immediately
+                                sections.append(EntrySection(type: .reflection, text: ""))
+                                let reflectionIdx = sections.count - 1
+                                // Start reflection
+                                reflectionViewModel.start(apiKey: openAIAPIKey, entryText: fullText) {
+                                    // On complete, save the entry
+                                    if let currentId = selectedEntryId,
+                                       let entry = entries.first(where: { $0.id == currentId }) {
+                                        saveEntry(entry: entry)
+                                    }
+                                } onStream: { streamedText in
+                                    // Update the last reflection section as the AI streams
+                                    if reflectionIdx < sections.count, sections[reflectionIdx].type == .reflection {
+                                        sections[reflectionIdx].text = streamedText
+                                        shouldScrollToBottom = true
                                     }
                                 }
                             }) {
@@ -1213,110 +1245,105 @@ struct ContentView: View {
     
     private var mainContent: some View {
         let navHeight: CGFloat = 68
-        
         return ZStack {
             Color(colorScheme == .light ? .white : .black)
                 .ignoresSafeArea()
-
             ScrollViewReader { proxy in
                 ScrollView {
                     VStack(spacing: 0) {
-                        // Original Text Editor
-                        TextEditor(text: Binding(
-                            get: { text },
-                            set: { newValue in
-                                    text = newValue
-                            }
-                        ))
-                        .disabled(reflectionViewModel.hasBeenRun)
-                        .background(Color.clear)
-                        .font(.custom(userSelectedFont, size: userFontSize))
-                        .foregroundColor(
-                            reflectionViewModel.hasBeenRun ?
-                                (colorScheme == .light ? .gray : .gray.opacity(0.8)) :
-                                (colorScheme == .light ? Color(red: 0.20, green: 0.20, blue: 0.20) : Color(red: 0.9, green: 0.9, blue: 0.9))
-                        )
-                        .scrollContentBackground(.hidden)
-                        .scrollIndicators(.never)
-                        .lineSpacing(userLineHeight)
-                        .frame(maxWidth: 650)
-                        .fixedSize(horizontal: false, vertical: true) // Make TextEditor grow with content
-                        .allowsHitTesting(!isVoiceInputMode && !showingSettings && !reflectionViewModel.hasBeenRun)
-                        .padding(.top, 32)
-                        .padding(.horizontal, 16)
-                        .onAppear {
-                            placeholderText = placeholderOptions.randomElement() ?? "Begin writing"
-                        }
-                        .overlay(
-                            ZStack(alignment: .topLeading) {
-                                if text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-                                    Text(placeholderText)
-                                        .font(.custom(userSelectedFont, size: userFontSize))
-                                        .foregroundColor(colorScheme == .light ? .gray.opacity(0.5) : .gray.opacity(0.6))
-                                        .allowsHitTesting(false)
-                                        .padding(.top, 32)
-                                        .padding(.leading, 21)
-                                }
-                            }, alignment: .topLeading
-                        )
-
-                        // Reflection Content
-                        if showReflectionPanel && !isWeeklyReflection {
-                            reflectionContent
-                                .frame(maxWidth: 650)
-                                .padding(.horizontal, 16)
-                                .padding(.top, 32)
-                        }
-
-                        // Follow-up Text Editor
-                        if reflectionViewModel.hasBeenRun && !reflectionViewModel.isLoading {
-                            TextEditor(text: $followUpText)
-                                .focused($isFollowUpFocused)
-                                .background(Color.clear)
-                                .font(.custom(userSelectedFont, size: userFontSize))
-                                .foregroundColor(colorScheme == .light ? Color(red: 0.20, green: 0.20, blue: 0.20) : Color(red: 0.9, green: 0.9, blue: 0.9))
-                                .scrollContentBackground(.hidden)
-                                .scrollIndicators(.never)
-                                .lineSpacing(userLineHeight)
-                                .frame(maxWidth: 650)
-                                .fixedSize(horizontal: false, vertical: true) // Make TextEditor grow
-                                .padding(.top, 32)
-                                .padding(.horizontal, 16)
-                                .onAppear {
-                                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
-                                        isFollowUpFocused = true
-                                    }
-                                }
-                                .overlay(
-                                    ZStack(alignment: .topLeading) {
-                                        if followUpText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-                                            Text(followUpOptions.randomElement() ?? "Continue writing")
-                                                .font(.custom(userSelectedFont, size: userFontSize))
-                                                .foregroundColor(colorScheme == .light ? .gray.opacity(0.5) : .gray.opacity(0.6))
-                                                .allowsHitTesting(false)
-                                                .padding(.top, 32)
-                                                .padding(.leading, 21)
+                        ForEach(Array(sections.enumerated()), id: \ .element.id) { idx, section in
+                            if section.type == .user {
+                                if idx == sections.count - 1 && (!reflectionViewModel.isLoading) {
+                                    // Last user section, editable
+                                    TextEditor(text: Binding(
+                                        get: { editingText },
+                                        set: { newValue in
+                                            editingText = newValue
+                                            sections[idx].text = newValue
+                                            // Save on change
+                                            if let currentId = selectedEntryId,
+                                               let currentEntry = entries.first(where: { $0.id == currentId }) {
+                                                saveEntry(entry: currentEntry)
+                                            }
                                         }
-                                    }, alignment: .topLeading
-                                )
+                                    ))
+                                    .font(.custom(userSelectedFont, size: userFontSize))
+                                    .foregroundColor(Color(red: 0.20, green: 0.20, blue: 0.20))
+                                    .scrollContentBackground(.hidden)
+                                    .scrollIndicators(.never)
+                                    .lineSpacing(userLineHeight)
+                                    .frame(maxWidth: 650)
+                                    .fixedSize(horizontal: false, vertical: true)
+                                    .padding(.top, 84)
+                                    .padding(.horizontal, 16)
+                                    .background(Color.clear)
+                                    .focused($isUserEditorFocused)
+                                    .overlay(
+                                        ZStack(alignment: .topLeading) {
+                                            if editingText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                                                Text(placeholderText)
+                                                    .font(.custom(userSelectedFont, size: userFontSize))
+                                                    .foregroundColor(colorScheme == .light ? .gray.opacity(0.5) : .gray.opacity(0.6))
+                                                    .allowsHitTesting(false)
+                                                    .padding(.top, 84)
+                                                    .padding(.leading, 21)
+                                            }
+                                        }, alignment: .topLeading
+                                    )
+                                } else {
+                                    // Previous user sections, read-only but black
+                                    Text(section.text)
+                                        .font(.custom(userSelectedFont, size: userFontSize))
+                                        .foregroundColor(Color(red: 0.20, green: 0.20, blue: 0.20))
+                                        .lineSpacing(userLineHeight)
+                                        .frame(maxWidth: 650, alignment: .leading)
+                                        .padding(.top, 48)
+                                        .padding(.horizontal, 16)
+                                }
+                            } else if section.type == .reflection {
+                                VStack(alignment: .leading, spacing: 0) {
+                                    if idx == sections.count - 1 && reflectionViewModel.isLoading && section.text.isEmpty {
+                                        HStack(alignment: .top, spacing: 0) {
+                                            OscillatingDotView(colorScheme: colorScheme)
+                                            Spacer()
+                                        }
+                                        .padding(.top, 16)
+                                        .padding(.leading, 16)
+                                    }
+                                    MarkdownTextView(
+                                        content: section.text,
+                                        font: aiSelectedFont,
+                                        fontSize: aiFontSize,
+                                        colorScheme: colorScheme,
+                                        lineHeight: aiLineHeight
+                                    )
+                                    .frame(maxWidth: .infinity, alignment: .leading)
+                                    .padding()
+                                }
+                                .background(Color.gray.opacity(0.1))
+                                .cornerRadius(12)
+                                .frame(maxWidth: 650)
+                                .padding(.horizontal, 16)
+                                .padding(.top, 32)
+                                .frame(minHeight: aiFontSize * 1.5 + 32) // Ensure min height for the dot/first line
+                            }
                         }
-
                         Spacer(minLength: 50)
-                        
-                        // Anchor for scrolling
                         VStack(spacing: 0) { EmptyView() }.id("bottomAnchor")
                     }
                     .frame(maxWidth: .infinity)
                 }
                 .scrollIndicators(.never)
-                .onChange(of: reflectionViewModel.reflectionResponse) { _ in
-                    withAnimation {
-                        proxy.scrollTo("bottomAnchor", anchor: .bottom)
+                .onChange(of: sections) { _ in
+                    if shouldScrollToBottom {
+                        withAnimation {
+                            proxy.scrollTo("bottomAnchor", anchor: .bottom)
+                        }
+                        shouldScrollToBottom = false
                     }
                 }
                 .padding(.bottom, bottomNavOpacity > 0 ? navHeight : 0)
             }
-            
             VStack {
                 Spacer()
                 bottomNavigationView
@@ -1512,18 +1539,33 @@ struct ContentView: View {
     private func updatePreviewText(for entry: HumanEntry) {
         let documentsDirectory = getDocumentsDirectory()
         let fileURL = documentsDirectory.appendingPathComponent(entry.filename)
-        
         do {
             let fullContent = try String(contentsOf: fileURL, encoding: .utf8)
-            let separator = "\n\n--- REFLECTION ---\n\n"
-            let contentForPreview = fullContent.replacingOccurrences(of: separator, with: " ")
-            
-            let preview = contentForPreview
-                .replacingOccurrences(of: "\n", with: " ")
-                .trimmingCharacters(in: .whitespacesAndNewlines)
+            let userSeparator = "--- USER ---"
+            let reflectionSeparator = "--- REFLECTION ---"
+            let userRange = (fullContent as NSString).range(of: userSeparator)
+            let reflectionRange = (fullContent as NSString).range(of: reflectionSeparator)
+            var preview = ""
+            if userRange.location != NSNotFound {
+                if reflectionRange.location != NSNotFound {
+                    let userStart = userRange.location + userRange.length
+                    let userEnd = reflectionRange.location
+                    let userText = (fullContent as NSString).substring(with: NSRange(location: userStart, length: userEnd - userStart)).trimmingCharacters(in: .whitespacesAndNewlines)
+                    preview = userText
+                } else {
+                    let userStart = userRange.location + userRange.length
+                    let userText = (fullContent as NSString).substring(from: userStart).trimmingCharacters(in: .whitespacesAndNewlines)
+                    preview = userText
+                }
+            } else {
+                preview = fullContent.trimmingCharacters(in: .whitespacesAndNewlines)
+            }
+            // Remove --- USER --- and --- REFLECTION --- from preview, and trim whitespace/newlines
+            preview = preview.replacingOccurrences(of: userSeparator, with: "")
+            preview = preview.replacingOccurrences(of: reflectionSeparator, with: "")
+            preview = preview.trimmingCharacters(in: .whitespacesAndNewlines)
+            preview = preview.replacingOccurrences(of: "\n", with: " ").trimmingCharacters(in: .whitespacesAndNewlines)
             let truncated = preview.isEmpty ? "" : (preview.count > 30 ? String(preview.prefix(30)) + "..." : preview)
-            
-            // Find and update the entry in the entries array
             if let index = entries.firstIndex(where: { $0.id == entry.id }) {
                 entries[index].previewText = truncated
             }
@@ -1535,20 +1577,19 @@ struct ContentView: View {
     private func saveEntry(entry: HumanEntry) {
         let documentsDirectory = getDocumentsDirectory()
         let fileURL = documentsDirectory.appendingPathComponent(entry.filename)
-        
-        let reflectionSeparator = "\n\n--- REFLECTION ---\n\n"
-        let followUpSeparator = "\n\n--- FOLLOW-UP ---\n\n"
-        
-        var contentToSave = text
-        if reflectionViewModel.hasBeenRun && !reflectionViewModel.reflectionResponse.isEmpty {
-            contentToSave += reflectionSeparator + reflectionViewModel.reflectionResponse
+        let userSeparator = "--- USER ---"
+        let reflectionSeparator = "--- REFLECTION ---"
+        var contentToSave = ""
+        for section in sections {
+            switch section.type {
+            case .user:
+                contentToSave += userSeparator + "\n" + section.text + "\n"
+            case .reflection:
+                contentToSave += reflectionSeparator + "\n" + section.text + "\n"
+            }
         }
-        if !followUpText.isEmpty {
-            contentToSave += followUpSeparator + followUpText
-        }
-        
         do {
-            try contentToSave.write(to: fileURL, atomically: true, encoding: .utf8)
+            try contentToSave.trimmingCharacters(in: .whitespacesAndNewlines).write(to: fileURL, atomically: true, encoding: .utf8)
             print("Successfully saved entry: \(entry.filename)")
         } catch {
             print("Error saving entry: \(error)")
@@ -1558,44 +1599,54 @@ struct ContentView: View {
     private func loadEntry(entry: HumanEntry) {
         let documentsDirectory = getDocumentsDirectory()
         let fileURL = documentsDirectory.appendingPathComponent(entry.filename)
-        
+
         do {
             if fileManager.fileExists(atPath: fileURL.path) {
-                var fullContent = try String(contentsOf: fileURL, encoding: .utf8)
-                
-                let reflectionSeparator = "\n\n--- REFLECTION ---\n\n"
-                let followUpSeparator = "\n\n--- FOLLOW-UP ---\n\n"
-                
-                // Reset states before loading
-                self.followUpText = ""
-                self.reflectionViewModel.reflectionResponse = ""
-                self.reflectionViewModel.hasBeenRun = false
-                self.showReflectionPanel = false
+                let fullContent = try String(contentsOf: fileURL, encoding: .utf8)
+                let userSeparator = "--- USER ---"
+                let reflectionSeparator = "--- REFLECTION ---"
 
-                if let followUpRange = fullContent.range(of: followUpSeparator) {
-                    self.followUpText = String(fullContent[followUpRange.upperBound...])
-                    fullContent = String(fullContent[..<followUpRange.lowerBound])
+                // Parse into sections
+                var parsedSections: [EntrySection] = []
+                var currentType: EntrySectionType? = nil
+                var buffer = ""
+                for line in fullContent.components(separatedBy: .newlines) {
+                    if line.trimmingCharacters(in: .whitespacesAndNewlines) == userSeparator {
+                        if let type = currentType, !buffer.isEmpty {
+                            parsedSections.append(EntrySection(type: type, text: buffer.trimmingCharacters(in: .whitespacesAndNewlines)))
+                        }
+                        currentType = .user
+                        buffer = ""
+                    } else if line.trimmingCharacters(in: .whitespacesAndNewlines) == reflectionSeparator {
+                        if let type = currentType, !buffer.isEmpty {
+                            parsedSections.append(EntrySection(type: type, text: buffer.trimmingCharacters(in: .whitespacesAndNewlines)))
+                        }
+                        currentType = .reflection
+                        buffer = ""
+                    } else {
+                        buffer += (buffer.isEmpty ? "" : "\n") + line
+                    }
                 }
-
-                if let reflectionRange = fullContent.range(of: reflectionSeparator) {
-                    self.text = String(fullContent[..<reflectionRange.lowerBound])
-                    self.reflectionViewModel.reflectionResponse = String(fullContent[reflectionRange.upperBound...])
-                    self.reflectionViewModel.hasBeenRun = true
-                    self.showReflectionPanel = true
+                if let type = currentType, !buffer.isEmpty {
+                    parsedSections.append(EntrySection(type: type, text: buffer.trimmingCharacters(in: .whitespacesAndNewlines)))
+                }
+                // If file is empty, start with a user section
+                if parsedSections.isEmpty {
+                    parsedSections = [EntrySection(type: .user, text: "")]
+                }
+                self.sections = parsedSections
+                // Set editingText to the last user section's text
+                if let lastUser = parsedSections.last(where: { $0.type == .user }) {
+                    self.editingText = lastUser.text
                 } else {
-                    self.text = fullContent
+                    self.editingText = ""
                 }
-                
-                if entry.filename.hasPrefix("[Weekly]-") {
-                    isWeeklyReflection = true
-                } else {
-                    isWeeklyReflection = false
-                }
-                
-                print("Successfully loaded entry: \(entry.filename)")
             }
         } catch {
             print("Error loading entry: \(error)")
+            // Fallback: start with a single user section
+            self.sections = [EntrySection(type: .user, text: "")]
+            self.editingText = ""
         }
     }
     
@@ -1603,7 +1654,7 @@ struct ContentView: View {
         let newEntry = HumanEntry.createNew()
         entries.insert(newEntry, at: 0) // Add to the beginning
         selectedEntryId = newEntry.id
-        
+
         // Reset all reflection-related state for a clean slate
         reflectionViewModel.reflectionResponse = ""
         reflectionViewModel.isLoading = false
@@ -1612,13 +1663,18 @@ struct ContentView: View {
         showReflectionPanel = false
         isWeeklyReflection = false
         followUpText = ""
-        
+
+        // Always start with a user section
+        sections = [EntrySection(type: .user, text: "")]
+        editingText = ""
+
         // If this is the first entry (entries was empty before adding this one)
         if entries.count == 1 {
             // Read welcome message from default.md
             if let defaultMessageURL = Bundle.main.url(forResource: "default", withExtension: "md"),
                let defaultMessage = try? String(contentsOf: defaultMessageURL, encoding: .utf8) {
-                text = defaultMessage
+                editingText = defaultMessage
+                sections[0].text = defaultMessage
             }
             // Save the welcome message immediately
             saveEntry(entry: newEntry)
@@ -1626,11 +1682,15 @@ struct ContentView: View {
             updatePreviewText(for: newEntry)
         } else {
             // Regular new entry starts empty
-            text = ""
+            editingText = ""
             // Randomize placeholder text for new entry
             placeholderText = placeholderOptions.randomElement() ?? "Begin writing"
             // Save the empty entry
             saveEntry(entry: newEntry)
+        }
+        // Focus the text editor for the new entry
+        DispatchQueue.main.async {
+            self.isUserEditorFocused = true
         }
     }
     
@@ -2189,8 +2249,9 @@ struct ContentView: View {
         
         private var streamingTask: URLSessionDataTask?
         private var onComplete: (() -> Void)?
+        private var onStream: ((String) -> Void)?
 
-        func start(apiKey: String, entryText: String, onComplete: @escaping () -> Void) {
+        func start(apiKey: String, entryText: String, onComplete: @escaping () -> Void, onStream: ((String) -> Void)? = nil) {
             guard !apiKey.isEmpty else {
                 self.error = "Please enter your OpenAI API key in Settings"
                 return
@@ -2206,6 +2267,7 @@ struct ContentView: View {
             self.error = nil
             self.hasBeenRun = true
             self.onComplete = onComplete
+            self.onStream = onStream
 
             streamOpenAIResponse(apiKey: apiKey, entryText: entryText)
         }
@@ -2241,7 +2303,7 @@ struct ContentView: View {
             let systemPrompt = """
             below is my journal entry for the day. wyt? talk through it with me like a friend. don't therapize me and give me a whole breakdown, don't repeat my thoughts with headings. really take all of this, and tell me back stuff truly as if you're an old homie.
 
-            Keep it casual, dont say yo, help me make new connections i don't see, comfort, validate, challenge, all of it. dont be afraid to say a lot. format with markdown headings if needed. use new paragrahs to make what you say more readable.
+            Keep it casual, dont say yo, help me make new connections i don't see, comfort, validate, challenge, all of it. dont be afraid to say a lot. format with headings if needed. use new paragrahs to make what you say more readable. don't use markdown or any other formatting. just use text.
 
             do not just go through every single thing i say, and say it back to me. you need to process everything i say, make connections i don't see it, and deliver it all back to me as a story that makes me feel what you think i wanna feel. thats what the best therapists do.
 
@@ -2301,7 +2363,7 @@ struct ContentView: View {
             let systemPrompt = """
             below are my journal entries for the week. sometimes with reflections from a friend. wyt? talk through it with me like a friend. don't therapize me and give me a whole breakdown, don't repeat my thoughts with headings. really take all of this, and tell me back stuff truly as if you're an old homie.
 
-            Keep it casual, dont say yo, help me make new connections i don't see, comfort, validate, challenge, all of it. dont be afraid to say a lot. format with markdown headings if needed. use new paragrahs to make what you say more readable.
+            Keep it casual, dont say yo, help me make new connections i don't see, comfort, validate, challenge, all of it. dont be afraid to say a lot. format with headings if needed. use new paragrahs to make what you say more readable. don't use markdown or any other formatting. just use text.
 
             do not just go through every single thing i say, and say it back to me. you need to process everything i say, make connections i don't see it, and deliver it all back to me as a story that makes me feel what you think i wanna feel. thats what the best therapists do.
 
@@ -2362,6 +2424,7 @@ struct ContentView: View {
                                let content = delta["content"] as? String {
                                 DispatchQueue.main.async {
                                     self.reflectionResponse += content
+                                    self.onStream?(self.reflectionResponse)
                                 }
                             }
                         } catch {
@@ -2415,7 +2478,7 @@ struct ContentView: View {
                     .padding()
             } else {
                 MarkdownTextView(
-                    content: reflectionViewModel.reflectionResponse,
+                    content: reflectionViewModel.reflectionResponse, // Already just the reflection
                     font: aiSelectedFont,
                     fontSize: aiFontSize,
                     colorScheme: colorScheme,
@@ -2496,7 +2559,7 @@ struct ContentView: View {
                                     .font(.custom(userSelectedFont, size: userFontSize))
                                     .foregroundColor(colorScheme == .light ? .gray.opacity(0.5) : .gray.opacity(0.6))
                                     .allowsHitTesting(false)
-                                    .padding(.top, 32) // Match the TextEditor's top padding
+                                    .padding(.top, 48) // Match TextEditor top padding
                                     .padding(.leading, 29) // Adjust for horizontal padding + slight offset
                             }
                         }, alignment: .topLeading
@@ -3218,4 +3281,14 @@ struct MarkdownTextView: View {
 
 #Preview {
     ContentView()
+}
+
+// Helper to remove reflection/follow-up separators from text
+func removeReflectionSeparators(from text: String) -> String {
+    let lines = text.components(separatedBy: .newlines)
+    let filtered = lines.filter { line in
+        let trimmed = line.trimmingCharacters(in: .whitespacesAndNewlines)
+        return trimmed != "--- REFLECTION ---" && trimmed != "--- USER ---"
+    }
+    return filtered.joined(separator: "\n")
 }
