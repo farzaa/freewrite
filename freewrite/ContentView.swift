@@ -146,7 +146,6 @@ struct ContentView: View {
     
     @State private var isFullscreen = false
     @State private var userSelectedFont: String = "Lato-Regular" // Renamed from selectedFont
-    @State private var aiSelectedFont: String = "Lato-Regular" // For AI reflections
     @State private var currentRandomFont: String = ""
     @State private var currentAIRandomFont: String = ""
     @State private var timeRemaining: Int = 900  // Changed to 900 seconds (15 minutes)
@@ -734,9 +733,9 @@ struct ContentView: View {
     }
     
     var aiLineHeight: CGFloat {
-        let font = NSFont(name: aiSelectedFont, size: aiFontSize) ?? .systemFont(ofSize: aiFontSize)
+        let font = NSFont(name: userSelectedFont, size: userFontSize) ?? .systemFont(ofSize: userFontSize)
         let defaultLineHeight = getLineHeight(font: font)
-        return (aiFontSize * 1.5) - defaultLineHeight
+        return (userFontSize * 1.5) - defaultLineHeight
     }
     
     // Add a color utility computed property
@@ -933,7 +932,10 @@ struct ContentView: View {
                                     case .reflection: return reflectionSeparator + "\n" + section.text
                                     }
                                 }.joined(separator: "\n")
-                                guard !fullText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return }
+                                if fullText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                                    showToast(message: "Empty! Write something and try again.", type: .error)
+                                    return
+                                }
                                 // Set flag to scroll to bottom after appending reflection
                                 shouldScrollToBottom = true
                                 // Append a new reflection section immediately
@@ -1199,6 +1201,9 @@ struct ContentView: View {
                 saveEntry(entry: currentEntry)
             }
         }
+        .onChange(of: userFontSize) { newValue in
+            aiFontSize = newValue
+        }
         .onReceive(timer) { _ in
             if timerIsRunning && timeRemaining > 0 {
                 timeRemaining -= 1
@@ -1321,16 +1326,19 @@ struct ContentView: View {
                                         } else {
                                             MarkdownTextView(
                                                 content: section.text,
-                                                font: aiSelectedFont,
-                                                fontSize: aiFontSize,
+                                                font: userSelectedFont, // Use the same font as the user editor
+                                                fontSize: userFontSize,
                                                 colorScheme: colorScheme,
                                                 lineHeight: aiLineHeight
                                             )
+                                            .id(userFontSize)
+                                            .id(userSelectedFont)
                                             .frame(maxWidth: .infinity, alignment: .leading)
+                                            .frame(minHeight: userFontSize * 1.5 + 32)
                                         }
                                     }
                                     .padding()
-                                    .frame(minHeight: aiFontSize * 1.5 + 32) // Ensure min height for the dot/first line
+                                    .frame(minHeight: userFontSize * 1.5 + 32) // Ensure min height for the dot/first line
                                 }
                                 .background(Color.gray.opacity(0.1))
                                 .cornerRadius(12)
@@ -2464,7 +2472,7 @@ struct ContentView: View {
                     message: toastMessage, 
                     type: toastType,
                     selectedFont: userSelectedFont,
-                    fontSize: userFontSize,
+                    fontSize: 18,
                     colorScheme: colorScheme
                 )
                 .transition(.move(edge: .top))
@@ -2490,13 +2498,15 @@ struct ContentView: View {
             } else {
                 MarkdownTextView(
                     content: reflectionViewModel.reflectionResponse, // Already just the reflection
-                    font: aiSelectedFont,
-                    fontSize: aiFontSize,
+                    font: userSelectedFont, // Use the same font as the user editor
+                    fontSize: userFontSize,
                     colorScheme: colorScheme,
                     lineHeight: aiLineHeight
                 )
+                .id(userFontSize)
+                .id(userSelectedFont)
                 .frame(maxWidth: .infinity, alignment: .leading)
-                .padding()
+                .frame(minHeight: userFontSize * 1.5 + 32)
             }
         }
         .background(Color.gray.opacity(0.1))
@@ -3045,7 +3055,7 @@ struct ReflectionsSettingsView: View {
                             .fontWeight(.semibold)
                     }
                     let months = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"]
-                    let days = Array(1...31)
+                    let days = Array(1...30)
                     HStack(spacing: 8) {
                         Picker("", selection: $annualMonth) {
                             ForEach(0..<months.count, id: \ .self) { idx in
