@@ -45,8 +45,8 @@ struct HumanEntry: Identifiable {
 
 enum SettingsTab: String, CaseIterable {
     case reflections = "Reflections"
-    case ai = "AI"
-    case style = "Style"
+    case apiKeys = "API Keys"
+    case transcription = "Transcription"
 }
 
 struct HeartEmoji: Identifiable {
@@ -62,15 +62,19 @@ class KeychainHelper {
     private init() {}
     
     private let service = "com.freewrite.apikeys"
-    private let openAIKeyAccount = "openai_api_key"
     
-    func saveAPIKey(_ key: String) {
+    enum KeyType: String {
+        case openAI = "openai_api_key"
+        case deepgram = "deepgram_api_key"
+    }
+    
+    func saveAPIKey(_ key: String, for type: KeyType) {
         let data = key.data(using: .utf8)!
         
         let query: [String: Any] = [
             kSecClass as String: kSecClassGenericPassword,
             kSecAttrService as String: service,
-            kSecAttrAccount as String: openAIKeyAccount,
+            kSecAttrAccount as String: type.rawValue,
             kSecValueData as String: data
         ]
         
@@ -80,15 +84,15 @@ class KeychainHelper {
         // Add new item
         let status = SecItemAdd(query as CFDictionary, nil)
         if status != errSecSuccess {
-            print("Failed to save API key to Keychain: \(status)")
+            print("Failed to save API key to Keychain for account \(type.rawValue): \(status)")
         }
     }
     
-    func loadAPIKey() -> String? {
+    func loadAPIKey(for type: KeyType) -> String? {
         let query: [String: Any] = [
             kSecClass as String: kSecClassGenericPassword,
             kSecAttrService as String: service,
-            kSecAttrAccount as String: openAIKeyAccount,
+            kSecAttrAccount as String: type.rawValue,
             kSecReturnData as String: true,
             kSecMatchLimit as String: kSecMatchLimitOne
         ]
@@ -105,11 +109,11 @@ class KeychainHelper {
         return nil
     }
     
-    func deleteAPIKey() {
+    func deleteAPIKey(for type: KeyType) {
         let query: [String: Any] = [
             kSecClass as String: kSecClassGenericPassword,
             kSecAttrService as String: service,
-            kSecAttrAccount as String: openAIKeyAccount
+            kSecAttrAccount as String: type.rawValue
         ]
         
         SecItemDelete(query as CFDictionary)
@@ -122,9 +126,8 @@ class ContentViewController: NSObject, URLSessionDataDelegate {
 }
 
 struct ContentView: View {
-    private let headerString = "\n\n"
     @State private var entries: [HumanEntry] = []
-    @State private var text: String = ""  // Remove initial welcome text since we'll handle it in createNewEntry
+    @State private var text: String = ""  // Initialize as empty string without "\n\n"
     
     @State private var isFullscreen = false
     @State private var userSelectedFont: String = "Lato-Regular" // Renamed from selectedFont
@@ -163,7 +166,6 @@ struct ContentView: View {
     @State private var isHoveringHistoryArrow = false
 
     @State private var isHoveringReflect = false
-    @State private var isHoveringBrain = false // Add hover state for brain icon
     @State private var colorScheme: ColorScheme = .light // Add state for color scheme
 
     @State private var didCopyPrompt: Bool = false // Add state for copy prompt feedback
@@ -171,10 +173,10 @@ struct ContentView: View {
     @State private var isHoveringSettings = false // Add state for settings hover
     @State private var selectedSettingsTab: SettingsTab = .reflections // Add state for selected tab
     @State private var openAIAPIKey: String = ""
+    @State private var deepgramAPIKey: String = ""
     @StateObject private var reflectionViewModel = ReflectionViewModel()
-    
-    // Hard-coded DeepGram API key for transcription
-    private let deepgramAPIKey = "YOUR_DEEPGRAM_API_KEY_HERE"
+    @State private var followUpText: String = ""
+    @State private var showMicrophone: Bool = true
     
     // Add state for reflection functionality
     @State private var showReflectionPanel: Bool = false
@@ -201,17 +203,27 @@ struct ContentView: View {
     @State private var toastMessage = ""
     @State private var toastType: ToastType = .error
     
+    // Focus states for text editors
+    @FocusState private var isFollowUpFocused: Bool
 
     let availableFonts = NSFontManager.shared.availableFontFamilies
     let placeholderOptions = [
-        "\n\nBegin writing",
-        "\n\nPick a thought and go",
-        "\n\nStart typing",
-        "\n\nWhat's on your mind",
-        "\n\nJust start",
-        "\n\nType your first thought",
-        "\n\nStart with one sentence",
-        "\n\nJust say it"
+        "Begin writing",
+        "Pick a thought and go",
+        "Start typing",
+        "What's on your mind",
+        "Just start",
+        "Type your first thought",
+        "Start with one sentence",
+        "Just say it"
+    ]
+
+    let followUpOptions = [
+        "Continue writing",
+        "Keep going",
+        "Anything else on your mind?",
+        "Type your next thought",
+        "Another thought, another sentence :)"
     ]
     
     // Add file manager and save timer
@@ -242,8 +254,15 @@ struct ContentView: View {
         _colorScheme = State(initialValue: savedScheme == "dark" ? .dark : .light)
         
         // Load saved OpenAI API key from Keychain (secure storage)
-        let savedAPIKey = KeychainHelper.shared.loadAPIKey() ?? ""
+        let savedAPIKey = KeychainHelper.shared.loadAPIKey(for: .openAI) ?? ""
         _openAIAPIKey = State(initialValue: savedAPIKey)
+        
+        // Load saved Deepgram API key from Keychain (secure storage)
+        let savedDeepgramKey = KeychainHelper.shared.loadAPIKey(for: .deepgram) ?? ""
+        _deepgramAPIKey = State(initialValue: savedDeepgramKey)
+        
+        // Load saved show microphone preference
+        _showMicrophone = State(initialValue: UserDefaults.standard.object(forKey: "showMicrophone") as? Bool ?? true)
     }
     
     // Modify getDocumentsDirectory to use cached value
@@ -701,11 +720,6 @@ struct ContentView: View {
         return (aiFontSize * 1.5) - defaultLineHeight
     }
     
-    var placeholderOffset: CGFloat {
-        // Instead of using calculated line height, use a simple offset
-        return (userFontSize / 2) + 1.5
-    }
-    
     // Add a color utility computed property
     var popoverBackgroundColor: Color {
         return colorScheme == .light ? Color(NSColor.controlBackgroundColor) : Color(NSColor.darkGray)
@@ -715,7 +729,18 @@ struct ContentView: View {
         return colorScheme == .light ? Color.primary : Color.white
     }
     
-    @State private var viewHeight: CGFloat = 0
+    // Add missing computed properties from reference file
+    var fontSizeButtonTitle: String {
+        return "\(Int(userFontSize))px"
+    }
+    
+    var randomButtonTitle: String {
+        return currentRandomFont.isEmpty ? "Random" : "Random [\(currentRandomFont)]"
+    }
+    
+    // Add state variables for font hover states
+    @State private var isHoveringSize = false
+    @State private var hoveredFont: String? = nil
     
     @ViewBuilder
     private var bottomNavigationView: some View {
@@ -727,20 +752,138 @@ struct ContentView: View {
             // Main navigation bar
             ZStack {
                 HStack {
-                    // Left side - Settings and Reflect (with brain icon)
+                    // Left side - Style Controls
                     HStack(spacing: 8) {
-                        // Settings button
-                        Button(action: {
-                            withAnimation(.easeInOut(duration: 0.2)) {
-                                showingSettings = true
+                        // Font size button
+                        Button(fontSizeButtonTitle) {
+                            let fontSizes: [CGFloat] = [16, 18, 20, 22, 24, 26]
+                            if let currentIndex = fontSizes.firstIndex(of: userFontSize) {
+                                let nextIndex = (currentIndex + 1) % fontSizes.count
+                                userFontSize = fontSizes[nextIndex]
                             }
+                        }
+                        .buttonStyle(.plain)
+                        .foregroundColor(isHoveringSize ? textHoverColor : textColor)
+                        .onHover { hovering in
+                            isHoveringSize = hovering
+                            isHoveringBottomNav = hovering
+                            if hovering {
+                                NSCursor.pointingHand.push()
+                            } else {
+                                NSCursor.pop()
+                            }
+                        }
+                        
+                        Text("•")
+                            .foregroundColor(.gray)
+                        
+                        Button("Lato") {
+                            userSelectedFont = "Lato-Regular"
+                            currentRandomFont = ""
+                        }
+                        .buttonStyle(.plain)
+                        .foregroundColor(hoveredFont == "Lato" ? textHoverColor : textColor)
+                        .onHover { hovering in
+                            hoveredFont = hovering ? "Lato" : nil
+                            isHoveringBottomNav = hovering
+                            if hovering {
+                                NSCursor.pointingHand.push()
+                            } else {
+                                NSCursor.pop()
+                            }
+                        }
+                        
+                        Text("•")
+                            .foregroundColor(.gray)
+                        
+                        Button("Arial") {
+                            userSelectedFont = "Arial"
+                            currentRandomFont = ""
+                        }
+                        .buttonStyle(.plain)
+                        .foregroundColor(hoveredFont == "Arial" ? textHoverColor : textColor)
+                        .onHover { hovering in
+                            hoveredFont = hovering ? "Arial" : nil
+                            isHoveringBottomNav = hovering
+                            if hovering {
+                                NSCursor.pointingHand.push()
+                            } else {
+                                NSCursor.pop()
+                            }
+                        }
+                        
+                        Text("•")
+                            .foregroundColor(.gray)
+                        
+                        Button("System") {
+                            userSelectedFont = ".AppleSystemUIFont"
+                            currentRandomFont = ""
+                        }
+                        .buttonStyle(.plain)
+                        .foregroundColor(hoveredFont == "System" ? textHoverColor : textColor)
+                        .onHover { hovering in
+                            hoveredFont = hovering ? "System" : nil
+                            isHoveringBottomNav = hovering
+                            if hovering {
+                                NSCursor.pointingHand.push()
+                            } else {
+                                NSCursor.pop()
+                            }
+                        }
+                        
+                        Text("•")
+                            .foregroundColor(.gray)
+                        
+                        Button("Serif") {
+                            userSelectedFont = "Times New Roman"
+                            currentRandomFont = ""
+                        }
+                        .buttonStyle(.plain)
+                        .foregroundColor(hoveredFont == "Serif" ? textHoverColor : textColor)
+                        .onHover { hovering in
+                            hoveredFont = hovering ? "Serif" : nil
+                            isHoveringBottomNav = hovering
+                            if hovering {
+                                NSCursor.pointingHand.push()
+                            } else {
+                                NSCursor.pop()
+                            }
+                        }
+                        
+                        Text("•")
+                            .foregroundColor(.gray)
+                        
+                        Button(randomButtonTitle) {
+                            if let randomFont = availableFonts.randomElement() {
+                                userSelectedFont = randomFont
+                                currentRandomFont = randomFont
+                            }
+                        }
+                        .buttonStyle(.plain)
+                        .foregroundColor(hoveredFont == "Random" ? textHoverColor : textColor)
+                        .onHover { hovering in
+                            hoveredFont = hovering ? "Random" : nil
+                            isHoveringBottomNav = hovering
+                            if hovering {
+                                NSCursor.pointingHand.push()
+                            } else {
+                                NSCursor.pop()
+                            }
+                        }
+                        
+                        Text("•")
+                            .foregroundColor(.gray)
+                        
+                        // Theme toggle
+                        Button(action: {
+                            colorScheme = colorScheme == .light ? .dark : .light
+                            UserDefaults.standard.set(colorScheme == .light ? "light" : "dark", forKey: "colorScheme")
                         }) {
-                            Image(systemName: "gearshape.fill")
-                                .foregroundColor(isHoveringSettings ? textHoverColor : textColor)
+                            Image(systemName: colorScheme == .light ? "moon.fill" : "sun.max.fill")
+                                .foregroundColor(textColor)
                         }
                         .buttonStyle(.plain)
                         .onHover { hovering in
-                            isHoveringSettings = hovering
                             isHoveringBottomNav = hovering
                             if hovering {
                                 NSCursor.pointingHand.push()
@@ -755,9 +898,30 @@ struct ContentView: View {
                                 .foregroundColor(.gray)
                             
                             Button(action: {
+                                let reflectionSeparator = "\n\n--- REFLECTION ---\n\n"
+                                let followUpSeparator = "\n\n--- FOLLOW-UP ---\n\n"
+
+                                // 1. Combine all current text into a single block.
+                                var newBaseText = self.text.trimmingCharacters(in: .whitespacesAndNewlines)
+                                
+                                if reflectionViewModel.hasBeenRun && !reflectionViewModel.reflectionResponse.isEmpty {
+                                    newBaseText += reflectionSeparator + reflectionViewModel.reflectionResponse
+                                }
+                                
+                                if !followUpText.isEmpty {
+                                    newBaseText += followUpSeparator + followUpText.trimmingCharacters(in: .whitespacesAndNewlines)
+                                }
+
+                                // 2. This combined text becomes the new main text.
+                                self.text = newBaseText
+                                
+                                // 3. Reset the follow-up text field.
+                                self.followUpText = ""
+
+                                // 4. Start a new reflection on the combined text.
                                 isWeeklyReflection = false
                                 showReflectionPanel = true
-                                reflectionViewModel.start(apiKey: openAIAPIKey, entryText: text) {
+                                reflectionViewModel.start(apiKey: openAIAPIKey, entryText: self.text) {
                                     if let currentId = self.selectedEntryId,
                                        let entry = self.entries.first(where: { $0.id == currentId }) {
                                         self.saveEntry(entry: entry)
@@ -766,7 +930,7 @@ struct ContentView: View {
                             }) {
                                 Text("Reflect")
                                     .font(.system(size: 13))
-                            } 
+                            }
                             .buttonStyle(.plain)
                             .foregroundColor(isHoveringReflect ? textHoverColor : textColor)
                             .onHover { hovering in
@@ -776,34 +940,6 @@ struct ContentView: View {
                                     NSCursor.pointingHand.push()
                                 } else {
                                     NSCursor.pop()
-                                }
-                            }
-                            
-                            // Brain icon appears right after Reflect button when reflection has been run
-                            if reflectionViewModel.hasBeenRun {
-                                Text("•")
-                                    .foregroundColor(.gray)
-                                
-                                Button(action: {
-                                    withAnimation(.easeInOut(duration: 0.2)) {
-                                        showReflectionPanel.toggle()
-                                    }
-                                    if !showReflectionPanel {
-                                        isWeeklyReflection = false
-                                    }
-                                }) {
-                                    Image(systemName: "brain.head.profile.fill")
-                                        .foregroundColor(isHoveringBrain ? textHoverColor : textColor)
-                                }
-                                .buttonStyle(.plain)
-                                .onHover { hovering in
-                                    isHoveringBrain = hovering
-                                    isHoveringBottomNav = hovering
-                                    if hovering {
-                                        NSCursor.pointingHand.push()
-                                    } else {
-                                        NSCursor.pop()
-                                    }
                                 }
                             }
                         }
@@ -822,13 +958,13 @@ struct ContentView: View {
                                 if timerIsRunning {
                                     timerIsRunning = false
                                     if !isHoveringBottomNav {
-                                        withAnimation(.easeOut(duration: 1.0)) {
+                                        withAnimation(.linear(duration: 0.3)) {
                                             bottomNavOpacity = 1.0
                                         }
                                     }
                                 } else {
                                     timerIsRunning = true
-                                    withAnimation(.easeIn(duration: 1.0)) {
+                                    withAnimation(.linear(duration: 0.3)) {
                                         bottomNavOpacity = 0.0
                                     }
                                 }
@@ -923,62 +1059,64 @@ struct ContentView: View {
                 .onHover { hovering in
                     isHoveringBottomNav = hovering
                     if hovering {
-                        withAnimation(.easeOut(duration: 0.2)) {
+                        withAnimation(.linear(duration: 0.2)) {
                             bottomNavOpacity = 1.0
                         }
-                    } else if timerIsRunning {
-                        withAnimation(.easeIn(duration: 1.0)) {
+                    } else if timerIsRunning || isRecording {
+                        withAnimation(.linear(duration: 0.3)) {
                             bottomNavOpacity = 0.0
                         }
                     }
                 }
                 // --- Microphone Button (centered absolutely) ---
                 GeometryReader { geo in
-                    let barHeight: CGFloat = 68 // matches navHeight
-                    let buttonSize: CGFloat = 40
-                    let borderWidth: CGFloat = 1
-                    let dotRadius: CGFloat = (buttonSize / 2) - (borderWidth / 2)
-                    Button(action: {
-                        toggleRecording()
-                    }) {
-                        ZStack {
-                            Circle()
-                                .fill(colorScheme == .light ? Color.white : Color.black)
-                                .frame(width: buttonSize, height: buttonSize)
-                                .overlay(
-                                    Circle()
-                                        .stroke(Color.gray.opacity(0.45), lineWidth: borderWidth)
-                                )
-                                .shadow(
-                                    color: isRecording
-                                        ? (colorScheme == .dark ? Color.clear : Color.clear)
-                                        : (colorScheme == .dark ? Color.white.opacity(0.32) : Color.gray.opacity(0.32)),
-                                    radius: 12,
-                                    y: 3
-                                )
-                            Image(systemName: "mic.fill")
-                                .font(.system(size: 16, weight: .medium))
-                                .foregroundColor(colorScheme == .light ? .gray : .white.opacity(0.85))
-                            // Animated white dot on border
-                            if isRecording {
-                                let angle = Angle(degrees: micDotAngle)
-                                let x = dotRadius * cos(angle.radians - .pi/2)
-                                let y = dotRadius * sin(angle.radians - .pi/2)
+                    if showMicrophone {
+                        let barHeight: CGFloat = 68 // matches navHeight
+                        let buttonSize: CGFloat = 40
+                        let borderWidth: CGFloat = 1
+                        let dotRadius: CGFloat = (buttonSize / 2) - (borderWidth / 2)
+                        Button(action: {
+                            toggleRecording()
+                        }) {
+                            ZStack {
                                 Circle()
-                                    .fill(Color.white)
-                                    .frame(width: 5, height: 5)
-                                    .offset(x: x, y: y)
-                                    .shadow(color: Color.white.opacity(0.8), radius: 3)
+                                    .fill(colorScheme == .light ? Color.white : Color.black)
+                                    .frame(width: buttonSize, height: buttonSize)
+                                    .overlay(
+                                        Circle()
+                                            .stroke(Color.gray.opacity(0.45), lineWidth: borderWidth)
+                                    )
+                                    .shadow(
+                                        color: isRecording
+                                            ? (colorScheme == .dark ? Color.clear : Color.clear)
+                                            : (colorScheme == .dark ? Color.white.opacity(0.32) : Color.gray.opacity(0.32)),
+                                        radius: 12,
+                                        y: 3
+                                    )
+                                Image(systemName: "mic.fill")
+                                    .font(.system(size: 16, weight: .medium))
+                                    .foregroundColor(colorScheme == .light ? .gray : .white.opacity(0.85))
+                                // Animated white dot on border
+                                if isRecording {
+                                    let angle = Angle(degrees: micDotAngle)
+                                    let x = dotRadius * cos(angle.radians - .pi/2)
+                                    let y = dotRadius * sin(angle.radians - .pi/2)
+                                    Circle()
+                                        .fill(Color.white)
+                                        .frame(width: 5, height: 5)
+                                        .offset(x: x, y: y)
+                                        .shadow(color: Color.white.opacity(0.8), radius: 3)
+                                }
                             }
                         }
+                        .buttonStyle(.plain)
+                        .animation(.linear(duration: 0.016), value: micDotAngle)
+                        .onDisappear {
+                            micDotTimer?.invalidate()
+                            micDotTimer = nil
+                        }
+                        .position(x: geo.size.width / 2, y: barHeight / 2)
                     }
-                    .buttonStyle(.plain)
-                    .animation(.linear(duration: 0.016), value: micDotAngle)
-                    .onDisappear {
-                        micDotTimer?.invalidate()
-                        micDotTimer = nil
-                    }
-                    .position(x: geo.size.width / 2, y: barHeight / 2)
                 }
                 .frame(height: 68)
                 // --- End Microphone Button ---
@@ -991,12 +1129,8 @@ struct ContentView: View {
             ZStack {
                 // Main content area
                 Group {
-                    if showReflectionPanel {
-                        if isWeeklyReflection {
-                            centeredReflectionView
-                        } else {
-                            mainContentWithReflection
-                        }
+                    if isWeeklyReflection {
+                        centeredReflectionView
                     } else {
                         mainContent
                     }
@@ -1036,7 +1170,7 @@ struct ContentView: View {
             } else if timeRemaining == 0 {
                 timerIsRunning = false
                 if !isHoveringBottomNav {
-                    withAnimation(.easeOut(duration: 1.0)) {
+                    withAnimation(.linear(duration: 1.0)) {
                         bottomNavOpacity = 1.0
                     }
                 }
@@ -1063,13 +1197,10 @@ struct ContentView: View {
                     SettingsModal(
                         showingSettings: $showingSettings,
                         selectedSettingsTab: $selectedSettingsTab,
-                        apiKey: $openAIAPIKey,
-                        onRunWeekly: runWeeklyReflection,
-                        colorScheme: $colorScheme,
-                        userFontSize: $userFontSize,
-                        userSelectedFont: $userSelectedFont,
-                        aiFontSize: $aiFontSize,
-                        aiSelectedFont: $aiSelectedFont
+                        openAIapiKey: $openAIAPIKey,
+                        deepgramApiKey: $deepgramAPIKey,
+                        showMicrophone: $showMicrophone,
+                        onRunWeekly: runWeeklyReflection
                     )
                 }
             }
@@ -1084,65 +1215,114 @@ struct ContentView: View {
         let navHeight: CGFloat = 68
         
         return ZStack {
-                Color(colorScheme == .light ? .white : .black)
-                    .ignoresSafeArea()
-              
-                    TextEditor(text: Binding(
-                        get: { text },
-                        set: { newValue in
-                    // Don't allow text changes when voice input is active
-                    guard !isVoiceInputMode else { return }
-                    
-                            // Ensure the text always starts with two newlines
-                            if !newValue.hasPrefix("\n\n") {
-                                text = "\n\n" + newValue.trimmingCharacters(in: .newlines)
-                            } else {
-                                text = newValue
+            Color(colorScheme == .light ? .white : .black)
+                .ignoresSafeArea()
+
+            ScrollViewReader { proxy in
+                ScrollView {
+                    VStack(spacing: 0) {
+                        // Original Text Editor
+                        TextEditor(text: Binding(
+                            get: { text },
+                            set: { newValue in
+                                    text = newValue
                             }
+                        ))
+                        .disabled(reflectionViewModel.hasBeenRun)
+                        .background(Color.clear)
+                        .font(.custom(userSelectedFont, size: userFontSize))
+                        .foregroundColor(
+                            reflectionViewModel.hasBeenRun ?
+                                (colorScheme == .light ? .gray : .gray.opacity(0.8)) :
+                                (colorScheme == .light ? Color(red: 0.20, green: 0.20, blue: 0.20) : Color(red: 0.9, green: 0.9, blue: 0.9))
+                        )
+                        .scrollContentBackground(.hidden)
+                        .scrollIndicators(.never)
+                        .lineSpacing(userLineHeight)
+                        .frame(maxWidth: 650)
+                        .fixedSize(horizontal: false, vertical: true) // Make TextEditor grow with content
+                        .allowsHitTesting(!isVoiceInputMode && !showingSettings && !reflectionViewModel.hasBeenRun)
+                        .padding(.top, 32)
+                        .padding(.horizontal, 16)
+                        .onAppear {
+                            placeholderText = placeholderOptions.randomElement() ?? "Begin writing"
                         }
-                    ))
-                    .background(Color(colorScheme == .light ? .white : .black))
-                    .font(.custom(userSelectedFont, size: userFontSize))
-                    .foregroundColor(colorScheme == .light ? Color(red: 0.20, green: 0.20, blue: 0.20) : Color(red: 0.9, green: 0.9, blue: 0.9))
-                    .scrollContentBackground(.hidden)
-                    .scrollIndicators(.never)
-                    .lineSpacing(userLineHeight)
-                    .frame(maxWidth: 650)
-                    .allowsHitTesting(!isVoiceInputMode && !showingSettings) // Disable interactions during voice input or settings modal
-                    
-          
-                    .id("\(userSelectedFont)-\(userFontSize)-\(colorScheme)")
-                    .padding(.bottom, bottomNavOpacity > 0 ? navHeight : 0)
-                    .ignoresSafeArea()
-                    .colorScheme(colorScheme)
-                    .onAppear {
-                        placeholderText = placeholderOptions.randomElement() ?? "\n\nBegin writing"
-                        // Removed findSubview code which was causing errors
-                    }
-                    .overlay(
-                        ZStack(alignment: .topLeading) {
-                            if text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-                                Text(placeholderText)
-                                    .font(.custom(userSelectedFont, size: userFontSize))
-                                    .foregroundColor(colorScheme == .light ? .gray.opacity(0.5) : .gray.opacity(0.6))
-                                    .allowsHitTesting(false)
-                                    .offset(x: 5, y: placeholderOffset)
-                            }
-                        }, alignment: .topLeading
-                    )
-                    .onGeometryChange(for: CGFloat.self) { proxy in
-                                    proxy.size.height
-                                } action: { height in
-                                    viewHeight = height
+                        .overlay(
+                            ZStack(alignment: .topLeading) {
+                                if text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                                    Text(placeholderText)
+                                        .font(.custom(userSelectedFont, size: userFontSize))
+                                        .foregroundColor(colorScheme == .light ? .gray.opacity(0.5) : .gray.opacity(0.6))
+                                        .allowsHitTesting(false)
+                                        .padding(.top, 32)
+                                        .padding(.leading, 21)
                                 }
-                                .contentMargins(.bottom, viewHeight / 4)
-                
-                VStack {
-                    Spacer()
-                    bottomNavigationView
+                            }, alignment: .topLeading
+                        )
+
+                        // Reflection Content
+                        if showReflectionPanel && !isWeeklyReflection {
+                            reflectionContent
+                                .frame(maxWidth: 650)
+                                .padding(.horizontal, 16)
+                                .padding(.top, 32)
+                        }
+
+                        // Follow-up Text Editor
+                        if reflectionViewModel.hasBeenRun && !reflectionViewModel.isLoading {
+                            TextEditor(text: $followUpText)
+                                .focused($isFollowUpFocused)
+                                .background(Color.clear)
+                                .font(.custom(userSelectedFont, size: userFontSize))
+                                .foregroundColor(colorScheme == .light ? Color(red: 0.20, green: 0.20, blue: 0.20) : Color(red: 0.9, green: 0.9, blue: 0.9))
+                                .scrollContentBackground(.hidden)
+                                .scrollIndicators(.never)
+                                .lineSpacing(userLineHeight)
+                                .frame(maxWidth: 650)
+                                .fixedSize(horizontal: false, vertical: true) // Make TextEditor grow
+                                .padding(.top, 32)
+                                .padding(.horizontal, 16)
+                                .onAppear {
+                                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
+                                        isFollowUpFocused = true
+                                    }
+                                }
+                                .overlay(
+                                    ZStack(alignment: .topLeading) {
+                                        if followUpText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                                            Text(followUpOptions.randomElement() ?? "Continue writing")
+                                                .font(.custom(userSelectedFont, size: userFontSize))
+                                                .foregroundColor(colorScheme == .light ? .gray.opacity(0.5) : .gray.opacity(0.6))
+                                                .allowsHitTesting(false)
+                                                .padding(.top, 32)
+                                                .padding(.leading, 21)
+                                        }
+                                    }, alignment: .topLeading
+                                )
+                        }
+
+                        Spacer(minLength: 50)
+                        
+                        // Anchor for scrolling
+                        VStack(spacing: 0) { EmptyView() }.id("bottomAnchor")
+                    }
+                    .frame(maxWidth: .infinity)
                 }
-                .ignoresSafeArea(.keyboard) // Prevent keyboard from pushing nav up
+                .scrollIndicators(.never)
+                .onChange(of: reflectionViewModel.reflectionResponse) { _ in
+                    withAnimation {
+                        proxy.scrollTo("bottomAnchor", anchor: .bottom)
+                    }
+                }
+                .padding(.bottom, bottomNavOpacity > 0 ? navHeight : 0)
             }
+            
+            VStack {
+                Spacer()
+                bottomNavigationView
+            }
+            .ignoresSafeArea(.keyboard)
+        }
     }
     
     @ViewBuilder
@@ -1154,14 +1334,14 @@ struct ContentView: View {
                 Divider()
                 
                 VStack(spacing: 0) {
-                    // Header
-                    Button(action: {
-                        NSWorkspace.shared.selectFile(nil, inFileViewerRootedAtPath: getDocumentsDirectory().path)
-                    }) {
-                        HStack {
+                    // Header with settings button
+                    HStack(alignment: .firstTextBaseline) {
+                        Button(action: {
+                            NSWorkspace.shared.selectFile(nil, inFileViewerRootedAtPath: getDocumentsDirectory().path)
+                        }) {
                             VStack(alignment: .leading, spacing: 4) {
                                 HStack(spacing: 4) {
-                                Text("Journal")
+                                    Text("Journal")
                                         .font(.system(size: 16))
                                         .foregroundColor(isHoveringHistory ? textHoverColor : textColor)
                                     Image(systemName: "arrow.up.right")
@@ -1173,15 +1353,35 @@ struct ContentView: View {
                                     .foregroundColor(.secondary)
                                     .lineLimit(1)
                             }
-                            Spacer()
+                        }
+                        .buttonStyle(.plain)
+                        .onHover { hovering in
+                            isHoveringHistory = hovering
+                        }
+                        
+                        Spacer()
+                        
+                        // Settings button moved to sidebar - aligned with journal title
+                        Button(action: {
+                            withAnimation(.easeInOut(duration: 0.2)) {
+                                showingSettings = true
+                            }
+                        }) {
+                            Image(systemName: "gearshape.fill")
+                                .foregroundColor(isHoveringSettings ? textHoverColor : textColor)
+                        }
+                        .buttonStyle(.plain)
+                        .onHover { hovering in
+                            isHoveringSettings = hovering
+                            if hovering {
+                                NSCursor.pointingHand.push()
+                            } else {
+                                NSCursor.pop()
+                            }
                         }
                     }
-                    .buttonStyle(.plain)
                     .padding(.horizontal, 16)
                     .padding(.vertical, 12)
-                    .onHover { hovering in
-                        isHoveringHistory = hovering
-                    }
                     
                     Divider()
                     
@@ -1195,6 +1395,7 @@ struct ContentView: View {
                                         if let currentId = selectedEntryId,
                                            let currentEntry = entries.first(where: { $0.id == currentId }) {
                                             saveEntry(entry: currentEntry)
+                                            updatePreviewText(for: currentEntry)
                                         }
                                         
                                         selectedEntryId = entry.id
@@ -1335,15 +1536,20 @@ struct ContentView: View {
         let documentsDirectory = getDocumentsDirectory()
         let fileURL = documentsDirectory.appendingPathComponent(entry.filename)
         
+        let reflectionSeparator = "\n\n--- REFLECTION ---\n\n"
+        let followUpSeparator = "\n\n--- FOLLOW-UP ---\n\n"
+        
         var contentToSave = text
         if reflectionViewModel.hasBeenRun && !reflectionViewModel.reflectionResponse.isEmpty {
-            contentToSave += "\n\n--- REFLECTION ---\n\n" + reflectionViewModel.reflectionResponse
+            contentToSave += reflectionSeparator + reflectionViewModel.reflectionResponse
+        }
+        if !followUpText.isEmpty {
+            contentToSave += followUpSeparator + followUpText
         }
         
         do {
             try contentToSave.write(to: fileURL, atomically: true, encoding: .utf8)
             print("Successfully saved entry: \(entry.filename)")
-            updatePreviewText(for: entry)  // Update preview after saving
         } catch {
             print("Error saving entry: \(error)")
         }
@@ -1355,19 +1561,29 @@ struct ContentView: View {
         
         do {
             if fileManager.fileExists(atPath: fileURL.path) {
-                let fullContent = try String(contentsOf: fileURL, encoding: .utf8)
-                let separator = "\n\n--- REFLECTION ---\n\n"
+                var fullContent = try String(contentsOf: fileURL, encoding: .utf8)
                 
-                if let range = fullContent.range(of: separator) {
-                    text = String(fullContent[..<range.lowerBound])
-                    reflectionViewModel.reflectionResponse = String(fullContent[range.upperBound...])
-                    reflectionViewModel.hasBeenRun = true
-                    showReflectionPanel = true // Or false, depending on desired default state
+                let reflectionSeparator = "\n\n--- REFLECTION ---\n\n"
+                let followUpSeparator = "\n\n--- FOLLOW-UP ---\n\n"
+                
+                // Reset states before loading
+                self.followUpText = ""
+                self.reflectionViewModel.reflectionResponse = ""
+                self.reflectionViewModel.hasBeenRun = false
+                self.showReflectionPanel = false
+
+                if let followUpRange = fullContent.range(of: followUpSeparator) {
+                    self.followUpText = String(fullContent[followUpRange.upperBound...])
+                    fullContent = String(fullContent[..<followUpRange.lowerBound])
+                }
+
+                if let reflectionRange = fullContent.range(of: reflectionSeparator) {
+                    self.text = String(fullContent[..<reflectionRange.lowerBound])
+                    self.reflectionViewModel.reflectionResponse = String(fullContent[reflectionRange.upperBound...])
+                    self.reflectionViewModel.hasBeenRun = true
+                    self.showReflectionPanel = true
                 } else {
-                    text = fullContent
-                    reflectionViewModel.reflectionResponse = ""
-                    reflectionViewModel.hasBeenRun = false
-                    showReflectionPanel = false
+                    self.text = fullContent
                 }
                 
                 if entry.filename.hasPrefix("[Weekly]-") {
@@ -1395,23 +1611,24 @@ struct ContentView: View {
         reflectionViewModel.hasBeenRun = false
         showReflectionPanel = false
         isWeeklyReflection = false
+        followUpText = ""
         
         // If this is the first entry (entries was empty before adding this one)
         if entries.count == 1 {
             // Read welcome message from default.md
             if let defaultMessageURL = Bundle.main.url(forResource: "default", withExtension: "md"),
                let defaultMessage = try? String(contentsOf: defaultMessageURL, encoding: .utf8) {
-                text = "\n\n" + defaultMessage
+                text = defaultMessage
             }
             // Save the welcome message immediately
             saveEntry(entry: newEntry)
             // Update the preview text
             updatePreviewText(for: newEntry)
         } else {
-            // Regular new entry starts with newlines
-            text = "\n\n"
+            // Regular new entry starts empty
+            text = ""
             // Randomize placeholder text for new entry
-            placeholderText = placeholderOptions.randomElement() ?? "\n\nBegin writing"
+            placeholderText = placeholderOptions.randomElement() ?? "Begin writing"
             // Save the empty entry
             saveEntry(entry: newEntry)
         }
@@ -1621,8 +1838,8 @@ struct ContentView: View {
     
     func startRecording() {
         // Check API key first
-        guard !deepgramAPIKey.isEmpty && deepgramAPIKey != "YOUR_DEEPGRAM_API_KEY_HERE" else {
-            showToast(message: "DeepGram API key not configured", type: .error)
+        guard !deepgramAPIKey.isEmpty else {
+            showToast(message: "DeepGram API key not configured in Settings", type: .error)
             return
         }
         
@@ -1655,6 +1872,11 @@ struct ContentView: View {
     func setupRecorder() {
         // Enter voice input mode - remove cursor focus and prepare for voice input
         isVoiceInputMode = true
+        
+        // Hide bottom navigation bar when recording starts
+        withAnimation(.easeOut(duration: 0.3)) {
+            bottomNavOpacity = 0.0
+        }
         
         // Remove focus from text editor by hiding the keyboard/cursor
         DispatchQueue.main.async {
@@ -1689,6 +1911,10 @@ struct ContentView: View {
         } catch {
             showToast(message: "Failed to start recording: \(error.localizedDescription)", type: .error)
             isVoiceInputMode = false
+            // Show bottom navigation bar again if recording failed
+            withAnimation(.linear(duration: 0.3)) {
+                bottomNavOpacity = 1.0
+            }
         }
     }
     
@@ -1750,10 +1976,16 @@ struct ContentView: View {
         isListening = false
         stopMicAnimation()
         
+        // Show bottom navigation bar when recording stops
+        if !isHoveringBottomNav && !timerIsRunning {
+            withAnimation(.linear(duration: 0.3)) {
+                bottomNavOpacity = 1.0
+            }
+        }
     }
     
     func transcribeAudioChunk(url: URL, chunkIndex: Int) {
-        guard !deepgramAPIKey.isEmpty && deepgramAPIKey != "YOUR_DEEPGRAM_API_KEY_HERE" else {
+        guard !deepgramAPIKey.isEmpty else {
             showToast(message: "DeepGram API key not configured", type: .error)
             return
         }
@@ -1828,7 +2060,7 @@ struct ContentView: View {
     }
     
     func transcribeAudio(url: URL) {
-        guard !deepgramAPIKey.isEmpty && deepgramAPIKey != "YOUR_DEEPGRAM_API_KEY_HERE" else {
+        guard !deepgramAPIKey.isEmpty else {
             showToast(message: "DeepGram API key not configured", type: .error)
             return
         }
@@ -2129,9 +2361,6 @@ struct ContentView: View {
                                let delta = firstChoice["delta"] as? [String: Any],
                                let content = delta["content"] as? String {
                                 DispatchQueue.main.async {
-                                    if self.reflectionResponse.isEmpty {
-                                        self.reflectionResponse = "\n\n"
-                                    }
                                     self.reflectionResponse += content
                                 }
                             }
@@ -2179,138 +2408,53 @@ struct ContentView: View {
                     OscillatingDotView(colorScheme: colorScheme)
                     Spacer()
                 }
-                .padding(.top, (userFontSize + userLineHeight) * 2)
-                .padding(.horizontal, 24)
+                .padding()
             } else if let error = reflectionViewModel.error {
                 Text("Error: \(error)")
                     .foregroundColor(.red)
-                    .padding(.horizontal, 24)
-                    .padding(.top, 16) // Match vertical padding
+                    .padding()
             } else {
-                let navHeight: CGFloat = 68
-                ScrollViewReader { proxy in
-                    ScrollView {
-                        MarkdownTextView(
-                            content: reflectionViewModel.reflectionResponse,
-                            font: aiSelectedFont,
-                            fontSize: aiFontSize,
-                            colorScheme: colorScheme,
-                            lineHeight: aiLineHeight
-                        )
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                        .padding(.horizontal, 24)
-                        .padding(.bottom, bottomNavOpacity > 0 ? navHeight : 0)
-
-                        Color.white
-                            .frame(height: 1)
-                            .id("bottomAnchor")
-                    }
-                    .scrollIndicators(.never)
-                    .onChange(of: reflectionViewModel.reflectionResponse) { _ in
-                        // Only auto-scroll to bottom when AI is actively streaming
-                        if reflectionViewModel.isLoading {
-                            withAnimation {
-                                proxy.scrollTo("bottomAnchor", anchor: .bottom)
-                            }
-                        }
-                    }
-                }
+                MarkdownTextView(
+                    content: reflectionViewModel.reflectionResponse,
+                    font: aiSelectedFont,
+                    fontSize: aiFontSize,
+                    colorScheme: colorScheme,
+                    lineHeight: aiLineHeight
+                )
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .padding()
             }
-            Spacer()
         }
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .background(Color(colorScheme == .light ? .white : .black))
+        .background(Color.gray.opacity(0.1))
+        .cornerRadius(12)
     }
 
-    @ViewBuilder
     private var centeredReflectionView: some View {
         let navHeight: CGFloat = 68
-        
-        ZStack {
+
+        return ZStack {
             Color(colorScheme == .light ? .white : .black)
                 .ignoresSafeArea()
-            
-            if reflectionViewModel.isLoading && reflectionViewModel.reflectionResponse.isEmpty {
-                ScrollView {
-                    HStack(alignment: .top, spacing: 0) {
-                        OscillatingDotView(colorScheme: colorScheme)
-                        Spacer()
-                    }
-                    .frame(maxWidth: 650, alignment: .leading)
-                    .padding(.top, ((userFontSize + userLineHeight) * 2) + 1.5)
-                    .padding(.horizontal, 24)
-                    .padding(.bottom, bottomNavOpacity > 0 ? navHeight : 0)
-                    .onGeometryChange(for: CGFloat.self) { proxy in
-                        proxy.size.height
-                    } action: { height in
-                        viewHeight = height
-                    }
-                    .contentMargins(.bottom, viewHeight / 4)
-                }
-                .scrollIndicators(.never)
-            } else if let error = reflectionViewModel.error {
+
+            ScrollView {
                 VStack {
-                    Text("Error: \(error)")
-                        .foregroundColor(.red)
+                    reflectionContent
                         .frame(maxWidth: 650)
+                        .padding(.horizontal, 16)
+                        .padding(.top, 32)
+                        
                     Spacer()
                 }
-                .padding(.top, 16)
-            } else {
-                ZStack {
-                    Color(colorScheme == .light ? .white : .black)
-                        .ignoresSafeArea()
-                    
-                    VStack {
-                        ScrollViewReader { proxy in
-                            ScrollView {
-                                MarkdownTextView(
-                                    content: reflectionViewModel.reflectionResponse,
-                                    font: aiSelectedFont,
-                                    fontSize: aiFontSize,
-                                    colorScheme: colorScheme,
-                                    lineHeight: aiLineHeight
-                                )
-                                .frame(maxWidth: 650, alignment: .leading)
-                                .padding(.horizontal, 24)
-                                .padding(.bottom, bottomNavOpacity > 0 ? navHeight : 0)
-                                .onGeometryChange(for: CGFloat.self) { proxy in
-                                    proxy.size.height
-                                } action: { height in
-                                    viewHeight = height
-                                }
-                                .contentMargins(.bottom, viewHeight / 4)
-
-                                Color.white
-                                    .frame(height: 1)
-                                    .id("bottomAnchor")
-                            }
-                            .scrollIndicators(.never)
-                            .onChange(of: reflectionViewModel.reflectionResponse) { _ in
-                                // Only auto-scroll to bottom when AI is actively streaming
-                                if reflectionViewModel.isLoading {
-                                    withAnimation {
-                                        proxy.scrollTo("bottomAnchor", anchor: .bottom)
-                                    }
-                                }
-                            }
-                        }
-                    }
-                    
-                    VStack {
-                        Spacer()
-                        ZStack {
-                            // Always-visible background to prevent text bleed-through
-                            Rectangle()
-                                .fill(Color(colorScheme == .light ? .white : .black))
-                                .frame(height: 68)
-                            
-                            bottomNavigationView
-                        }
-                    }
-                    .ignoresSafeArea(.keyboard)
-                }
+                .frame(minHeight: (NSScreen.main?.visibleFrame.height ?? 800) - navHeight)
             }
+            .scrollIndicators(.never)
+            .padding(.bottom, bottomNavOpacity > 0 ? navHeight : 0)
+            
+            VStack {
+                Spacer()
+                bottomNavigationView
+            }
+            .ignoresSafeArea(.keyboard)
         }
     }
 
@@ -2329,12 +2473,7 @@ struct ContentView: View {
                         get: { text },
                         set: { newValue in
                             guard !isVoiceInputMode else { return }
-                            
-                            if !newValue.hasPrefix("\n\n") {
-                                text = "\n\n" + newValue.trimmingCharacters(in: .newlines)
-                            } else {
                                 text = newValue
-                            }
                         }
                     ))
                     .background(Color(colorScheme == .light ? .white : .black))
@@ -2346,6 +2485,7 @@ struct ContentView: View {
                     .frame(maxWidth: .infinity)
                     .allowsHitTesting(!isVoiceInputMode && !showingSettings)
                     .padding(.horizontal, 24)
+                    .padding(.top, 32) // Add top padding instead of "\n\n"
                     .padding(.bottom, bottomNavOpacity > 0 ? navHeight : 0)
                     .ignoresSafeArea()
                     .colorScheme(colorScheme)
@@ -2356,7 +2496,8 @@ struct ContentView: View {
                                     .font(.custom(userSelectedFont, size: userFontSize))
                                     .foregroundColor(colorScheme == .light ? .gray.opacity(0.5) : .gray.opacity(0.6))
                                     .allowsHitTesting(false)
-                                    .offset(x: 29, y: placeholderOffset)
+                                    .padding(.top, 32) // Match the TextEditor's top padding
+                                    .padding(.leading, 29) // Adjust for horizontal padding + slight offset
                             }
                         }, alignment: .topLeading
                     )
@@ -2386,28 +2527,20 @@ struct ContentView: View {
 struct SettingsModal: View {
     @Binding var showingSettings: Bool
     @Binding var selectedSettingsTab: SettingsTab
-    @Binding var apiKey: String
+    @Binding var openAIapiKey: String
+    @Binding var deepgramApiKey: String
+    @Binding var showMicrophone: Bool
     let onRunWeekly: () -> Void
-    
-    // Style bindings
-    @Binding var colorScheme: ColorScheme
-    @Binding var userFontSize: CGFloat
-    @Binding var userSelectedFont: String
-    @Binding var aiFontSize: CGFloat
-    @Binding var aiSelectedFont: String
     
     var body: some View {
         HStack(spacing: 0) {
             SettingsSidebar(selectedTab: $selectedSettingsTab)
             SettingsContent(
                 selectedTab: selectedSettingsTab,
-                apiKey: $apiKey,
-                onRunWeekly: onRunWeekly,
-                colorScheme: $colorScheme,
-                userFontSize: $userFontSize,
-                userSelectedFont: $userSelectedFont,
-                aiFontSize: $aiFontSize,
-                aiSelectedFont: $aiSelectedFont
+                openAIapiKey: $openAIapiKey,
+                deepgramApiKey: $deepgramApiKey,
+                showMicrophone: $showMicrophone,
+                onRunWeekly: onRunWeekly
             )
         }
         .frame(width: 600, height: 400)
@@ -2443,17 +2576,17 @@ struct SettingsSidebar: View {
                 )
                 
                 SettingsSidebarItem(
-                    title: "AI",
-                    icon: "brain.head.profile.fill",
-                    isSelected: selectedTab == .ai,
-                    action: { selectedTab = .ai }
+                    title: "API Keys",
+                    icon: "key.fill",
+                    isSelected: selectedTab == .apiKeys,
+                    action: { selectedTab = .apiKeys }
                 )
                 
                 SettingsSidebarItem(
-                    title: "Style",
-                    icon: "paintpalette.fill",
-                    isSelected: selectedTab == .style,
-                    action: { selectedTab = .style }
+                    title: "Transcription",
+                    icon: "waveform",
+                    isSelected: selectedTab == .transcription,
+                    action: { selectedTab = .transcription }
                 )
             }
             .padding(.horizontal, 8)
@@ -2497,31 +2630,20 @@ struct SettingsSidebarItem: View {
 
 struct SettingsContent: View {
     let selectedTab: SettingsTab
-    @Binding var apiKey: String
+    @Binding var openAIapiKey: String
+    @Binding var deepgramApiKey: String
+    @Binding var showMicrophone: Bool
     let onRunWeekly: () -> Void
-    
-    // Style bindings
-    @Binding var colorScheme: ColorScheme
-    @Binding var userFontSize: CGFloat
-    @Binding var userSelectedFont: String
-    @Binding var aiFontSize: CGFloat
-    @Binding var aiSelectedFont: String
     
     var body: some View {
         VStack(alignment: .leading, spacing: 16) {
             switch selectedTab {
-            case .ai:
-                AISettingsView(apiKey: $apiKey)
-            case .style:
-                StyleSettingsView(
-                    colorScheme: $colorScheme,
-                    userFontSize: $userFontSize,
-                    userSelectedFont: $userSelectedFont,
-                    aiFontSize: $aiFontSize,
-                    aiSelectedFont: $aiSelectedFont
-                )
+            case .apiKeys:
+                APIKeysSettingsView(openAIapiKey: $openAIapiKey, deepgramApiKey: $deepgramApiKey)
             case .reflections:
                 ReflectionsSettingsView(onRunNow: onRunWeekly)
+            case .transcription:
+                TranscriptionSettingsView(showMicrophone: $showMicrophone)
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
@@ -2529,14 +2651,17 @@ struct SettingsContent: View {
     }
 }
 
-struct AISettingsView: View {
-    @Binding var apiKey: String
-    @State private var tempApiKey: String = ""
+struct APIKeysSettingsView: View {
+    @Binding var openAIapiKey: String
+    @Binding var deepgramApiKey: String
+    
+    @State private var tempOpenAIApiKey: String = ""
+    @State private var tempDeepgramApiKey: String = ""
     @State private var hasUnsavedChanges: Bool = false
     @State private var showSaveConfirmation: Bool = false
     
     var body: some View {
-        VStack(alignment: .leading, spacing: 16) {
+        VStack(alignment: .leading, spacing: 24) {
             
             // OpenAI API Key Input
             VStack(alignment: .leading, spacing: 8) {
@@ -2544,323 +2669,321 @@ struct AISettingsView: View {
                     .font(.system(size: 14, weight: .medium))
                     .foregroundColor(.primary)
                 
-                SecureField("Enter your OpenAI API key", text: $tempApiKey)
+                SecureField("Enter your OpenAI API key", text: $tempOpenAIApiKey)
                     .textFieldStyle(PlainTextFieldStyle())
                     .font(.system(size: 13, design: .monospaced))
                     .padding(.horizontal, 8)
                     .padding(.vertical, 6)
                     .background(
                         RoundedRectangle(cornerRadius: 5)
-                            .stroke(Color.primary, lineWidth: 1)
+                            .stroke(Color.gray.opacity(0.5), lineWidth: 1)
                     )
-                    .frame(maxWidth: 300)
-                    .onChange(of: tempApiKey) { newValue in
-                        hasUnsavedChanges = (newValue != apiKey)
+                    .onChange(of: tempOpenAIApiKey) { newValue in
+                        hasUnsavedChanges = (newValue != openAIapiKey || tempDeepgramApiKey != deepgramApiKey)
                     }
                 
-                Text("Your API key is stored locally and only used for reflection.")
+                Text("Used for daily and weekly reflections.")
                     .font(.caption)
                     .foregroundColor(.secondary)
-                
-                // Save button
-                HStack(spacing: 12) {
-                    Button(action: {
-                        // Save API key to Keychain when save button is clicked
-                        if !tempApiKey.isEmpty {
-                            KeychainHelper.shared.saveAPIKey(tempApiKey)
-                            apiKey = tempApiKey
-                        } else {
-                            KeychainHelper.shared.deleteAPIKey()
-                            apiKey = ""
-                        }
-                        hasUnsavedChanges = false
-                        showSaveConfirmation = true
-                        
-                        // Hide confirmation after 2 seconds
-                        DispatchQueue.main.asyncAfter(deadline: .now() + 2.0) {
-                            showSaveConfirmation = false
-                        }
-                    }) {
-                        Text("Save")
-                            .font(.system(size: 13, weight: .medium))
-                            .foregroundColor(.white)
-                            .padding(.horizontal, 16)
-                            .padding(.vertical, 8)
-                            .background(
-                                RoundedRectangle(cornerRadius: 6)
-                                    .fill(hasUnsavedChanges ? .primary : .secondary)
-                            )
-                    }
-                    .buttonStyle(PlainButtonStyle())
-                    .disabled(!hasUnsavedChanges)
-                    
-                    if showSaveConfirmation {
-                        HStack(spacing: 6) {
-                            Image(systemName: "checkmark.circle.fill")
-                                .foregroundColor(.primary)
-                                .font(.system(size: 12))
-                            Text("Saved")
-                                .font(.system(size: 12))
-                                .foregroundColor(.primary)
-                        }
-                        .transition(.opacity)
-                    }
-                }
-                .animation(.easeInOut(duration: 0.2), value: showSaveConfirmation)
             }
-            .padding(.top, 8)
-        }
-        .onAppear {
-            // Load the current API key when the view appears
-            tempApiKey = apiKey
-        }
-    }
-}
-
-struct StyleSettingsView: View {
-    @Binding var colorScheme: ColorScheme
-    @Binding var userFontSize: CGFloat
-    @Binding var userSelectedFont: String
-    @Binding var aiFontSize: CGFloat
-    @Binding var aiSelectedFont: String
-    
-    let fontSizes: [CGFloat] = [16, 18, 20, 22, 24, 26]
-    let standardFonts = ["Lato-Regular", "Arial", ".AppleSystemUIFont", "Times New Roman"]
-    let availableFonts = NSFontManager.shared.availableFontFamilies
-    
-    @State private var userHoveredFont: String? = nil
-    @State private var aiHoveredFont: String? = nil
-    @State private var currentRandomFont: String = ""
-    @State private var currentAIRandomFont: String = ""
-    
-    var body: some View {
-        VStack(alignment: .leading, spacing: 24) {
-            // Theme Toggle
-            HStack {
-                Text("Theme")
+            
+            // Deepgram API Key Input
+            VStack(alignment: .leading, spacing: 8) {
+                Text("Deepgram API Key")
                     .font(.system(size: 14, weight: .medium))
-                Spacer()
+                    .foregroundColor(.primary)
+                
+                SecureField("Enter your Deepgram API key", text: $tempDeepgramApiKey)
+                    .textFieldStyle(PlainTextFieldStyle())
+                    .font(.system(size: 13, design: .monospaced))
+                    .padding(.horizontal, 8)
+                    .padding(.vertical, 6)
+                    .background(
+                        RoundedRectangle(cornerRadius: 5)
+                            .stroke(Color.gray.opacity(0.5), lineWidth: 1)
+                    )
+                    .onChange(of: tempDeepgramApiKey) { newValue in
+                        hasUnsavedChanges = (newValue != deepgramApiKey || tempOpenAIApiKey != openAIapiKey)
+                    }
+                
+                Text("Used for voice-to-text transcription.")
+                    .font(.caption)
+                    .foregroundColor(.secondary)
+            }
+            
+            // Save button
+            HStack(spacing: 12) {
                 Button(action: {
-                    colorScheme = colorScheme == .light ? .dark : .light
-                    UserDefaults.standard.set(colorScheme == .light ? "light" : "dark", forKey: "colorScheme")
+                    // Save OpenAI key
+                    if !tempOpenAIApiKey.isEmpty {
+                        KeychainHelper.shared.saveAPIKey(tempOpenAIApiKey, for: .openAI)
+                        openAIapiKey = tempOpenAIApiKey
+                    } else {
+                        KeychainHelper.shared.deleteAPIKey(for: .openAI)
+                        openAIapiKey = ""
+                    }
+                    
+                    // Save Deepgram key
+                    if !tempDeepgramApiKey.isEmpty {
+                        KeychainHelper.shared.saveAPIKey(tempDeepgramApiKey, for: .deepgram)
+                        deepgramApiKey = tempDeepgramApiKey
+                    } else {
+                        KeychainHelper.shared.deleteAPIKey(for: .deepgram)
+                        deepgramApiKey = ""
+                    }
+                    
+                    hasUnsavedChanges = false
+                    showSaveConfirmation = true
+                    
+                    // Hide confirmation after 2 seconds
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 2.0) {
+                        showSaveConfirmation = false
+                    }
                 }) {
-                    Image(systemName: colorScheme == .light ? "moon.fill" : "sun.max.fill")
-                        .foregroundColor(.primary)
-                }
-                .buttonStyle(.plain)
-            }
-            
-            Divider()
-            
-            // My Writing Style
-            VStack(alignment: .leading, spacing: 12) {
-                Text("My Writing Style")
-                    .font(.system(size: 14, weight: .medium))
-                
-                HStack {
-                    Text("Font Size")
-                        .font(.system(size: 13))
-                    Spacer()
-                    Picker("Font Size", selection: $userFontSize) {
-                        ForEach(fontSizes, id: \.self) { size in
-                            Text("\(Int(size))px").tag(size)
-                        }
-                    }
-                    .pickerStyle(MenuPickerStyle())
-                    .frame(width: 100)
-                }
-                
-                VStack(spacing: 8) {
-                    HStack(spacing: 12) {
-                        Text("Font Family")
-                            .font(.system(size: 13))
-                        Spacer()
-                        FontButton(title: "Lato", selectedFont: $userSelectedFont, hoveredFont: $userHoveredFont, fontName: "Lato-Regular")
-                        FontButton(title: "Arial", selectedFont: $userSelectedFont, hoveredFont: $userHoveredFont, fontName: "Arial")
-                        FontButton(title: "System", selectedFont: $userSelectedFont, hoveredFont: $userHoveredFont, fontName: ".AppleSystemUIFont")
-                        FontButton(title: "Serif", selectedFont: $userSelectedFont, hoveredFont: $userHoveredFont, fontName: "Times New Roman")
-                    }
-                    
-                    HStack {
-                        Spacer()
-                        Button(currentRandomFont.isEmpty ? "Random" : "Random [\(currentRandomFont)]") {
-                            if let randomFont = availableFonts.randomElement() {
-                                userSelectedFont = randomFont
-                                currentRandomFont = randomFont
-                            }
-                        }
-                        .buttonStyle(.plain)
-                        .font(.system(size: 13))
-                        .foregroundColor(userHoveredFont == "Random" ? .primary : .secondary)
-                        .padding(.horizontal, 10)
-                        .padding(.vertical, 5)
+                    Text("Save API Keys")
+                        .font(.system(size: 13, weight: .medium))
+                        .foregroundColor(.white)
+                        .padding(.horizontal, 16)
+                        .padding(.vertical, 8)
                         .background(
                             RoundedRectangle(cornerRadius: 6)
-                                .fill(userHoveredFont == "Random" ? Color.primary.opacity(0.1) : Color.clear)
+                                .fill(hasUnsavedChanges ? .primary : .secondary)
                         )
-                        .onHover { hovering in
-                            withAnimation(.easeInOut(duration: 0.1)) {
-                                userHoveredFont = hovering ? "Random" : nil
-                            }
-                        }
+                }
+                .buttonStyle(PlainButtonStyle())
+                .disabled(!hasUnsavedChanges)
+                
+                if showSaveConfirmation {
+                    HStack(spacing: 6) {
+                        Image(systemName: "checkmark.circle.fill")
+                            .foregroundColor(.green)
+                            .font(.system(size: 12))
+                        Text("Saved")
+                            .font(.system(size: 12))
+                            .foregroundColor(.secondary)
                     }
+                    .transition(.opacity)
                 }
             }
+            .animation(.easeInOut(duration: 0.2), value: showSaveConfirmation)
             
-            Divider()
-            
-            // AI Writing Style
-            VStack(alignment: .leading, spacing: 12) {
-                Text("AI Writing Style")
-                    .font(.system(size: 14, weight: .medium))
-                
-                HStack {
-                    Text("Font Size")
-                        .font(.system(size: 13))
-                    Spacer()
-                    Picker("Font Size", selection: $aiFontSize) {
-                        ForEach(fontSizes, id: \.self) { size in
-                            Text("\(Int(size))px").tag(size)
-                        }
-                    }
-                    .pickerStyle(MenuPickerStyle())
-                    .frame(width: 100)
-                }
-                
-                VStack(spacing: 8) {
-                    HStack(spacing: 12) {
-                        Text("Font Family")
-                            .font(.system(size: 13))
-                        Spacer()
-                        FontButton(title: "Lato", selectedFont: $aiSelectedFont, hoveredFont: $aiHoveredFont, fontName: "Lato-Regular")
-                        FontButton(title: "Arial", selectedFont: $aiSelectedFont, hoveredFont: $aiHoveredFont, fontName: "Arial")
-                        FontButton(title: "System", selectedFont: $aiSelectedFont, hoveredFont: $aiHoveredFont, fontName: ".AppleSystemUIFont")
-                        FontButton(title: "Serif", selectedFont: $aiSelectedFont, hoveredFont: $aiHoveredFont, fontName: "Times New Roman")
-                    }
-                    
-                    HStack {
-                        Spacer()
-                        Button(currentAIRandomFont.isEmpty ? "Random" : "Random [\(currentAIRandomFont)]") {
-                            if let randomFont = availableFonts.randomElement() {
-                                aiSelectedFont = randomFont
-                                currentAIRandomFont = randomFont
-                            }
-                        }
-                        .buttonStyle(.plain)
-                        .font(.system(size: 13))
-                        .foregroundColor(aiHoveredFont == "Random" ? .primary : .secondary)
-                        .padding(.horizontal, 10)
-                        .padding(.vertical, 5)
-                        .background(
-                            RoundedRectangle(cornerRadius: 6)
-                                .fill(aiHoveredFont == "Random" ? Color.primary.opacity(0.1) : Color.clear)
-                        )
-                        .onHover { hovering in
-                            withAnimation(.easeInOut(duration: 0.1)) {
-                                aiHoveredFont = hovering ? "Random" : nil
-                            }
-                        }
-                    }
-                }
-            }
             Spacer()
         }
-    }
-}
-
-struct FontButton: View {
-    let title: String
-    @Binding var selectedFont: String
-    @Binding var hoveredFont: String?
-    let fontName: String
-    
-    @Environment(\.colorScheme) var colorScheme
-    
-    private var isSelected: Bool {
-        selectedFont == fontName
-    }
-    
-    private var isHovered: Bool {
-        hoveredFont == title
-    }
-    
-    private var textColor: Color {
-        if isSelected {
-            return .white
-        }
-        if isHovered {
-            return colorScheme == .light ? .black : .white
-        }
-        return .secondary
-    }
-    
-    private var backgroundColor: Color {
-        if isSelected {
-            return .primary
-        }
-        if isHovered {
-            return Color.primary.opacity(0.1)
-        }
-        return .clear
-    }
-    
-    var body: some View {
-        Button(title) {
-            selectedFont = fontName
-        }
-        .buttonStyle(.plain)
-        .font(.system(size: 13))
-        .foregroundColor(textColor)
-        .padding(.horizontal, 10)
-        .padding(.vertical, 5)
-        .background(
-            RoundedRectangle(cornerRadius: 6)
-                .fill(backgroundColor)
-        )
-        .onHover { hovering in
-            withAnimation(.easeInOut(duration: 0.1)) {
-                hoveredFont = hovering ? title : nil
-            }
+        .padding(.top, 8)
+        .onAppear {
+            // Load keys when view appears
+            tempOpenAIApiKey = openAIapiKey
+            tempDeepgramApiKey = deepgramApiKey
         }
     }
 }
 
 struct ReflectionsSettingsView: View {
+    // Weekly
+    @State private var isWeeklyEnabled: Bool = true
     @State private var selectedDay: String = "Sunday"
-    @State private var reflectionTime: Date = Calendar.current.date(from: DateComponents(hour: 10, minute: 0)) ?? Date()
+    @State private var weeklyReflectionTime: Date = Calendar.current.date(from: DateComponents(hour: 10, minute: 0)) ?? Date()
     let daysOfWeek = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"]
+    
+    // Monthly
+    @State private var isMonthlyEnabled: Bool = false
+    @State private var selectedMonthDay: Int = 1
+    @State private var monthlyReflectionTime: Date = Calendar.current.date(from: DateComponents(hour: 10, minute: 0)) ?? Date()
+    let daysOfMonth = Array(1...30)
+    
+    // Quarterly
+    @State private var isQuarterlyEnabled: Bool = false
+    @State private var q1Date: Date = Date()
+    @State private var q2Date: Date = Date()
+    @State private var q3Date: Date = Date()
+    @State private var q4Date: Date = Date()
+    @State private var quarterlyReflectionTime: Date = Calendar.current.date(from: DateComponents(hour: 10, minute: 0)) ?? Date()
+    
+    // Annually
+    @State private var isAnnuallyEnabled: Bool = false
+    @State private var annualReflectionDate: Date = Date()
+    @State private var annualReflectionTime: Date = Calendar.current.date(from: DateComponents(hour: 10, minute: 0)) ?? Date()
+
     let onRunNow: () -> Void
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 16) {
-            Text("Weekly")
-                .font(.headline)
-                .fontWeight(.semibold)
-            
-            HStack(spacing: 8) {
-                Picker("Reflect every", selection: $selectedDay) {
-                    ForEach(daysOfWeek, id: \.self) { day in
-                        Text(day)
-                            .font(.system(size: 14))
-                            .foregroundColor(.primary)
+        ScrollView {
+            VStack(alignment: .leading, spacing: 24) {
+                // Weekly Section
+                VStack(alignment: .leading, spacing: 8) {
+                    Toggle(isOn: $isWeeklyEnabled) {
+                        Text("Weekly")
+                            .font(.headline)
+                            .fontWeight(.semibold)
                     }
-                }
-                .font(.system(size: 14))
-                .pickerStyle(MenuPickerStyle())
-                
-                DatePicker("at", selection: $reflectionTime, displayedComponents: .hourAndMinute)
-                    .font(.system(size: 14))
-                    .datePickerStyle(CompactDatePickerStyle())
-                
-                Text("•")
+                    
+                    HStack(spacing: 8) {
+                        Picker("Reflect every", selection: $selectedDay) {
+                            ForEach(daysOfWeek, id: \.self) { day in Text(day) }
+                        }
+                        .pickerStyle(MenuPickerStyle())
+                        
+                        DatePicker("at", selection: $weeklyReflectionTime, displayedComponents: .hourAndMinute)
+                            .datePickerStyle(CompactDatePickerStyle())
+                        
+                        Text("•")
+                            .foregroundColor(.secondary)
+                        
+                        Button("Run now") {
+                            onRunNow()
+                        }
+                    }
                     .foregroundColor(.secondary)
+                    .disabled(!isWeeklyEnabled)
+                }
                 
-                Button("Run now") {
-                    onRunNow()
+                Divider()
+                
+                // Monthly Section
+                VStack(alignment: .leading, spacing: 8) {
+                    Toggle(isOn: $isMonthlyEnabled) {
+                        Text("Monthly")
+                            .font(.headline)
+                            .fontWeight(.semibold)
+                    }
+                    
+                    HStack(spacing: 8) {
+                        Text("Reflect on day")
+                        Picker("Day", selection: $selectedMonthDay) {
+                            ForEach(daysOfMonth, id: \.self) { day in
+                                Text("\(day)").tag(day)
+                            }
+                        }
+                        .pickerStyle(MenuPickerStyle())
+                        .labelsHidden()
+
+                        DatePicker("at", selection: $monthlyReflectionTime, displayedComponents: .hourAndMinute)
+                            .datePickerStyle(CompactDatePickerStyle())
+                        
+                        Text("•")
+                            .foregroundColor(.secondary)
+                        
+                        Button("Run now") {
+                            // No action for now
+                        }
+                    }
+                    .foregroundColor(.secondary)
+                    .disabled(!isMonthlyEnabled)
+                }
+                
+                Divider()
+
+                // Quarterly Section
+                VStack(alignment: .leading, spacing: 8) {
+                    Toggle(isOn: $isQuarterlyEnabled) {
+                        Text("Quarterly")
+                            .font(.headline)
+                            .fontWeight(.semibold)
+                    }
+                    
+                    HStack(spacing: 16) {
+                        VStack(alignment: .leading) {
+                            DatePicker("Q1", selection: $q1Date, displayedComponents: .date)
+                            DatePicker("Q2", selection: $q2Date, displayedComponents: .date)
+                        }
+                        VStack(alignment: .leading) {
+                            DatePicker("Q3", selection: $q3Date, displayedComponents: .date)
+                            DatePicker("Q4", selection: $q4Date, displayedComponents: .date)
+                        }
+                    }
+                    
+                    HStack(spacing: 8) {
+                        DatePicker("at", selection: $quarterlyReflectionTime, displayedComponents: .hourAndMinute)
+                            .datePickerStyle(CompactDatePickerStyle())
+                        
+                        Text("•")
+                            .foregroundColor(.secondary)
+                        
+                        Button("Run now") {
+                            // No action for now
+                        }
+                    }
+                    .foregroundColor(.secondary)
+                    .disabled(!isQuarterlyEnabled)
+                }
+                
+                Divider()
+                
+                // Annually Section
+                VStack(alignment: .leading, spacing: 8) {
+                    Toggle(isOn: $isAnnuallyEnabled) {
+                        Text("Annually")
+                            .font(.headline)
+                            .fontWeight(.semibold)
+                    }
+                    
+                    HStack(spacing: 8) {
+                        DatePicker("Reflect on", selection: $annualReflectionDate, displayedComponents: .date)
+                        
+                        DatePicker("at", selection: $annualReflectionTime, displayedComponents: .hourAndMinute)
+                            .datePickerStyle(CompactDatePickerStyle())
+                        
+                        Text("•")
+                            .foregroundColor(.secondary)
+                        
+                        Button("Run now") {
+                            // No action for now
+                        }
+                    }
+                    .foregroundColor(.secondary)
+                    .disabled(!isAnnuallyEnabled)
                 }
             }
-            .foregroundColor(.secondary)
+            .padding(.vertical, 20)
         }
+        .onAppear(perform: setQuarterDates)
+    }
+
+    private func setQuarterDates() {
+        q1Date = getFirstDayOfQuarter(quarter: 1)
+        q2Date = getFirstDayOfQuarter(quarter: 2)
+        q3Date = getFirstDayOfQuarter(quarter: 3)
+        q4Date = getFirstDayOfQuarter(quarter: 4)
+    }
+
+    private func getFirstDayOfQuarter(quarter: Int) -> Date {
+        let calendar = Calendar.current
+        let currentYear = calendar.component(.year, from: Date())
+        let month: Int
+        switch quarter {
+        case 1: month = 1
+        case 2: month = 4
+        case 3: month = 7
+        case 4: month = 10
+        default: month = 1
+        }
+        let components = DateComponents(year: currentYear, month: month, day: 1)
+        return calendar.date(from: components) ?? Date()
+    }
+}
+
+struct TranscriptionSettingsView: View {
+    @Binding var showMicrophone: Bool
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 16) {
+            Text("Transcription")
+                .font(.headline)
+                .fontWeight(.semibold)
+                .padding(.bottom, 8)
+
+            Toggle("Show microphone button", isOn: $showMicrophone)
+                .onChange(of: showMicrophone) { newValue in
+                    UserDefaults.standard.set(newValue, forKey: "showMicrophone")
+                }
+
+            Text("Disable if you prefer using another speech-to-text app, like WhisperFlow.")
+                .font(.caption)
+                .foregroundColor(.secondary)
+
+            Spacer()
+        }
+        .padding(.top, 8)
     }
 }
 
