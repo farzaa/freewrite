@@ -1241,6 +1241,11 @@ struct ContentView: View {
             // Toast Overlay
             toastOverlay
         )
+        .onChange(of: reflectionViewModel.isLoading) { isLoading in
+            if isLoading {
+                isUserEditorFocused = false
+            }
+        }
     }
     
     private var mainContent: some View {
@@ -1253,79 +1258,82 @@ struct ContentView: View {
                     VStack(spacing: 0) {
                         ForEach(Array(sections.enumerated()), id: \ .element.id) { idx, section in
                             if section.type == .user {
-                                if idx == sections.count - 1 && (!reflectionViewModel.isLoading) {
-                                    // Last user section, editable
-                                    TextEditor(text: Binding(
-                                        get: { editingText },
-                                        set: { newValue in
+                                // Disable editing for all user sections while reflection is streaming
+                                let isReflectionLoading = reflectionViewModel.isLoading
+                                let isEditable = !isReflectionLoading
+                                TextEditor(text: Binding(
+                                    get: { idx == sections.count - 1 ? editingText : sections[idx].text },
+                                    set: { newValue in
+                                        if idx == sections.count - 1 {
                                             editingText = newValue
                                             sections[idx].text = newValue
-                                            // Save on change
+                                            if let currentId = selectedEntryId,
+                                               let currentEntry = entries.first(where: { $0.id == currentId }) {
+                                                saveEntry(entry: currentEntry)
+                                            }
+                                        } else {
+                                            // Only update the section's text, not editingText
+                                            sections[idx].text = newValue
                                             if let currentId = selectedEntryId,
                                                let currentEntry = entries.first(where: { $0.id == currentId }) {
                                                 saveEntry(entry: currentEntry)
                                             }
                                         }
-                                    ))
-                                    .font(.custom(userSelectedFont, size: userFontSize))
-                                    .foregroundColor(Color(red: 0.20, green: 0.20, blue: 0.20))
-                                    .scrollContentBackground(.hidden)
-                                    .scrollIndicators(.never)
-                                    .lineSpacing(userLineHeight)
-                                    .frame(maxWidth: 650)
-                                    .fixedSize(horizontal: false, vertical: true)
-                                    .padding(.top, 84)
-                                    .padding(.horizontal, 16)
-                                    .background(Color.clear)
-                                    .focused($isUserEditorFocused)
-                                    .overlay(
-                                        ZStack(alignment: .topLeading) {
-                                            if editingText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-                                                Text(placeholderText)
-                                                    .font(.custom(userSelectedFont, size: userFontSize))
-                                                    .foregroundColor(colorScheme == .light ? .gray.opacity(0.5) : .gray.opacity(0.6))
-                                                    .allowsHitTesting(false)
-                                                    .padding(.top, 84)
-                                                    .padding(.leading, 21)
-                                            }
-                                        }, alignment: .topLeading
-                                    )
-                                } else {
-                                    // Previous user sections, read-only but black
-                                    Text(section.text)
-                                        .font(.custom(userSelectedFont, size: userFontSize))
-                                        .foregroundColor(Color(red: 0.20, green: 0.20, blue: 0.20))
-                                        .lineSpacing(userLineHeight)
-                                        .frame(maxWidth: 650, alignment: .leading)
-                                        .padding(.top, 48)
-                                        .padding(.horizontal, 16)
-                                }
+                                    }
+                                ))
+                                .font(.custom(userSelectedFont, size: userFontSize))
+                                .foregroundColor(Color(red: 0.20, green: 0.20, blue: 0.20))
+                                .scrollContentBackground(.hidden)
+                                .scrollIndicators(.never)
+                                .lineSpacing(userLineHeight)
+                                .frame(maxWidth: 650)
+                                .fixedSize(horizontal: false, vertical: true)
+                                .padding(.top, 84)
+                                .padding(.horizontal, 16)
+                                .background(Color.clear)
+                                .textSelection(.enabled)
+                                .disabled(isReflectionLoading)
+                                // Only attach focus to the last user section
+                                .focused($isUserEditorFocused, equals: idx == sections.count - 1 && !isReflectionLoading)
+                                .overlay(
+                                    ZStack(alignment: .topLeading) {
+                                        if idx == sections.count - 1 && editingText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                                            Text(placeholderText)
+                                                .font(.custom(userSelectedFont, size: userFontSize))
+                                                .foregroundColor(colorScheme == .light ? .gray.opacity(0.5) : .gray.opacity(0.6))
+                                                .allowsHitTesting(false)
+                                                .padding(.top, 84)
+                                                .padding(.leading, 21)
+                                        }
+                                    }, alignment: .topLeading
+                                )
                             } else if section.type == .reflection {
                                 VStack(alignment: .leading, spacing: 0) {
-                                    if idx == sections.count - 1 && reflectionViewModel.isLoading && section.text.isEmpty {
-                                        HStack(alignment: .top, spacing: 0) {
-                                            OscillatingDotView(colorScheme: colorScheme)
-                                            Spacer()
+                                    VStack(alignment: .leading, spacing: 0) {
+                                        if idx == sections.count - 1 && reflectionViewModel.isLoading && section.text.isEmpty {
+                                            HStack(alignment: .top, spacing: 0) {
+                                                OscillatingDotView(colorScheme: colorScheme)
+                                                Spacer()
+                                            }
+                                        } else {
+                                            MarkdownTextView(
+                                                content: section.text,
+                                                font: aiSelectedFont,
+                                                fontSize: aiFontSize,
+                                                colorScheme: colorScheme,
+                                                lineHeight: aiLineHeight
+                                            )
+                                            .frame(maxWidth: .infinity, alignment: .leading)
                                         }
-                                        .padding(.top, 16)
-                                        .padding(.leading, 16)
                                     }
-                                    MarkdownTextView(
-                                        content: section.text,
-                                        font: aiSelectedFont,
-                                        fontSize: aiFontSize,
-                                        colorScheme: colorScheme,
-                                        lineHeight: aiLineHeight
-                                    )
-                                    .frame(maxWidth: .infinity, alignment: .leading)
                                     .padding()
+                                    .frame(minHeight: aiFontSize * 1.5 + 32) // Ensure min height for the dot/first line
                                 }
                                 .background(Color.gray.opacity(0.1))
                                 .cornerRadius(12)
                                 .frame(maxWidth: 650)
                                 .padding(.horizontal, 16)
                                 .padding(.top, 32)
-                                .frame(minHeight: aiFontSize * 1.5 + 32) // Ensure min height for the dot/first line
                             }
                         }
                         Spacer(minLength: 50)
@@ -2513,70 +2521,6 @@ struct ContentView: View {
             .scrollIndicators(.never)
             .padding(.bottom, bottomNavOpacity > 0 ? navHeight : 0)
             
-            VStack {
-                Spacer()
-                bottomNavigationView
-            }
-            .ignoresSafeArea(.keyboard)
-        }
-    }
-
-    @ViewBuilder
-    private var mainContentWithReflection: some View {
-        let navHeight: CGFloat = 68
-        ZStack {
-            // Split content view (behind navigation)
-            HStack(spacing: 0) {
-                // Left side - User's text (50% of screen width)
-                ZStack {
-                    Color(colorScheme == .light ? .white : .black)
-                        .ignoresSafeArea()
-                    
-                    TextEditor(text: Binding(
-                        get: { text },
-                        set: { newValue in
-                            guard !isVoiceInputMode else { return }
-                                text = newValue
-                        }
-                    ))
-                    .background(Color(colorScheme == .light ? .white : .black))
-                    .font(.custom(userSelectedFont, size: userFontSize))
-                    .foregroundColor(colorScheme == .light ? Color(red: 0.20, green: 0.20, blue: 0.20) : Color(red: 0.9, green: 0.9, blue: 0.9))
-                    .scrollContentBackground(.hidden)
-                    .scrollIndicators(.never)
-                    .lineSpacing(userLineHeight)
-                    .frame(maxWidth: .infinity)
-                    .allowsHitTesting(!isVoiceInputMode && !showingSettings)
-                    .padding(.horizontal, 24)
-                    .padding(.top, 32) // Add top padding instead of "\n\n"
-                    .padding(.bottom, bottomNavOpacity > 0 ? navHeight : 0)
-                    .ignoresSafeArea()
-                    .colorScheme(colorScheme)
-                    .overlay(
-                        ZStack(alignment: .topLeading) {
-                            if text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-                                Text(placeholderText)
-                                    .font(.custom(userSelectedFont, size: userFontSize))
-                                    .foregroundColor(colorScheme == .light ? .gray.opacity(0.5) : .gray.opacity(0.6))
-                                    .allowsHitTesting(false)
-                                    .padding(.top, 48) // Match TextEditor top padding
-                                    .padding(.leading, 29) // Adjust for horizontal padding + slight offset
-                            }
-                        }, alignment: .topLeading
-                    )
-                }
-                
-                // Center divider
-                Rectangle()
-                    .fill(Color(red: 0.85, green: 0.85, blue: 0.85))
-                    .frame(width: 1)
-                
-                // Right side - Reflection content (50% of screen width)
-                reflectionContent
-                    .background(Color(colorScheme == .light ? .white : .black))
-            }
-            
-            // Navigation overlay (stays on top)
             VStack {
                 Spacer()
                 bottomNavigationView
