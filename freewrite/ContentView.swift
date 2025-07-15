@@ -148,7 +148,7 @@ struct ContentView: View {
     @State private var userSelectedFont: String = "Lato-Regular" // Renamed from selectedFont
     @State private var currentRandomFont: String = ""
     @State private var currentAIRandomFont: String = ""
-    @State private var timeRemaining: Int = 900  // Changed to 900 seconds (15 minutes)
+    @State private var timeRemaining: Int = 600  // Changed to 600 seconds (10 minutes)
     @State private var timerIsRunning = false
     @State private var isHoveringTimer = false
     @State private var isHoveringTheme = false
