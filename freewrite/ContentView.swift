@@ -719,10 +719,10 @@ struct ContentView: View {
     }
     
     var timerColor: Color {
-        if timerIsRunning {
-            return isHoveringTimer ? (colorScheme == .light ? .black : .white) : .gray.opacity(0.8)
+        if isHoveringTimer {
+            return colorScheme == .light ? .black : .white
         } else {
-            return isHoveringTimer ? (colorScheme == .light ? .black : .white) : (colorScheme == .light ? .gray : .gray.opacity(0.8))
+            return colorScheme == .light ? .gray : .gray.opacity(0.8)
         }
     }
     
@@ -770,8 +770,208 @@ struct ContentView: View {
             // Main navigation bar
             ZStack {
                 HStack {
-                    // Left side - Style Controls
+                    // Left side - Navigation Controls: Sidebar, New Entry, Timer
                     HStack(spacing: 8) {
+                        // History/sidebar button with new icon
+                        Button(action: {
+                            withAnimation(.easeInOut(duration: 0.2)) {
+                                showingSidebar.toggle()
+                            }
+                        }) {
+                            Image(systemName: "book.fill")
+                                .foregroundColor(isHoveringClock ? textHoverColor : textColor)
+                        }
+                        .buttonStyle(.plain)
+                        .onHover { hovering in
+                            isHoveringClock = hovering
+                            isHoveringBottomNav = hovering
+                            if hovering {
+                                NSCursor.pointingHand.push()
+                            } else {
+                                NSCursor.pop()
+                            }
+                        }
+                        
+                        Text("•")
+                            .foregroundColor(.gray)
+                        
+                        Button(action: {
+                            createNewEntry()
+                        }) {
+                            Text("New Entry")
+                                .font(.system(size: 13))
+                        }
+                        .buttonStyle(.plain)
+                        .foregroundColor(isHoveringNewEntry ? textHoverColor : textColor)
+                        .onHover { hovering in
+                            isHoveringNewEntry = hovering
+                            isHoveringBottomNav = hovering
+                            if hovering {
+                                NSCursor.pointingHand.push()
+                            } else {
+                                NSCursor.pop()
+                            }
+                        }
+                        
+                        // Timer button
+                        if !isWeeklyReflection {
+                            Text("•")
+                                .foregroundColor(.gray)
+                            
+                            Button(timerButtonTitle) {
+                                if timerIsRunning {
+                                    timerIsRunning = false
+                                    if !isHoveringBottomNav {
+                                        withAnimation(.linear(duration: 0.3)) {
+                                            bottomNavOpacity = 1.0
+                                        }
+                                    }
+                                } else {
+                                    timerIsRunning = true
+                                    withAnimation(.linear(duration: 0.3)) {
+                                        bottomNavOpacity = 0.0
+                                    }
+                                }
+                                
+                                // Force reset hover state after clicking
+                                isHoveringTimer = false
+                            }
+                            .buttonStyle(.plain)
+                            .foregroundColor(timerColor)
+                            .onHover { hovering in
+                                isHoveringTimer = hovering
+                                isHoveringBottomNav = hovering
+                                if hovering {
+                                    NSCursor.pointingHand.push()
+                                } else {
+                                    NSCursor.pop()
+                                }
+                            }
+                            .gesture(
+                                DragGesture(minimumDistance: 0)
+                                    .onChanged { _ in
+                                        // This ensures we're actually over the button when scrolling
+                                    }
+                            )
+                            .onAppear {
+                                NSEvent.addLocalMonitorForEvents(matching: .scrollWheel) { event in
+                                    // Only process scroll if we're actually hovering AND the button is visible
+                                    if isHoveringTimer && !isWeeklyReflection {
+                                        let scrollBuffer = event.deltaY * 0.25
+                                        
+                                        if abs(scrollBuffer) >= 0.1 {
+                                            let currentMinutes = timeRemaining / 60
+                                            NSHapticFeedbackManager.defaultPerformer.perform(.generic, performanceTime: .now)
+                                            let direction = -scrollBuffer > 0 ? 5 : -5
+                                            let newMinutes = currentMinutes + direction
+                                            let roundedMinutes = (newMinutes / 5) * 5
+                                            let newTime = roundedMinutes * 60
+                                            timeRemaining = min(max(newTime, 0), 2700)
+                                        }
+                                    }
+                                    return event
+                                }
+                            }
+                        }
+                    }
+                    .padding(8)
+                    .cornerRadius(6)
+                    .onHover { hovering in
+                        isHoveringBottomNav = hovering
+                    }
+                    Spacer()
+                    // Right side - Style Controls: Reflect, Dark Mode, Size, Fonts
+                    HStack(spacing: 8) {
+                        // Only show Reflect button for non-weekly entries
+                        if !isWeeklyReflection {
+                            Button(action: {
+                                // Trim trailing whitespace from the last user section before sending to AI and saving
+                                if let lastUserIdx = sections.lastIndex(where: { $0.type == .user }) {
+                                    sections[lastUserIdx].text = sections[lastUserIdx].text.trimmingCharacters(in: .whitespacesAndNewlines)
+                                }
+                                // Concatenate all sections as plain text (include section headers for clarity)
+                                let userSeparator = "--- USER ---"
+                                let reflectionSeparator = "--- REFLECTION ---"
+                                let fullText = sections.map { section in
+                                    switch section.type {
+                                    case .user: return userSeparator + "\n" + section.text
+                                    case .reflection: return reflectionSeparator + "\n" + section.text
+                                    }
+                                }.joined(separator: "\n")
+                                if fullText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                                    showToast(message: "Empty! Write something and try again.", type: .error)
+                                    return
+                                }
+                                // Set flag to scroll to bottom after appending reflection
+                                shouldScrollToBottom = true
+                                // Append a new reflection section immediately
+                                sections.append(EntrySection(type: .reflection, text: ""))
+                                let reflectionIdx = sections.count - 1
+                                // Start reflection
+                                reflectionViewModel.start(apiKey: openAIAPIKey, entryText: fullText) {
+                                    // On complete, save the entry
+                                    if let currentId = selectedEntryId,
+                                       let entry = entries.first(where: { $0.id == currentId }) {
+                                        saveEntry(entry: entry)
+                                    }
+                                    // After reflection is done, append a new user section and focus it
+                                    sections.append(EntrySection(type: .user, text: ""))
+                                    editingText = ""
+                                    // Randomize placeholder for new user section
+                                    placeholderText = placeholderOptions.randomElement() ?? "Begin writing"
+                                    // Focus the new user editor
+                                    DispatchQueue.main.async {
+                                        self.isUserEditorFocused = true
+                                    }
+                                } onStream: { streamedText in
+                                    // Update the last reflection section as the AI streams
+                                    if reflectionIdx < sections.count, sections[reflectionIdx].type == .reflection {
+                                        sections[reflectionIdx].text = streamedText
+                                        shouldScrollToBottom = true
+                                    }
+                                }
+                            }) {
+                                Text("Reflect")
+                                    .font(.system(size: 13))
+                            }
+                            .buttonStyle(.plain)
+                            .foregroundColor(isHoveringReflect ? textHoverColor : textColor)
+                            .onHover { hovering in
+                                isHoveringReflect = hovering
+                                isHoveringBottomNav = hovering
+                                if hovering {
+                                    NSCursor.pointingHand.push()
+                                } else {
+                                    NSCursor.pop()
+                                }
+                            }
+                            
+                            Text("•")
+                                .foregroundColor(.gray)
+                        }
+                        
+                        // Theme toggle
+                        Button(action: {
+                            colorScheme = colorScheme == .light ? .dark : .light
+                            UserDefaults.standard.set(colorScheme == .light ? "light" : "dark", forKey: "colorScheme")
+                        }) {
+                            Image(systemName: colorScheme == .light ? "moon.fill" : "sun.max.fill")
+                                .foregroundColor(isHoveringTheme ? textHoverColor : textColor)
+                        }
+                        .buttonStyle(.plain)
+                        .onHover { hovering in
+                            isHoveringTheme = hovering
+                            isHoveringBottomNav = hovering
+                            if hovering {
+                                NSCursor.pointingHand.push()
+                            } else {
+                                NSCursor.pop()
+                            }
+                        }
+                        
+                        Text("•")
+                            .foregroundColor(.gray)
+                        
                         // Font size button
                         Button(fontSizeButtonTitle) {
                             let fontSizes: [CGFloat] = [16, 18, 20, 22, 24, 26]
@@ -890,196 +1090,6 @@ struct ContentView: View {
                                 NSCursor.pop()
                             }
                         }
-                        
-                        Text("•")
-                            .foregroundColor(.gray)
-                        
-                        // Theme toggle
-                        Button(action: {
-                            colorScheme = colorScheme == .light ? .dark : .light
-                            UserDefaults.standard.set(colorScheme == .light ? "light" : "dark", forKey: "colorScheme")
-                        }) {
-                            Image(systemName: colorScheme == .light ? "moon.fill" : "sun.max.fill")
-                                .foregroundColor(isHoveringTheme ? textHoverColor : textColor)
-                        }
-                        .buttonStyle(.plain)
-                        .onHover { hovering in
-                            isHoveringTheme = hovering
-                            isHoveringBottomNav = hovering
-                            if hovering {
-                                NSCursor.pointingHand.push()
-                            } else {
-                                NSCursor.pop()
-                            }
-                        }
-                        
-                        // Only show Reflect button for non-weekly entries
-                        if !isWeeklyReflection {
-                            Text("•")
-                                .foregroundColor(.gray)
-                            
-                            Button(action: {
-                                // Trim trailing whitespace from the last user section before sending to AI and saving
-                                if let lastUserIdx = sections.lastIndex(where: { $0.type == .user }) {
-                                    sections[lastUserIdx].text = sections[lastUserIdx].text.trimmingCharacters(in: .whitespacesAndNewlines)
-                                }
-                                // Concatenate all sections as plain text (include section headers for clarity)
-                                let userSeparator = "--- USER ---"
-                                let reflectionSeparator = "--- REFLECTION ---"
-                                let fullText = sections.map { section in
-                                    switch section.type {
-                                    case .user: return userSeparator + "\n" + section.text
-                                    case .reflection: return reflectionSeparator + "\n" + section.text
-                                    }
-                                }.joined(separator: "\n")
-                                if fullText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-                                    showToast(message: "Empty! Write something and try again.", type: .error)
-                                    return
-                                }
-                                // Set flag to scroll to bottom after appending reflection
-                                shouldScrollToBottom = true
-                                // Append a new reflection section immediately
-                                sections.append(EntrySection(type: .reflection, text: ""))
-                                let reflectionIdx = sections.count - 1
-                                // Start reflection
-                                reflectionViewModel.start(apiKey: openAIAPIKey, entryText: fullText) {
-                                    // On complete, save the entry
-                                    if let currentId = selectedEntryId,
-                                       let entry = entries.first(where: { $0.id == currentId }) {
-                                        saveEntry(entry: entry)
-                                    }
-                                    // After reflection is done, append a new user section and focus it
-                                    sections.append(EntrySection(type: .user, text: ""))
-                                    editingText = ""
-                                    // Randomize placeholder for new user section
-                                    placeholderText = placeholderOptions.randomElement() ?? "Begin writing"
-                                    // Focus the new user editor
-                                    DispatchQueue.main.async {
-                                        self.isUserEditorFocused = true
-                                    }
-                                } onStream: { streamedText in
-                                    // Update the last reflection section as the AI streams
-                                    if reflectionIdx < sections.count, sections[reflectionIdx].type == .reflection {
-                                        sections[reflectionIdx].text = streamedText
-                                        shouldScrollToBottom = true
-                                    }
-                                }
-                            }) {
-                                Text("Reflect")
-                                    .font(.system(size: 13))
-                            }
-                            .buttonStyle(.plain)
-                            .foregroundColor(isHoveringReflect ? textHoverColor : textColor)
-                            .onHover { hovering in
-                                isHoveringReflect = hovering
-                                isHoveringBottomNav = hovering
-                                if hovering {
-                                    NSCursor.pointingHand.push()
-                                } else {
-                                    NSCursor.pop()
-                                }
-                            }
-                        }
-                    }
-                    .padding(8)
-                    .cornerRadius(6)
-                    .onHover { hovering in
-                        isHoveringBottomNav = hovering
-                    }
-                    Spacer()
-                    // Right side buttons - Timer, New Entry, History
-                    HStack(spacing: 8) {
-                        // Timer button (moved to right side)
-                        if !isWeeklyReflection {
-                            Button(timerButtonTitle) {
-                                if timerIsRunning {
-                                    timerIsRunning = false
-                                    if !isHoveringBottomNav {
-                                        withAnimation(.linear(duration: 0.3)) {
-                                            bottomNavOpacity = 1.0
-                                        }
-                                    }
-                                } else {
-                                    timerIsRunning = true
-                                    withAnimation(.linear(duration: 0.3)) {
-                                        bottomNavOpacity = 0.0
-                                    }
-                                }
-                            }
-                            .buttonStyle(.plain)
-                            .foregroundColor(timerColor)
-                            .onHover { hovering in
-                                isHoveringTimer = hovering
-                                isHoveringBottomNav = hovering
-                                if hovering {
-                                    NSCursor.pointingHand.push()
-                                } else {
-                                    NSCursor.pop()
-                                }
-                            }
-                            .onAppear {
-                                NSEvent.addLocalMonitorForEvents(matching: .scrollWheel) { event in
-                                    if isHoveringTimer {
-                                        let scrollBuffer = event.deltaY * 0.25
-                                        
-                                        if abs(scrollBuffer) >= 0.1 {
-                                            let currentMinutes = timeRemaining / 60
-                                            NSHapticFeedbackManager.defaultPerformer.perform(.generic, performanceTime: .now)
-                                            let direction = -scrollBuffer > 0 ? 5 : -5
-                                            let newMinutes = currentMinutes + direction
-                                            let roundedMinutes = (newMinutes / 5) * 5
-                                            let newTime = roundedMinutes * 60
-                                            timeRemaining = min(max(newTime, 0), 2700)
-                                        }
-                                    }
-                                    return event
-                                }
-                            }
-                            
-                            Text("•")
-                                .foregroundColor(.gray)
-                        }
-                        
-                        Button(action: {
-                            createNewEntry()
-                        }) {
-                            Text("New Entry")
-                                .font(.system(size: 13))
-                        }
-                        .buttonStyle(.plain)
-                        .foregroundColor(isHoveringNewEntry ? textHoverColor : textColor)
-                        .onHover { hovering in
-                            isHoveringNewEntry = hovering
-                            isHoveringBottomNav = hovering
-                            if hovering {
-                                NSCursor.pointingHand.push()
-                            } else {
-                                NSCursor.pop()
-                            }
-                        }
-                        
-                        Text("•")
-                            .foregroundColor(.gray)
-                        
-                        // History/sidebar button with new icon
-                        Button(action: {
-                            withAnimation(.easeInOut(duration: 0.2)) {
-                                showingSidebar.toggle()
-                            }
-                        }) {
-                            Image(systemName: "book.fill")
-                                .foregroundColor(isHoveringClock ? textHoverColor : textColor)
-                        }
-                        .buttonStyle(.plain)
-                        .onHover { hovering in
-                            isHoveringClock = hovering
-                            isHoveringBottomNav = hovering
-                            if hovering {
-                                NSCursor.pointingHand.push()
-                            } else {
-                                NSCursor.pop()
-                            }
-                        }
                     }
                     .padding(8)
                     .cornerRadius(6)
@@ -1163,6 +1173,11 @@ struct ContentView: View {
     
     var body: some View {
         HStack(spacing: 0) {
+            // Sidebar
+            if showingSidebar {
+                sidebar
+            }
+            
             ZStack {
                 // Main content area
                 Group {
@@ -1177,12 +1192,6 @@ struct ContentView: View {
                 // Navigation is an overlay within each of those views
             }
             .background(Color(colorScheme == .light ? .white : .black))
-
-
-            // Sidebar
-            if showingSidebar {
-                sidebar
-            }
         }
         .frame(minWidth: 1100, minHeight: 600)
         .animation(.easeInOut(duration: 0.2), value: showingSidebar)
@@ -1373,12 +1382,11 @@ struct ContentView: View {
     
     @ViewBuilder
     private var sidebar: some View {
-            if showingSidebar {
+        if showingSidebar {
             let textColor = colorScheme == .light ? Color.gray : Color.gray.opacity(0.8)
             let textHoverColor = colorScheme == .light ? Color.black : Color.white
             
-                Divider()
-                
+            ZStack(alignment: .trailing) {
                 VStack(spacing: 0) {
                     // Header with settings button
                     HStack(alignment: .firstTextBaseline) {
@@ -1542,7 +1550,13 @@ struct ContentView: View {
                 }
                 .frame(width: 200)
                 .background(Color(colorScheme == .light ? .white : NSColor.black))
+                // Add right border
+                Rectangle()
+                    .fill(Color.gray.opacity(0.3))
+                    .frame(width: 1)
+                    .edgesIgnoringSafeArea(.vertical)
             }
+        }
     }
     
     private func backgroundColor(for entry: HumanEntry) -> Color {
