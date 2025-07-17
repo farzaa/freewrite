@@ -172,6 +172,7 @@ struct ContentView: View {
     @State private var hoveredExportId: UUID? = nil
     @State private var placeholderText: String = ""  // Add this line
     @State private var isHoveringNewEntry = false
+    @State private var isHoveringFullscreen = false
     @State private var isHoveringClock = false
     @State private var isHoveringHistory = false
     @State private var isHoveringHistoryText = false
@@ -805,6 +806,28 @@ struct ContentView: View {
                         .foregroundColor(isHoveringNewEntry ? textHoverColor : textColor)
                         .onHover { hovering in
                             isHoveringNewEntry = hovering
+                            isHoveringBottomNav = hovering
+                            if hovering {
+                                NSCursor.pointingHand.push()
+                            } else {
+                                NSCursor.pop()
+                            }
+                        }
+                        
+                        Text("•")
+                            .foregroundColor(.gray)
+                        
+                        Button("Fullscreen") {
+                            if !isFullscreen {
+                                if let window = NSApplication.shared.windows.first {
+                                    window.toggleFullScreen(nil)
+                                }
+                            }
+                        }
+                        .buttonStyle(.plain)
+                        .foregroundColor(isHoveringFullscreen ? textHoverColor : textColor)
+                        .onHover { hovering in
+                            isHoveringFullscreen = hovering
                             isHoveringBottomNav = hovering
                             if hovering {
                                 NSCursor.pointingHand.push()
@@ -1583,8 +1606,14 @@ struct ContentView: View {
                 if reflectionRange.location != NSNotFound {
                     let userStart = userRange.location + userRange.length
                     let userEnd = reflectionRange.location
-                    let userText = (fullContent as NSString).substring(with: NSRange(location: userStart, length: userEnd - userStart)).trimmingCharacters(in: .whitespacesAndNewlines)
-                    preview = userText
+                    if userEnd > userStart {
+                        let userText = (fullContent as NSString).substring(with: NSRange(location: userStart, length: userEnd - userStart)).trimmingCharacters(in: .whitespacesAndNewlines)
+                        preview = userText
+                    } else {
+                        // If reflection comes before user, or range is invalid, just take from user start to end of string.
+                        let userStart = userRange.location + userRange.length
+                        preview = (fullContent as NSString).substring(from: userStart)
+                    }
                 } else {
                     let userStart = userRange.location + userRange.length
                     let userText = (fullContent as NSString).substring(from: userStart).trimmingCharacters(in: .whitespacesAndNewlines)
@@ -1721,8 +1750,11 @@ struct ContentView: View {
             // Save the empty entry
             saveEntry(entry: newEntry)
         }
-        // Focus the text editor for the new entry
-        DispatchQueue.main.async {
+        // Focus the text editor for the new entry with a slight delay
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
+            self.isUserEditorFocused = false
+        }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.15) {
             self.isUserEditorFocused = true
         }
     }
