@@ -12,6 +12,7 @@ import UniformTypeIdentifiers
 import PDFKit
 import AVFoundation
 import Security
+import Network
 
 struct HumanEntry: Identifiable {
     let id: UUID
@@ -44,9 +45,90 @@ struct HumanEntry: Identifiable {
 }
 
 enum SettingsTab: String, CaseIterable {
-    case reflections = "Reflections"
+    case reflections = "Reflection"
     case apiKeys = "API Keys"
     case transcription = "Transcription"
+}
+
+// Settings data structure for JSON persistence
+struct AppSettings: Codable {
+    var transcription: TranscriptionSettings
+    
+    static let `default` = AppSettings(
+        transcription: TranscriptionSettings.default
+    )
+}
+
+
+struct TranscriptionSettings: Codable {
+    var showMicrophone: Bool
+    
+    static let `default` = TranscriptionSettings(
+        showMicrophone: false
+    )
+}
+
+// Settings manager for JSON persistence
+class SettingsManager: ObservableObject {
+    @Published var settings: AppSettings
+    private let settingsURL: URL
+    
+    init() {
+        // Create settings file in the same directory as journal entries
+        let documentsDirectory = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0].appendingPathComponent("Freewrite")
+        self.settingsURL = documentsDirectory.appendingPathComponent("Settings.json")
+        
+        // Ensure the Freewrite directory exists
+        if !FileManager.default.fileExists(atPath: documentsDirectory.path) {
+            do {
+                try FileManager.default.createDirectory(at: documentsDirectory, withIntermediateDirectories: true)
+                print("Created Freewrite directory at: \(documentsDirectory.path)")
+            } catch {
+                print("Error creating Freewrite directory: \(error)")
+            }
+        }
+        
+        // Load existing settings or create default
+        self.settings = Self.loadSettings(from: settingsURL)
+        
+        // Save default settings if file doesn't exist
+        if !FileManager.default.fileExists(atPath: settingsURL.path) {
+            saveSettings()
+            print("Created default Settings.json at: \(settingsURL.path)")
+        }
+    }
+    
+    private static func loadSettings(from url: URL) -> AppSettings {
+        guard FileManager.default.fileExists(atPath: url.path) else {
+            print("Settings file not found, using defaults")
+            return AppSettings.default
+        }
+        
+        do {
+            let data = try Data(contentsOf: url)
+            let settings = try JSONDecoder().decode(AppSettings.self, from: data)
+            print("Successfully loaded settings from: \(url.path)")
+            return settings
+        } catch {
+            print("Error loading settings: \(error), using defaults")
+            return AppSettings.default
+        }
+    }
+    
+    func saveSettings() {
+        do {
+            let data = try JSONEncoder().encode(settings)
+            try data.write(to: settingsURL)
+            print("Settings saved to: \(settingsURL.path)")
+        } catch {
+            print("Error saving settings: \(error)")
+        }
+    }
+    
+    func updateShowMicrophone(_ show: Bool) {
+        settings.transcription.showMicrophone = show
+        saveSettings()
+    }
 }
 
 struct HeartEmoji: Identifiable {
@@ -194,7 +276,8 @@ struct ContentView: View {
     @State private var deepgramAPIKey: String = ""
     @StateObject private var reflectionViewModel = ReflectionViewModel()
     @State private var followUpText: String = ""
-    @State private var showMicrophone: Bool = true
+    @StateObject private var settingsManager = SettingsManager()
+    @State private var showMicrophone: Bool = false
     @State private var isNavbarHidden: Bool = false
     
     // Add state for reflection functionality
@@ -223,6 +306,12 @@ struct ContentView: View {
     @State private var chunkCounter: Int = 0
     @State private var isVoiceInputMode = false // New state for voice input mode
     @State private var pendingTranscriptionText = "" // Buffer for incoming transcription
+    
+    // Live transcription with Deepgram WebSocket
+    @StateObject private var liveTranscription = DeepgramLiveTranscription()
+    @State private var isLiveTranscribing = false
+    @State private var liveFinalText = ""
+    @State private var liveInterimText = ""
     
     // Toast notification states
     @State private var showToast = false
@@ -280,8 +369,8 @@ struct ContentView: View {
         let savedDeepgramKey = KeychainHelper.shared.loadAPIKey(for: .deepgram) ?? ""
         _deepgramAPIKey = State(initialValue: savedDeepgramKey)
         
-        // Load saved show microphone preference
-        _showMicrophone = State(initialValue: UserDefaults.standard.object(forKey: "showMicrophone") as? Bool ?? true)
+        // Load saved show microphone preference from settings JSON
+        _showMicrophone = State(initialValue: false) // Will be updated from settings in onAppear
     }
     
     private func buildFullConversationContext() -> String {
@@ -354,43 +443,71 @@ struct ContentView: View {
         }
     }
     
-    // Function to run weekly reflection
-    private func runWeeklyReflection() {
-        // Calculate date range (7 days ago to today)
-        let today = Date()
-        let calendar = Calendar.current
-        let sevenDaysAgo = calendar.date(byAdding: .day, value: -7, to: today)!
+    // Function to run date range reflection (replaces runWeeklyReflection)
+    private func runDateRangeReflection(fromDate: Date, toDate: Date, type: String) {
+        // Gather entries from the specified date range
+        let rangeContent = gatherWeeklyEntries(from: fromDate, to: toDate)
         
-        // Gather entries from the last 7 days
-        let weeklyContent = gatherWeeklyEntries(from: sevenDaysAgo, to: today)
-        
-        // Check if there are any entries for the week
-        if weeklyContent.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-            showToast(message: "No entries found for the past week", type: .error)
+        // Check if there are any entries for the date range
+        if rangeContent.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            showToast(message: "No entries found for the selected date range", type: .error)
             return
         }
         
         // Format the date range for the title
         let dateFormatter = DateFormatter()
         dateFormatter.dateFormat = "MMMM d"
-        let startDateString = dateFormatter.string(from: sevenDaysAgo)
-        let endDateString = dateFormatter.string(from: today)
+        let startDateString = dateFormatter.string(from: fromDate)
+        let endDateString = dateFormatter.string(from: toDate)
+        
+        // Count the number of entries for the "Read x entries" text
+        let entryCount = countEntriesInRange(from: fromDate, to: toDate)
         
         // Create title with date range
-        let weeklyTitle = "Weekly: \(startDateString)-\(endDateString)"
+        let reflectionTitle = "\(type): \(startDateString)-\(endDateString)"
         
-        // Create new weekly entry
-        let newEntry = createWeeklyEntry(title: weeklyTitle, startDate: sevenDaysAgo, endDate: today)
+        // Create new reflection entry with proper format
+        let newEntry = createReflectionEntry(title: reflectionTitle, fromDate: fromDate, toDate: toDate, entryCount: entryCount)
+        
+        // Select the new entry and set up the reflection UI like "New Entry + Reflect"
+        selectedEntryId = newEntry.id
+        entries.insert(newEntry, at: 0)
+        
+        // Set up sections with the initial USER section containing the "Read x entries" text
+        sections = [EntrySection(type: .user, text: "Read \(entryCount) entries from \(startDateString) - \(endDateString)")]
+        editingText = "Read \(entryCount) entries from \(startDateString) - \(endDateString)"
+        
+        // Add REFLECTION section and start streaming
+        sections.append(EntrySection(type: .reflection, text: ""))
+        
+        // Show reflection panel and freeze text editor
+        showReflectionPanel = true
+        hasInitiatedReflection = true
+        isStreamingReflection = true
         
         // Start reflection with the gathered content
-        reflectionViewModel.startWeeklyReflection(apiKey: openAIAPIKey, weeklyContent: weeklyContent) {
-            // Save the entry after reflection is complete
-            self.saveEntry(entry: newEntry)
+        reflectionViewModel.start(apiKey: openAIAPIKey, entryText: rangeContent) {
+            // On complete: add new empty USER section, unfreeze editor, and save
+            self.sections.append(EntrySection(type: .user, text: "\n\n"))
+            self.editingText = "\n\n"
+            self.isStreamingReflection = false
+            if let currentId = self.selectedEntryId,
+               let entry = self.entries.first(where: { $0.id == currentId }) {
+                self.saveEntry(entry: entry)
+            }
+        } onStream: { streamedText in
+            // Update the latest REFLECTION section as it streams
+            if let lastReflectionIndex = self.sections.lastIndex(where: { $0.type == .reflection }) {
+                self.sections[lastReflectionIndex].text = streamedText
+            }
+            // Save to file during streaming
+            if let currentId = self.selectedEntryId,
+               let entry = self.entries.first(where: { $0.id == currentId }) {
+                self.saveEntry(entry: entry)
+            }
         }
         
-        // Show reflection panel as weekly reflection
-        isWeeklyReflection = true
-        showReflectionPanel = true
+        // Close settings
         showingSettings = false
     }
     
@@ -515,6 +632,102 @@ struct ContentView: View {
         print("Total content length: \(weeklyContent.count) characters")
         
         return weeklyContent
+    }
+    
+    // Function to count entries in a date range
+    private func countEntriesInRange(from startDate: Date, to endDate: Date) -> Int {
+        let documentsDirectory = getDocumentsDirectory()
+        var entryCount = 0
+        
+        print("=== COUNTING ENTRIES IN RANGE ===")
+        print("Date range: \(startDate) to \(endDate)")
+        
+        do {
+            let fileURLs = try fileManager.contentsOfDirectory(at: documentsDirectory, includingPropertiesForKeys: nil)
+            let mdFiles = fileURLs.filter { $0.pathExtension == "md" }
+            
+            print("Found \(mdFiles.count) .md files total")
+            
+            let calendar = Calendar.current
+            let startOfStartDate = calendar.startOfDay(for: startDate)
+            let startOfEndDate = calendar.startOfDay(for: endDate)
+            
+            for fileURL in mdFiles {
+                let filename = fileURL.lastPathComponent
+                
+                // Handle Daily entries: [Daily]-[MM-dd-yyyy]-[HH-mm-ss].md
+                if filename.hasPrefix("[Daily]-") {
+                    print("Checking Daily file: \(filename)")
+                    if let dateMatch = filename.range(of: "\\[(\\d{2}-\\d{2}-\\d{4})\\]-\\[(\\d{2}-\\d{2}-\\d{2})\\]", options: .regularExpression) {
+                        let matchString = String(filename[dateMatch])
+                        let components = matchString.components(separatedBy: "]-[")
+                        
+                        if components.count >= 2 {
+                            let dateComponent = components[0].replacingOccurrences(of: "[", with: "")
+                            let timeComponent = components[1].replacingOccurrences(of: "]", with: "")
+                            
+                            let dateTimeString = "\(dateComponent)-\(timeComponent)"
+                            let dateFormatter = DateFormatter()
+                            dateFormatter.dateFormat = "MM-dd-yyyy-HH-mm-ss"
+                            
+                            if let fileDate = dateFormatter.date(from: dateTimeString) {
+                                let startOfFileDate = calendar.startOfDay(for: fileDate)
+                                print("File date: \(fileDate), in range: \(startOfFileDate >= startOfStartDate && startOfFileDate <= startOfEndDate)")
+                                
+                                if startOfFileDate >= startOfStartDate && startOfFileDate <= startOfEndDate {
+                                    entryCount += 1
+                                    print("Added to count, total now: \(entryCount)")
+                                }
+                            } else {
+                                print("Failed to parse date from: \(dateTimeString)")
+                            }
+                        } else {
+                            print("Invalid components: \(components)")
+                        }
+                    } else {
+                        print("No date match found")
+                    }
+                }
+            }
+        } catch {
+            print("Error counting entries: \(error)")
+        }
+        
+        print("Final entry count: \(entryCount)")
+        return entryCount
+    }
+    
+    // Function to create a new reflection entry
+    private func createReflectionEntry(title: String, fromDate: Date, toDate: Date, entryCount: Int) -> HumanEntry {
+        let id = UUID()
+        let now = Date()
+        let dateFormatter = DateFormatter()
+        
+        // Create filename with reflection format
+        dateFormatter.dateFormat = "MM-dd-yyyy-HH-mm-ss"
+        let timeString = dateFormatter.string(from: now)
+        
+        dateFormatter.dateFormat = "MM-dd-yyyy"
+        let startDateString = dateFormatter.string(from: fromDate)
+        let endDateString = dateFormatter.string(from: toDate)
+        
+        let filename = "[Reflection]-[\(startDateString)]-[\(endDateString)]-[\(timeString)].md"
+        
+        // Create date range for sidebar display (like "Jul 11 - Jul 18")
+        dateFormatter.dateFormat = "MMM d"
+        let displayStartDate = dateFormatter.string(from: fromDate)
+        let displayEndDate = dateFormatter.string(from: toDate)
+        let displayDateRange = "\(displayStartDate) - \(displayEndDate)"
+        
+        // Create preview text with the entry count
+        let previewText = "Read \(entryCount) entries from \(displayStartDate) - \(displayEndDate)"
+        
+        return HumanEntry(
+            id: id,
+            date: displayDateRange,
+            filename: filename,
+            previewText: previewText
+        )
     }
     
     // Function to create a new weekly entry
@@ -1282,6 +1495,9 @@ struct ContentView: View {
         .onAppear {
             showingSidebar = false  // Hide sidebar by default
             loadExistingEntries()
+            
+            // Sync settings from JSON
+            showMicrophone = settingsManager.settings.transcription.showMicrophone
         }
         .onDisappear {
             cleanupRecording()
@@ -1310,6 +1526,7 @@ struct ContentView: View {
         }
         .onReceive(NotificationCenter.default.publisher(for: NSWindow.willEnterFullScreenNotification)) { _ in
             isFullscreen = true
+            showingSidebar = false
         }
         .onReceive(NotificationCenter.default.publisher(for: NSWindow.willExitFullScreenNotification)) { _ in
             isFullscreen = false
@@ -1332,7 +1549,8 @@ struct ContentView: View {
                         openAIapiKey: $openAIAPIKey,
                         deepgramApiKey: $deepgramAPIKey,
                         showMicrophone: $showMicrophone,
-                        onRunWeekly: runWeeklyReflection
+                        settingsManager: settingsManager,
+                        runDateRangeReflection: runDateRangeReflection
                     )
                 }
             }
@@ -1388,6 +1606,7 @@ struct ContentView: View {
                             if let currentId = selectedEntryId,
                                let currentEntry = entries.first(where: { $0.id == currentId }) {
                                 saveEntry(entry: currentEntry)
+                                updatePreviewText(for: currentEntry)
                             }
                         }
                     ))
@@ -1403,6 +1622,12 @@ struct ContentView: View {
                     .textSelection(.enabled)
                     .disabled(reflectionViewModel.isLoading || isStreamingReflection)
                     .focused($isUserEditorFocused)
+                    .onChange(of: editingText) { _ in
+                        // Auto-scroll to bottom during live transcription
+                        if isLiveTranscribing {
+                            scrollTextEditorToBottom()
+                        }
+                    }
                     .overlay(
                         ZStack(alignment: .topLeading) {
                             if editingText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
@@ -1736,7 +1961,7 @@ struct ContentView: View {
             preview = preview.replacingOccurrences(of: reflectionSeparator, with: "")
             preview = preview.trimmingCharacters(in: .whitespacesAndNewlines)
             preview = preview.replacingOccurrences(of: "\n", with: " ").trimmingCharacters(in: .whitespacesAndNewlines)
-            let truncated = preview.isEmpty ? "" : (preview.count > 30 ? String(preview.prefix(30)) + "..." : preview)
+            let truncated = preview.isEmpty ? "" : (preview.count > 24 ? String(preview.prefix(24)) + "..." : preview)
             if let index = entries.firstIndex(where: { $0.id == entry.id }) {
                 entries[index].previewText = truncated
             }
@@ -1838,7 +2063,7 @@ struct ContentView: View {
                     
                     // Find the latest USER section for editing (must be the last section)
                     if let lastSection = sections.last, lastSection.type == .user {
-                        editingText = lastSection.text.isEmpty ? "\n\n" : lastSection.text
+                        editingText = lastSection.text.isEmpty ? "\n\n" : "\n\n" + lastSection.text
                     } else {
                         // If last section is not USER or no sections exist, create new USER section
                         editingText = "\n\n"
@@ -2129,10 +2354,10 @@ struct ContentView: View {
     }
     
     func toggleRecording() {
-        if isRecording {
-            stopRecording()
+        if isLiveTranscribing {
+            stopLiveTranscription()
         } else {
-            startRecording()
+            startLiveTranscription()
         }
     }
     
@@ -2478,6 +2703,156 @@ struct ContentView: View {
         isTranscribing = false
     }
     
+    // MARK: - Live Transcription Functions
+    func startLiveTranscription() {
+        // Check API key first
+        guard !deepgramAPIKey.isEmpty else {
+            showToast(message: "Deepgram API key not configured in Settings", type: .error)
+            return
+        }
+        
+        // Check microphone permission
+        let status = AVCaptureDevice.authorizationStatus(for: .audio)
+        switch status {
+        case .authorized:
+            setupLiveTranscription()
+        case .notDetermined:
+            AVCaptureDevice.requestAccess(for: .audio) { granted in
+                DispatchQueue.main.async {
+                    if granted {
+                        self.setupLiveTranscription()
+                    } else {
+                        self.showToast(message: "Microphone access denied. Please enable in System Settings.", type: .error)
+                    }
+                }
+            }
+        case .denied, .restricted:
+            showToast(message: "Microphone access denied. Please enable in System Settings.", type: .error)
+        @unknown default:
+            showToast(message: "Unknown microphone permission status", type: .error)
+        }
+    }
+    
+    private func setupLiveTranscription() {
+        // Enter voice input mode
+        isVoiceInputMode = true
+        isLiveTranscribing = true
+        isRecording = true // Keep this for UI compatibility (microphone animation)
+        
+        // Clear previous transcriptions
+        liveFinalText = ""
+        liveInterimText = ""
+        
+        // Hide bottom navigation
+        withAnimation(.easeInOut(duration: 0.3)) {
+            bottomNavOpacity = 0.0
+        }
+        
+        // Remove focus from text editor
+        DispatchQueue.main.async {
+            NSApplication.shared.keyWindow?.makeFirstResponder(nil)
+        }
+        
+        // Start microphone animation
+        startMicAnimation()
+        
+                 // Connect to Deepgram live API
+         liveTranscription.connect(apiKey: deepgramAPIKey, onTranscriptUpdate: { transcript, isFinal in
+             DispatchQueue.main.async {
+                 self.handleLiveTranscript(transcript, isFinal: isFinal)
+             }
+         }, onError: { error in
+             DispatchQueue.main.async {
+                 self.handleLiveTranscriptionError(error)
+             }
+         })
+        
+        print("🎤 Live transcription started")
+    }
+    
+    private func handleLiveTranscript(_ transcript: String, isFinal: Bool) {
+        guard !transcript.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return }
+        
+        if isFinal {
+            // Add final transcript to text
+            let cleanedText = transcript.trimmingCharacters(in: .whitespacesAndNewlines)
+            let capitalizedText = cleanedText.prefix(1).capitalized + cleanedText.dropFirst()
+            
+            // Find current cursor position or append to end
+            let separator = editingText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? "" : " "
+            editingText += separator + capitalizedText
+            
+            // Update the latest USER section
+            if let lastUserIdx = sections.lastIndex(where: { $0.type == .user }) {
+                sections[lastUserIdx].text = editingText
+            }
+            
+            // Save to file
+            if let currentId = selectedEntryId,
+               let currentEntry = entries.first(where: { $0.id == currentId }) {
+                saveEntry(entry: currentEntry)
+            }
+            
+            // Clear interim text
+            liveInterimText = ""
+            
+            // Auto-scroll to keep latest text visible
+            scrollToBottom()
+            
+        } else {
+            // Update interim text display (could be shown in UI with different styling)
+            liveInterimText = transcript
+        }
+    }
+    
+    private func handleLiveTranscriptionError(_ error: String) {
+        // Stop live transcription on error
+        stopLiveTranscription()
+        
+        // Show error to user
+        showToast(message: "Live transcription error: \(error)", type: .error)
+        
+        print("❌ Live transcription error: \(error)")
+    }
+    
+    func stopLiveTranscription() {
+        // Disconnect from Deepgram
+        liveTranscription.disconnect()
+        
+        // Reset states
+        isLiveTranscribing = false
+        isRecording = false
+        isVoiceInputMode = false
+        liveInterimText = ""
+        
+        // Stop microphone animation
+        stopMicAnimation()
+        
+        // Show bottom navigation
+        withAnimation(.easeInOut(duration: 0.3)) {
+            bottomNavOpacity = 1.0
+        }
+        
+        print("🔌 Live transcription stopped")
+    }
+    
+    private func scrollToBottom() {
+        // Trigger scroll to bottom for text editor
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
+            scrollTextEditorToBottom()
+        }
+    }
+    
+    private func scrollTextEditorToBottom() {
+        // Use AppKit to scroll the underlying NSTextView to bottom
+        DispatchQueue.main.async {
+            if let window = NSApplication.shared.keyWindow,
+               let textView = window.contentView?.findTextView() as? NSTextView {
+                textView.scrollToEndOfDocument(nil)
+            }
+        }
+    }
+    
     // --- End Audio Recording and Whisper API ---
     
     // --- Reflection Functionality ---
@@ -2596,10 +2971,9 @@ struct ContentView: View {
 
             ideally, you're style/tone should sound like the user themselves. it's as if the user is hearing their own tone but it should still feel different, because you have different things to say and don't just repeat back they say.
 
-            else, start by saying, "hey, thanks for showing me this. my thoughts:"
+            else, start by saying, "hey, thanks for showing me this :) my thoughts:" or "more thoughts:"
 
             my entries:
-
             """
             
             let payload: [String: Any] = [
@@ -2750,6 +3124,326 @@ struct ContentView: View {
     }
 }
 
+// MARK: - Deepgram Live Transcription Manager
+class DeepgramLiveTranscription: NSObject, ObservableObject {
+    @Published var isConnected: Bool = false
+    @Published var isTranscribing: Bool = false
+    @Published var interimTranscript: String = ""
+    @Published var finalTranscript: String = ""
+    
+    private var webSocketTask: URLSessionWebSocketTask?
+    private var urlSession: URLSession?
+    private var audioEngine: AVAudioEngine?
+    private var inputNode: AVAudioInputNode?
+    
+    private var apiKey: String = ""
+    private var onTranscriptUpdate: ((String, Bool) -> Void)?
+    private var onError: ((String) -> Void)?
+    
+    override init() {
+        super.init()
+        setupURLSession()
+    }
+    
+    private func setupURLSession() {
+        let config = URLSessionConfiguration.default
+        config.timeoutIntervalForRequest = 10
+        config.timeoutIntervalForResource = 0 // No timeout for streaming
+        urlSession = URLSession(configuration: config, delegate: self, delegateQueue: nil)
+    }
+    
+    func connect(apiKey: String, onTranscriptUpdate: @escaping (String, Bool) -> Void, onError: ((String) -> Void)? = nil) {
+        guard !apiKey.isEmpty else {
+            print("❌ Deepgram API key is empty")
+            return
+        }
+        
+        self.apiKey = apiKey
+        self.onTranscriptUpdate = onTranscriptUpdate
+        self.onError = onError
+        
+        // Build WebSocket URL with parameters
+        var urlComponents = URLComponents(string: "wss://api.deepgram.com/v1/listen")!
+        urlComponents.queryItems = [
+            URLQueryItem(name: "model", value: "nova-2"),
+            URLQueryItem(name: "smart_format", value: "true"),
+            URLQueryItem(name: "interim_results", value: "true"),
+            URLQueryItem(name: "utterance_end_ms", value: "1000"),
+            URLQueryItem(name: "vad_events", value: "true"),
+            URLQueryItem(name: "encoding", value: "linear16"),
+            URLQueryItem(name: "sample_rate", value: "16000"),
+            URLQueryItem(name: "channels", value: "1"),
+            URLQueryItem(name: "language", value: "en-US")
+        ]
+        
+        guard let url = urlComponents.url else {
+            let error = "Failed to create WebSocket URL"
+            print("❌ \(error)")
+            onError?(error)
+            return
+        }
+        
+        var request = URLRequest(url: url)
+        request.setValue("Token \(apiKey)", forHTTPHeaderField: "Authorization")
+        print("🔑 Authorization header: Token \(String(apiKey.prefix(10)))...") // Only show first 10 chars for security
+        
+        webSocketTask = urlSession?.webSocketTask(with: request)
+        
+        // Set up listening before resuming
+        startListening()
+        
+        // Resume the WebSocket task
+        webSocketTask?.resume()
+        
+        // Set up audio engine after WebSocket connection
+        setupAudioEngine()
+        
+        print("🔗 Connecting to Deepgram WebSocket...")
+        print("🔗 WebSocket URL: \(url.absoluteString)")
+    }
+    
+         private func startListening() {
+         webSocketTask?.receive { result in
+             switch result {
+             case .success(let message):
+                 self.handleWebSocketMessage(message)
+                 self.startListening() // Continue listening
+             case .failure(let error):
+                 print("❌ WebSocket receive error: \(error)")
+                 DispatchQueue.main.async {
+                     self.isConnected = false
+                     self.onError?("WebSocket connection error: \(error.localizedDescription)")
+                 }
+             }
+         }
+     }
+    
+    private func handleWebSocketMessage(_ message: URLSessionWebSocketTask.Message) {
+        switch message {
+        case .string(let text):
+            handleTranscriptionResponse(text)
+        case .data(let data):
+            if let text = String(data: data, encoding: .utf8) {
+                handleTranscriptionResponse(text)
+            }
+        @unknown default:
+            print("⚠️ Unknown WebSocket message type")
+        }
+    }
+    
+    private func handleTranscriptionResponse(_ response: String) {
+        print("📝 Deepgram response: \(response)")
+        
+        guard let data = response.data(using: .utf8),
+              let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else {
+            print("❌ Failed to parse transcription response")
+            return
+        }
+        
+        // Handle different message types
+        if let type = json["type"] as? String {
+            switch type {
+            case "Results":
+                handleResultsMessage(json)
+            case "UtteranceEnd":
+                handleUtteranceEnd()
+            case "SpeechStarted":
+                DispatchQueue.main.async {
+                    self.isTranscribing = true
+                }
+            case "SpeechEnded":
+                DispatchQueue.main.async {
+                    self.isTranscribing = false
+                }
+            default:
+                break
+            }
+        }
+    }
+    
+    private func handleResultsMessage(_ json: [String: Any]) {
+        guard let channel = json["channel"] as? [String: Any],
+              let alternatives = channel["alternatives"] as? [[String: Any]],
+              let alternative = alternatives.first,
+              let transcript = alternative["transcript"] as? String else {
+            return
+        }
+        
+        let isFinal = json["is_final"] as? Bool ?? false
+        
+        DispatchQueue.main.async {
+            if isFinal {
+                self.finalTranscript += " " + transcript
+                self.interimTranscript = ""
+                self.onTranscriptUpdate?(transcript, true)
+            } else {
+                self.interimTranscript = transcript
+                self.onTranscriptUpdate?(transcript, false)
+            }
+        }
+    }
+    
+    private func handleUtteranceEnd() {
+        DispatchQueue.main.async {
+            if !self.interimTranscript.isEmpty {
+                self.finalTranscript += " " + self.interimTranscript
+                self.interimTranscript = ""
+            }
+        }
+    }
+    
+    private func setupAudioEngine() {
+        audioEngine = AVAudioEngine()
+        inputNode = audioEngine?.inputNode
+        
+        guard let audioEngine = audioEngine, let inputNode = inputNode else {
+            let error = "Failed to setup audio engine"
+            print("❌ \(error)")
+            onError?(error)
+            return
+        }
+        
+        let recordingFormat = inputNode.outputFormat(forBus: 0)
+        let desiredFormat = AVAudioFormat(commonFormat: .pcmFormatInt16, 
+                                        sampleRate: 16000, 
+                                        channels: 1, 
+                                        interleaved: false)!
+        
+        let converter = AVAudioConverter(from: recordingFormat, to: desiredFormat)
+        
+        // Install tap with proper buffer size for 16kHz streaming
+        inputNode.installTap(onBus: 0, bufferSize: 1024, format: recordingFormat) { buffer, _ in
+            self.processAudioBuffer(buffer, converter: converter, outputFormat: desiredFormat)
+        }
+        
+        do {
+            try audioEngine.start()
+            print("🎤 Audio engine started")
+            print("🎤 Recording format: \(recordingFormat)")
+            print("🎤 Desired format: \(desiredFormat)")
+        } catch {
+            let errorMsg = "Failed to start audio engine: \(error.localizedDescription)"
+            print("❌ \(errorMsg)")
+            onError?(errorMsg)
+        }
+    }
+    
+    private func processAudioBuffer(_ buffer: AVAudioPCMBuffer, converter: AVAudioConverter?, outputFormat: AVAudioFormat) {
+        guard let converter = converter else { 
+            print("❌ No converter available")
+            return 
+        }
+        
+        let capacity = AVAudioFrameCount(Double(buffer.frameLength) * outputFormat.sampleRate / buffer.format.sampleRate)
+        guard let convertedBuffer = AVAudioPCMBuffer(pcmFormat: outputFormat, frameCapacity: capacity) else { 
+            print("❌ Failed to create converted buffer")
+            return 
+        }
+        
+        var error: NSError?
+        let inputBlock: AVAudioConverterInputBlock = { _, outStatus in
+            outStatus.pointee = .haveData
+            return buffer
+        }
+        
+        let status = converter.convert(to: convertedBuffer, error: &error, withInputFrom: inputBlock)
+        
+        if let error = error {
+            print("❌ Audio conversion error: \(error.localizedDescription)")
+        } else if status == .haveData {
+            sendAudioData(convertedBuffer)
+        }
+    }
+    
+    private func sendAudioData(_ buffer: AVAudioPCMBuffer) {
+        guard let int16Buffer = buffer.int16ChannelData?[0],
+              buffer.frameLength > 0 else { 
+            print("❌ Invalid audio buffer data")
+            return 
+        }
+        
+        let data = Data(bytes: int16Buffer, count: Int(buffer.frameLength) * 2)
+        
+        webSocketTask?.send(.data(data)) { error in
+            if let error = error {
+                print("❌ Failed to send audio data: \(error)")
+                DispatchQueue.main.async {
+                    self.onError?("Failed to send audio data: \(error.localizedDescription)")
+                }
+            }
+        }
+    }
+    
+    func disconnect() {
+        // Stop audio engine safely
+        if let audioEngine = audioEngine, audioEngine.isRunning {
+            audioEngine.stop()
+        }
+        
+        // Remove audio tap safely
+        if let inputNode = inputNode {
+            inputNode.removeTap(onBus: 0)
+        }
+        
+        // Clean up audio components
+        audioEngine = nil
+        inputNode = nil
+        
+        // Send close frame and cleanup WebSocket
+        webSocketTask?.cancel(with: .goingAway, reason: nil)
+        webSocketTask = nil
+        
+        // Clear callbacks
+        onTranscriptUpdate = nil
+        onError = nil
+        
+        DispatchQueue.main.async {
+            self.isConnected = false
+            self.isTranscribing = false
+            self.interimTranscript = ""
+            self.finalTranscript = ""
+        }
+        
+        print("🔌 Disconnected from Deepgram")
+    }
+}
+
+extension DeepgramLiveTranscription: URLSessionWebSocketDelegate {
+    func urlSession(_ session: URLSession, webSocketTask: URLSessionWebSocketTask, didOpenWithProtocol protocolName: String?) {
+        DispatchQueue.main.async {
+            self.isConnected = true
+        }
+        print("✅ WebSocket connected to Deepgram")
+        print("✅ Protocol: \(protocolName ?? "none")")
+    }
+    
+    func urlSession(_ session: URLSession, webSocketTask: URLSessionWebSocketTask, didCloseWith closeCode: URLSessionWebSocketTask.CloseCode, reason: Data?) {
+        DispatchQueue.main.async {
+            self.isConnected = false
+            self.isTranscribing = false
+        }
+        let reasonString = reason.flatMap { String(data: $0, encoding: .utf8) } ?? "No reason provided"
+        print("🔌 WebSocket disconnected: \(closeCode) - \(reasonString)")
+        
+        // Notify error handler if unexpected disconnection
+        if closeCode != .goingAway && closeCode != .normalClosure {
+            DispatchQueue.main.async {
+                self.onError?("WebSocket disconnected unexpectedly: \(closeCode)")
+            }
+        }
+    }
+    
+    func urlSession(_ session: URLSession, task: URLSessionTask, didCompleteWithError error: Error?) {
+        if let error = error {
+            print("❌ URLSession task completed with error: \(error)")
+            DispatchQueue.main.async {
+                self.isConnected = false
+                self.onError?("Connection failed: \(error.localizedDescription)")
+            }
+        }
+    }
+}
+
 // Add these view structs before the main ContentView struct
 struct SettingsModal: View {
     @Binding var showingSettings: Bool
@@ -2757,7 +3451,8 @@ struct SettingsModal: View {
     @Binding var openAIapiKey: String
     @Binding var deepgramApiKey: String
     @Binding var showMicrophone: Bool
-    let onRunWeekly: () -> Void
+    @ObservedObject var settingsManager: SettingsManager
+    let runDateRangeReflection: (Date, Date, String) -> Void
     
     var body: some View {
         HStack(spacing: 0) {
@@ -2767,7 +3462,8 @@ struct SettingsModal: View {
                 openAIapiKey: $openAIapiKey,
                 deepgramApiKey: $deepgramApiKey,
                 showMicrophone: $showMicrophone,
-                onRunWeekly: onRunWeekly
+                settingsManager: settingsManager,
+                runDateRangeReflection: runDateRangeReflection
             )
         }
         .frame(width: 600, height: 400)
@@ -2796,7 +3492,7 @@ struct SettingsSidebar: View {
             // Sidebar Items
             VStack(alignment: .leading, spacing: 2) {
                 SettingsSidebarItem(
-                    title: "Reflections",
+                    title: "Reflection",
                     icon: "calendar",
                     isSelected: selectedTab == .reflections,
                     action: { selectedTab = .reflections }
@@ -2861,18 +3557,25 @@ struct SettingsContent: View {
     @Binding var openAIapiKey: String
     @Binding var deepgramApiKey: String
     @Binding var showMicrophone: Bool
-    let onRunWeekly: () -> Void
+    @ObservedObject var settingsManager: SettingsManager
+    let runDateRangeReflection: (Date, Date, String) -> Void
     @Environment(\.colorScheme) var colorScheme
     
     var body: some View {
         VStack(alignment: .leading, spacing: 16) {
             switch selectedTab {
+            case .reflections:
+                ReflectionsSettingsView(
+                    settingsManager: settingsManager,
+                    onRunWeek: { fromDate, toDate in runDateRangeReflection(fromDate, toDate, "Week") },
+                    onRunMonth: { fromDate, toDate in runDateRangeReflection(fromDate, toDate, "Month") },
+                    onRunYear: { fromDate, toDate in runDateRangeReflection(fromDate, toDate, "Year") },
+                    onRunCustom: { fromDate, toDate in runDateRangeReflection(fromDate, toDate, "Custom") }
+                )
             case .apiKeys:
                 APIKeysSettingsView(openAIapiKey: $openAIapiKey, deepgramApiKey: $deepgramApiKey)
-            case .reflections:
-                ReflectionsSettingsView(onRunNow: onRunWeekly)
             case .transcription:
-                TranscriptionSettingsView(showMicrophone: $showMicrophone)
+                TranscriptionSettingsView(showMicrophone: $showMicrophone, settingsManager: settingsManager)
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
@@ -3037,292 +3740,195 @@ struct APIKeysSettingsView: View {
 }
 
 struct ReflectionsSettingsView: View {
-    // Weekly
-    @State private var isWeeklyEnabled: Bool = true
-    @State private var selectedDay: String = "Sunday"
-    @State private var weeklyReflectionTime: Date = Calendar.current.date(from: DateComponents(hour: 10, minute: 0)) ?? Date()
-    let daysOfWeek = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"]
+    @ObservedObject var settingsManager: SettingsManager
+    let onRunWeek: (Date, Date) -> Void
+    let onRunMonth: (Date, Date) -> Void
+    let onRunYear: (Date, Date) -> Void
+    let onRunCustom: (Date, Date) -> Void
     
-    // Monthly
-    @State private var isMonthlyEnabled: Bool = false
-    @State private var selectedMonthDay: Int = 1
-    @State private var monthlyReflectionTime: Date = Calendar.current.date(from: DateComponents(hour: 10, minute: 0)) ?? Date()
-    let daysOfMonth = Array(1...30)
+    // Week
+    @State private var weekFromDate: Date = Calendar.current.date(byAdding: .day, value: -7, to: Date()) ?? Date()
+    @State private var weekToDate: Date = Date()
     
-    // Quarterly
-    @State private var isQuarterlyEnabled: Bool = false
-    @State private var q1Month: Int = 0
-    @State private var q1Day: Int = 1
-    @State private var q2Month: Int = 3
-    @State private var q2Day: Int = 1
-    @State private var q3Month: Int = 6
-    @State private var q3Day: Int = 1
-    @State private var q4Month: Int = 9
-    @State private var q4Day: Int = 1
-    @State private var quarterlyReflectionTime: Date = Calendar.current.date(from: DateComponents(hour: 10, minute: 0)) ?? Date()
+    // Month  
+    @State private var monthFromDate: Date = Calendar.current.date(byAdding: .day, value: -30, to: Date()) ?? Date()
+    @State private var monthToDate: Date = Date()
     
-    // Annually
-    @State private var isAnnuallyEnabled: Bool = false
-    @State private var annualMonth: Int = 0 // 0 = January
-    @State private var annualDay: Int = 1   // 1 = first day
-    @State private var annualReflectionTime: Date = Calendar.current.date(from: DateComponents(hour: 10, minute: 0)) ?? Date()
-
-    let onRunNow: () -> Void
+    // Year
+    @State private var yearFromDate: Date = Calendar.current.date(byAdding: .day, value: -365, to: Date()) ?? Date()
+    @State private var yearToDate: Date = Date()
+    
+    // Custom
+    @State private var customFromDate: Date = Date()
+    @State private var customToDate: Date = Date()
 
     var body: some View {
-        ScrollView {
-            VStack(alignment: .leading, spacing: 24) {
-                // Weekly Section
-                VStack(alignment: .leading, spacing: 8) {
-                    Toggle(isOn: $isWeeklyEnabled) {
-                        Text("Weekly")
-                            .font(.headline)
-                            .fontWeight(.semibold)
+        VStack(alignment: .leading, spacing: 16) {
+            // Week Section
+            VStack(alignment: .leading, spacing: 12) {
+                Text("Last Week")
+                    .font(.headline)
+                    .fontWeight(.semibold)
+                
+                HStack(spacing: 16) {
+                    VStack(alignment: .leading, spacing: 4) {
+                        Text("From")
+                            .font(.caption)
+                            .foregroundColor(.secondary)
+                        DatePicker("", selection: $weekFromDate, displayedComponents: .date)
+                            .datePickerStyle(.compact)
                     }
                     
-                    HStack(spacing: 12) {
-                        Picker("Reflect every", selection: $selectedDay) {
-                            ForEach(daysOfWeek, id: \.self) { day in Text(day) }
-                        }
-                        .pickerStyle(MenuPickerStyle())
-                        
-                        DatePicker("at", selection: $weeklyReflectionTime, displayedComponents: .hourAndMinute)
-                            .datePickerStyle(CompactDatePickerStyle())
-                        
-                        Text("•")
+                    VStack(alignment: .leading, spacing: 4) {
+                        Text("To")
+                            .font(.caption)
                             .foregroundColor(.secondary)
-                        
-                        Button("Run now") {
-                            onRunNow()
-                        }
-                    }
-                    .foregroundColor(.secondary)
-                    .disabled(!isWeeklyEnabled)
-                }
-                
-                Divider()
-                
-                // Monthly Section
-                VStack(alignment: .leading, spacing: 8) {
-                    Toggle(isOn: $isMonthlyEnabled) {
-                        Text("Monthly")
-                            .font(.headline)
-                            .fontWeight(.semibold)
+                        DatePicker("", selection: $weekToDate, displayedComponents: .date)
+                            .datePickerStyle(.compact)
                     }
                     
-                    HStack(spacing: 8) {
-                        Text("Reflect every")
-                        Picker("Day", selection: $selectedMonthDay) {
-                            ForEach(daysOfMonth, id: \.self) { day in
-                                Text("\(day)").tag(day)
-                            }
-                        }
-                        .pickerStyle(MenuPickerStyle())
-                        .labelsHidden()
-                        Text("at")
-                            .foregroundColor(.secondary)
-                        DatePicker("", selection: $monthlyReflectionTime, displayedComponents: .hourAndMinute)
-                            .datePickerStyle(CompactDatePickerStyle())
-                        Text("•")
-                            .foregroundColor(.secondary)
-                        Button("Run now") {
-                            // No action for now
-                        }
-                    }
-                    .foregroundColor(.secondary)
-                    .disabled(!isMonthlyEnabled)
-                }
-                
-                Divider()
-
-                // Quarterly Section
-                VStack(alignment: .leading, spacing: 12) {
-                    Toggle(isOn: $isQuarterlyEnabled) {
-                        Text("Quarterly")
-                            .font(.headline)
-                            .fontWeight(.semibold)
-                    }
+                    Spacer()
                     
-                    // Quarterly pickers: Month and Day dropdowns for each quarter
-                    let months = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"]
-                    let days = Array(1...30)
-                    HStack(spacing: 16) {
-                        VStack(alignment: .leading, spacing: 4) {
-                            Text("Q1")
-                            HStack(spacing: 4) {
-                                Picker("", selection: $q1Month) {
-                                    ForEach(0..<months.count, id: \ .self) { idx in
-                                        Text(months[idx]).tag(idx)
-                                    }
-                                }
-                                .frame(width: 70)
-                                .labelsHidden()
-                                .disabled(!isQuarterlyEnabled)
-                                Picker("", selection: $q1Day) {
-                                    ForEach(days, id: \ .self) { day in
-                                        Text("\(day)").tag(day)
-                                    }
-                                }
-                                .frame(width: 50)
-                                .labelsHidden()
-                                .disabled(!isQuarterlyEnabled)
-                            }
-                        }
-                        VStack(alignment: .leading, spacing: 4) {
-                            Text("Q2")
-                            HStack(spacing: 4) {
-                                Picker("", selection: $q2Month) {
-                                    ForEach(0..<months.count, id: \ .self) { idx in
-                                        Text(months[idx]).tag(idx)
-                                    }
-                                }
-                                .frame(width: 70)
-                                .labelsHidden()
-                                .disabled(!isQuarterlyEnabled)
-                                Picker("", selection: $q2Day) {
-                                    ForEach(days, id: \ .self) { day in
-                                        Text("\(day)").tag(day)
-                                    }
-                                }
-                                .frame(width: 50)
-                                .labelsHidden()
-                                .disabled(!isQuarterlyEnabled)
-                            }
-                        }
+                    Button("Run now") {
+                        onRunWeek(weekFromDate, weekToDate)
                     }
-                    HStack(spacing: 16) {
-                        VStack(alignment: .leading, spacing: 4) {
-                            Text("Q3")
-                            HStack(spacing: 4) {
-                                Picker("", selection: $q3Month) {
-                                    ForEach(0..<months.count, id: \ .self) { idx in
-                                        Text(months[idx]).tag(idx)
-                                    }
-                                }
-                                .frame(width: 70)
-                                .labelsHidden()
-                                .disabled(!isQuarterlyEnabled)
-                                Picker("", selection: $q3Day) {
-                                    ForEach(days, id: \ .self) { day in
-                                        Text("\(day)").tag(day)
-                                    }
-                                }
-                                .frame(width: 50)
-                                .labelsHidden()
-                                .disabled(!isQuarterlyEnabled)
-                            }
-                        }
-                        VStack(alignment: .leading, spacing: 4) {
-                            Text("Q4")
-                            HStack(spacing: 4) {
-                                Picker("", selection: $q4Month) {
-                                    ForEach(0..<months.count, id: \ .self) { idx in
-                                        Text(months[idx]).tag(idx)
-                                    }
-                                }
-                                .frame(width: 70)
-                                .labelsHidden()
-                                .disabled(!isQuarterlyEnabled)
-                                Picker("", selection: $q4Day) {
-                                    ForEach(days, id: \ .self) { day in
-                                        Text("\(day)").tag(day)
-                                    }
-                                }
-                                .frame(width: 50)
-                                .labelsHidden()
-                                .disabled(!isQuarterlyEnabled)
-                            }
-                        }
-                    }
-                    
-                    HStack(spacing: 8) {
-                    
-                        DatePicker("at", selection: $quarterlyReflectionTime, displayedComponents: .hourAndMinute)
-                            .datePickerStyle(CompactDatePickerStyle())
-                        
-                        Spacer()
-
-                        Text("•")
-                            .foregroundColor(.secondary)
-                        Button("Run now") {
-                            // No action for now
-                        }
-                    }
-                    .foregroundColor(.secondary)
-                    .disabled(!isQuarterlyEnabled)
-                }
-                
-                Divider()
-                
-                // Annually Section
-                VStack(alignment: .leading, spacing: 8) {
-                    Toggle(isOn: $isAnnuallyEnabled) {
-                        Text("Annually")
-                            .font(.headline)
-                            .fontWeight(.semibold)
-                    }
-                    let months = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"]
-                    let days = Array(1...30)
-                    HStack(spacing: 8) {
-                        Picker("", selection: $annualMonth) {
-                            ForEach(0..<months.count, id: \ .self) { idx in
-                                Text(months[idx]).tag(idx)
-                            }
-                        }
-                        .frame(width: 70)
-                        .labelsHidden()
-                        .disabled(!isAnnuallyEnabled)
-                        Picker("", selection: $annualDay) {
-                            ForEach(days, id: \ .self) { day in
-                                Text("\(day)").tag(day)
-                            }
-                        }
-                        .frame(width: 50)
-                        .labelsHidden()
-                        .disabled(!isAnnuallyEnabled)
-                        DatePicker("at", selection: $annualReflectionTime, displayedComponents: .hourAndMinute)
-                            .datePickerStyle(CompactDatePickerStyle())
-                            .disabled(!isAnnuallyEnabled)
-                        Text("•")
-                            .foregroundColor(.secondary)
-                        Button("Run now") {
-                            // No action for now
-                        }
-                    }
-                    .foregroundColor(.secondary)
-                    .disabled(!isAnnuallyEnabled)
                 }
             }
-            .padding(.vertical, 20)
+            
+            // Month Section
+            VStack(alignment: .leading, spacing: 12) {
+                Text("Last Month")
+                    .font(.headline)
+                    .fontWeight(.semibold)
+                
+                HStack(spacing: 16) {
+                    VStack(alignment: .leading, spacing: 4) {
+                        Text("From")
+                            .font(.caption)
+                            .foregroundColor(.secondary)
+                        DatePicker("", selection: $monthFromDate, displayedComponents: .date)
+                            .datePickerStyle(.compact)
+                    }
+                    
+                    VStack(alignment: .leading, spacing: 4) {
+                        Text("To")
+                            .font(.caption)
+                            .foregroundColor(.secondary)
+                        DatePicker("", selection: $monthToDate, displayedComponents: .date)
+                            .datePickerStyle(.compact)
+                    }
+                    
+                    Spacer()
+                    
+                    Button("Run now") {
+                        onRunMonth(monthFromDate, monthToDate)
+                    }
+                }
+            }
+            
+            // Year Section
+            VStack(alignment: .leading, spacing: 12) {
+                Text("Last Year")
+                    .font(.headline)
+                    .fontWeight(.semibold)
+                
+                HStack(spacing: 16) {
+                    VStack(alignment: .leading, spacing: 4) {
+                        Text("From")
+                            .font(.caption)
+                            .foregroundColor(.secondary)
+                        DatePicker("", selection: $yearFromDate, displayedComponents: .date)
+                            .datePickerStyle(.compact)
+                    }
+                    
+                    VStack(alignment: .leading, spacing: 4) {
+                        Text("To")
+                            .font(.caption)
+                            .foregroundColor(.secondary)
+                        DatePicker("", selection: $yearToDate, displayedComponents: .date)
+                            .datePickerStyle(.compact)
+                    }
+                    
+                    Spacer()
+                    
+                    Button("Run now") {
+                        onRunYear(yearFromDate, yearToDate)
+                    }
+                }
+            }
+            
+            // Custom Section
+            VStack(alignment: .leading, spacing: 12) {
+                Text("Custom")
+                    .font(.headline)
+                    .fontWeight(.semibold)
+                
+                HStack(spacing: 16) {
+                    VStack(alignment: .leading, spacing: 4) {
+                        Text("From")
+                            .font(.caption)
+                            .foregroundColor(.secondary)
+                        DatePicker("", selection: $customFromDate, displayedComponents: .date)
+                            .datePickerStyle(.compact)
+                    }
+                    
+                    VStack(alignment: .leading, spacing: 4) {
+                        Text("To")
+                            .font(.caption)
+                            .foregroundColor(.secondary)
+                        DatePicker("", selection: $customToDate, displayedComponents: .date)
+                            .datePickerStyle(.compact)
+                    }
+                    
+                    Spacer()
+                    
+                    Button("Run now") {
+                        onRunCustom(customFromDate, customToDate)
+                    }
+                    .disabled(customFromDate > customToDate)
+                }
+            }
+            
+            Spacer()
         }
-        .onAppear(perform: setQuarterDates)
-        .scrollIndicators(.never)
-    }
-
-    private func setQuarterDates() {
-        q1Month = 3
-        q1Day = 1
-        q2Month = 6
-        q2Day = 1
-        q3Month = 9
-        q3Day = 1
-        q4Month = 0
-        q4Day = 1
+        .padding(.vertical, 20)
+        .onAppear {
+            // Set up default date ranges
+            let today = Date()
+            let calendar = Calendar.current
+            
+            // Week: 7 days prior to today
+            weekFromDate = calendar.date(byAdding: .day, value: -7, to: today) ?? today
+            weekToDate = today
+            
+            // Month: 30 days prior to today
+            monthFromDate = calendar.date(byAdding: .day, value: -30, to: today) ?? today
+            monthToDate = today
+            
+            // Year: 365 days prior to today
+            yearFromDate = calendar.date(byAdding: .day, value: -365, to: today) ?? today
+            yearToDate = today
+            
+            // Custom: To = today, From = blank (will show today initially)
+            customToDate = today
+            // Leave customFromDate as is (will show today by default)
+        }
     }
 }
 
 struct TranscriptionSettingsView: View {
     @Binding var showMicrophone: Bool
+    @ObservedObject var settingsManager: SettingsManager
 
     var body: some View {
         VStack(alignment: .leading, spacing: 16) {
 
             Toggle("Show microphone button", isOn: $showMicrophone)
                 .onChange(of: showMicrophone) { newValue in
-                    UserDefaults.standard.set(newValue, forKey: "showMicrophone")
+                    settingsManager.updateShowMicrophone(newValue)
                 }
 
-            Text("Disable if you prefer using another speech-to-text app (Wispr Flow, Superwhisper, etc.).")
+            Text("Disable if you prefer using another speech-to-text app (Wispr Flow, Superwhisper, etc).")
                 .font(.caption)
                 .foregroundColor(.secondary)
 
