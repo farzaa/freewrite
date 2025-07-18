@@ -195,6 +195,7 @@ struct ContentView: View {
     @StateObject private var reflectionViewModel = ReflectionViewModel()
     @State private var followUpText: String = ""
     @State private var showMicrophone: Bool = true
+    @State private var isNavbarHidden: Bool = false
     
     // Add state for reflection functionality
     @State private var showReflectionPanel: Bool = false
@@ -805,11 +806,13 @@ struct ContentView: View {
         let textColor = colorScheme == .light ? Color.gray : Color.gray.opacity(0.8)
         let textHoverColor = colorScheme == .light ? Color.black : Color.white
         
-        VStack(spacing: 0) {
-            
-            // Main navigation bar
-            ZStack(alignment: .center) {
-                HStack(alignment: .center) {
+        ZStack(alignment: .center) {
+            VStack(spacing: 0) {
+                
+                // Main navigation bar
+                ZStack(alignment: .center) {
+                if !isNavbarHidden {
+                    HStack(alignment: .center) {
                     // Left side - Navigation Controls: Sidebar, New Entry, Timer
                     HStack(spacing: 8) {
                         // History/sidebar button with new icon
@@ -1178,52 +1181,6 @@ struct ContentView: View {
                     .onHover { hovering in
                         isHoveringBottomNav = hovering
                     }
-                }
-                
-                // Microphone Button (centered in navbar)
-                if showMicrophone {
-                    let buttonSize: CGFloat = 40
-                    let borderWidth: CGFloat = 1
-                    let dotRadius: CGFloat = (buttonSize / 2) - (borderWidth / 2)
-                    Button(action: {
-                        toggleRecording()
-                    }) {
-                        ZStack {
-                            Circle()
-                                .fill(colorScheme == .light ? Color.white : Color.black)
-                                .frame(width: buttonSize, height: buttonSize)
-                                .overlay(
-                                    Circle()
-                                        .stroke(Color.gray.opacity(0.45), lineWidth: borderWidth)
-                                )
-                                .shadow(
-                                    color: isRecording
-                                        ? (colorScheme == .dark ? Color.clear : Color.clear)
-                                        : (colorScheme == .dark ? Color.white.opacity(0.32) : Color.gray.opacity(0.32)),
-                                    radius: 12,
-                                    y: 3
-                                )
-                            Image(systemName: "mic.fill")
-                                .font(.system(size: 16, weight: .medium))
-                                .foregroundColor(colorScheme == .light ? .gray : .white.opacity(0.85))
-                            // Animated white dot on border
-                            if isRecording {
-                                let angle = Angle(degrees: micDotAngle)
-                                let x = dotRadius * cos(angle.radians - .pi/2)
-                                let y = dotRadius * sin(angle.radians - .pi/2)
-                                Circle()
-                                    .fill(Color.white)
-                                    .frame(width: 5, height: 5)
-                                    .offset(x: x, y: y)
-                                    .shadow(color: Color.white.opacity(0.8), radius: 3)
-                            }
-                        }
-                    }
-                    .buttonStyle(.plain)
-                    .animation(.linear(duration: 0.016), value: micDotAngle)
-                    .onDisappear {
-                        micDotTimer?.invalidate()
-                        micDotTimer = nil
                     }
                 }
             }
@@ -1244,6 +1201,56 @@ struct ContentView: View {
                         }
                     }
                 }
+            }
+            
+            // Microphone Button (centered, outside navbar opacity control)
+            if showMicrophone {
+                let buttonSize: CGFloat = 40
+                let borderWidth: CGFloat = 1
+                let dotRadius: CGFloat = (buttonSize / 2) - (borderWidth / 2)
+                Button(action: {
+                    toggleNavbarVisibility()
+                    toggleRecording()
+                }) {
+                    ZStack {
+                        Circle()
+                            .fill(colorScheme == .light ? Color.white : Color.black)
+                            .frame(width: buttonSize, height: buttonSize)
+                            .overlay(
+                                Circle()
+                                    .stroke(Color.gray.opacity(0.45), lineWidth: borderWidth)
+                            )
+                            .shadow(
+                                color: isRecording
+                                    ? (colorScheme == .dark ? Color.clear : Color.clear)
+                                    : (colorScheme == .dark ? Color.white.opacity(0.32) : Color.gray.opacity(0.32)),
+                                radius: 12,
+                                y: 3
+                            )
+                        Image(systemName: "mic.fill")
+                            .font(.system(size: 16, weight: .medium))
+                            .foregroundColor(colorScheme == .light ? .gray : .white.opacity(0.85))
+                        // Animated white dot on border
+                        if isRecording {
+                            let angle = Angle(degrees: micDotAngle)
+                            let x = dotRadius * cos(angle.radians - .pi/2)
+                            let y = dotRadius * sin(angle.radians - .pi/2)
+                            Circle()
+                                .fill(Color.white)
+                                .frame(width: 5, height: 5)
+                                .offset(x: x, y: y)
+                                .shadow(color: Color.white.opacity(0.8), radius: 3)
+                        }
+                    }
+                }
+                .buttonStyle(.plain)
+                .animation(.linear(duration: 0.016), value: micDotAngle)
+                .padding(.vertical, 10)
+                .onDisappear {
+                    micDotTimer?.invalidate()
+                    micDotTimer = nil
+                }
+            }
         }
     }
     
@@ -1352,12 +1359,28 @@ struct ContentView: View {
                     TextEditor(text: Binding(
                         get: { editingText },
                         set: { newValue in
-                            // Ensure the text starts with two newlines for proper spacing
-                            if !newValue.hasPrefix("\n\n") && !newValue.isEmpty {
-                                editingText = "\n\n" + newValue.trimmingCharacters(in: .newlines)
-                            } else {
-                                editingText = newValue
+                            // Always ensure the text starts with exactly two newlines
+                            var processedValue = newValue
+                            
+                            // Handle empty or whitespace-only content
+                            if processedValue.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                                processedValue = "\n\n"
+                            } else if !processedValue.hasPrefix("\n\n") {
+                                // Remove any leading newlines and add exactly two
+                                let trimmedLeading = processedValue.trimmingCharacters(in: .newlines)
+                                processedValue = "\n\n" + trimmedLeading
+                            } else if processedValue.hasPrefix("\n") && !processedValue.hasPrefix("\n\n") {
+                                // If starts with single newline, add one more
+                                processedValue = "\n" + processedValue
                             }
+                            
+                            // Additional safety check: ensure we have at least \n\n
+                            if processedValue.count < 2 || !processedValue.hasPrefix("\n\n") {
+                                processedValue = "\n\n" + processedValue.trimmingCharacters(in: .newlines)
+                            }
+                            
+                            editingText = processedValue
+                            
                             // Update the last user section
                             if let lastUserIdx = sections.lastIndex(where: { $0.type == .user }) {
                                 sections[lastUserIdx].text = editingText
@@ -2091,6 +2114,20 @@ struct ContentView: View {
     }
 
     // --- Audio Recording and Whisper API ---
+    func toggleNavbarVisibility() {
+        // If navbar is currently visible, hide it
+        if !isNavbarHidden {
+            withAnimation(.easeInOut(duration: 0.3)) {
+                isNavbarHidden = true
+            }
+        } else {
+            // If navbar is hidden, show it again
+            withAnimation(.easeInOut(duration: 0.3)) {
+                isNavbarHidden = false
+            }
+        }
+    }
+    
     func toggleRecording() {
         if isRecording {
             stopRecording()
@@ -2245,6 +2282,7 @@ struct ContentView: View {
                 bottomNavOpacity = 1.0
             }
         }
+
     }
     
     func transcribeAudioChunk(url: URL, chunkIndex: Int) {
@@ -3558,3 +3596,4 @@ struct TextEditorCursorColorView: NSViewRepresentable {
         }
     }
 }
+
