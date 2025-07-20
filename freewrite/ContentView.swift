@@ -475,7 +475,7 @@ struct ContentView: View {
         
         // Set up sections with the initial USER section containing the "Read x entries" text
         sections = [EntrySection(type: .user, text: "Read \(entryCount) entries from \(startDateString) - \(endDateString)")]
-        editingText = "Read \(entryCount) entries from \(startDateString) - \(endDateString)"
+        editingText = "" // Don't show the "Read x entries" text in the editor, only in the right panel
         
         // Add REFLECTION section and start streaming
         sections.append(EntrySection(type: .reflection, text: ""))
@@ -595,6 +595,39 @@ struct ContentView: View {
                         }
                     }
                 }
+                // Handle Reflection entries: [Reflection]-[MM-dd-yyyy]-[MM-dd-yyyy]-[HH-mm-ss].md
+                else if filename.hasPrefix("[Reflection]-") {
+                    let pattern = "\\[Reflection\\]-\\[(\\d{2}-\\d{2}-\\d{4})\\]-\\[(\\d{2}-\\d{2}-\\d{4})\\]-\\[(\\d{2}-\\d{2}-\\d{2})\\]"
+                    if let match = filename.range(of: pattern, options: .regularExpression) {
+                        let matchString = String(filename[match])
+                        let components = matchString.components(separatedBy: "]-[")
+                        
+                        if components.count >= 4 {
+                            let reflectionStartDateString = components[1]
+                            let reflectionEndDateString = components[2]
+                            
+                            let dateFormatter = DateFormatter()
+                            dateFormatter.dateFormat = "MM-dd-yyyy"
+                            
+                            if let reflectionStartDate = dateFormatter.date(from: reflectionStartDateString),
+                               let reflectionEndDate = dateFormatter.date(from: reflectionEndDateString) {
+                                
+                                let startOfReflectionStart = calendar.startOfDay(for: reflectionStartDate)
+                                let startOfReflectionEnd = calendar.startOfDay(for: reflectionEndDate)
+                                
+                                // Check if reflection entry's date range overlaps with our target range
+                                // Overlap exists if: reflectionStart <= targetEnd AND reflectionEnd >= targetStart
+                                if startOfReflectionStart <= startOfEndDate && startOfReflectionEnd >= startOfStartDate {
+                                    shouldInclude = true
+                                    dateFormatter.dateFormat = "MMMM d"
+                                    let startDisplay = dateFormatter.string(from: reflectionStartDate)
+                                    let endDisplay = dateFormatter.string(from: reflectionEndDate)
+                                    displayDate = "Reflection: \(startDisplay) - \(endDisplay)"
+                                }
+                            }
+                        }
+                    }
+                }
                 
                 if shouldInclude {
                     do {
@@ -688,6 +721,66 @@ struct ContentView: View {
                         print("No date match found")
                     }
                 }
+                // Handle Weekly entries: [Weekly]-[MM-dd-yyyy]-[MM-dd-yyyy]-[HH-mm-ss].md
+                else if filename.hasPrefix("[Weekly]-") {
+                    print("Checking Weekly file: \(filename)")
+                    let pattern = "\\[Weekly\\]-\\[(\\d{2}-\\d{2}-\\d{4})\\]-\\[(\\d{2}-\\d{2}-\\d{4})\\]-\\[(\\d{2}-\\d{2}-\\d{2})\\]"
+                    if let match = filename.range(of: pattern, options: .regularExpression) {
+                        let matchString = String(filename[match])
+                        let components = matchString.components(separatedBy: "]-[")
+                        
+                        if components.count >= 4 {
+                            let weeklyStartDateString = components[1]
+                            let weeklyEndDateString = components[2]
+                            
+                            let dateFormatter = DateFormatter()
+                            dateFormatter.dateFormat = "MM-dd-yyyy"
+                            
+                            if let weeklyStartDate = dateFormatter.date(from: weeklyStartDateString),
+                               let weeklyEndDate = dateFormatter.date(from: weeklyEndDateString) {
+                                
+                                let startOfWeeklyStart = calendar.startOfDay(for: weeklyStartDate)
+                                let startOfWeeklyEnd = calendar.startOfDay(for: weeklyEndDate)
+                                
+                                // Check if weekly entry's date range overlaps with our target range
+                                if startOfWeeklyStart <= startOfEndDate && startOfWeeklyEnd >= startOfStartDate {
+                                    entryCount += 1
+                                    print("Added Weekly entry to count, total now: \(entryCount)")
+                                }
+                            }
+                        }
+                    }
+                }
+                // Handle Reflection entries: [Reflection]-[MM-dd-yyyy]-[MM-dd-yyyy]-[HH-mm-ss].md
+                else if filename.hasPrefix("[Reflection]-") {
+                    print("Checking Reflection file: \(filename)")
+                    let pattern = "\\[Reflection\\]-\\[(\\d{2}-\\d{2}-\\d{4})\\]-\\[(\\d{2}-\\d{2}-\\d{4})\\]-\\[(\\d{2}-\\d{2}-\\d{2})\\]"
+                    if let match = filename.range(of: pattern, options: .regularExpression) {
+                        let matchString = String(filename[match])
+                        let components = matchString.components(separatedBy: "]-[")
+                        
+                        if components.count >= 4 {
+                            let reflectionStartDateString = components[1]
+                            let reflectionEndDateString = components[2]
+                            
+                            let dateFormatter = DateFormatter()
+                            dateFormatter.dateFormat = "MM-dd-yyyy"
+                            
+                            if let reflectionStartDate = dateFormatter.date(from: reflectionStartDateString),
+                               let reflectionEndDate = dateFormatter.date(from: reflectionEndDateString) {
+                                
+                                let startOfReflectionStart = calendar.startOfDay(for: reflectionStartDate)
+                                let startOfReflectionEnd = calendar.startOfDay(for: reflectionEndDate)
+                                
+                                // Check if reflection entry's date range overlaps with our target range
+                                if startOfReflectionStart <= startOfEndDate && startOfReflectionEnd >= startOfStartDate {
+                                    entryCount += 1
+                                    print("Added Reflection entry to count, total now: \(entryCount)")
+                                }
+                            }
+                        }
+                    }
+                }
             }
         } catch {
             print("Error counting entries: \(error)")
@@ -704,12 +797,13 @@ struct ContentView: View {
         let dateFormatter = DateFormatter()
         
         // Create filename with reflection format
-        dateFormatter.dateFormat = "MM-dd-yyyy-HH-mm-ss"
-        let timeString = dateFormatter.string(from: now)
-        
         dateFormatter.dateFormat = "MM-dd-yyyy"
         let startDateString = dateFormatter.string(from: fromDate)
         let endDateString = dateFormatter.string(from: toDate)
+        
+        // Create time string separately (only time, not date)
+        dateFormatter.dateFormat = "HH-mm-ss"
+        let timeString = dateFormatter.string(from: now)
         
         let filename = "[Reflection]-[\(startDateString)]-[\(endDateString)]-[\(timeString)].md"
         
@@ -719,8 +813,8 @@ struct ContentView: View {
         let displayEndDate = dateFormatter.string(from: toDate)
         let displayDateRange = "\(displayStartDate) - \(displayEndDate)"
         
-        // Create preview text with the entry count
-        let previewText = "Read \(entryCount) entries from \(displayStartDate) - \(displayEndDate)"
+        // Create preview text with just the entry count for reflections
+        let previewText = "Read \(entryCount) entries"
         
         return HumanEntry(
             id: id,
@@ -835,6 +929,37 @@ struct ContentView: View {
                                 let startDisplay = dateFormatter.string(from: startDate)
                                 let endDisplay = dateFormatter.string(from: endDate)
                                 displayDate = "\(startDisplay) - \(endDisplay)"
+                            }
+                        }
+                    }
+                }
+                // Handle Reflection entries: [Reflection]-[MM-dd-yyyy]-[MM-dd-yyyy]-[HH-mm-ss].md
+                else if filename.hasPrefix("[Reflection]-") {
+                    let pattern = "\\[Reflection\\]-\\[(\\d{2}-\\d{2}-\\d{4})\\]-\\[(\\d{2}-\\d{2}-\\d{4})\\]-\\[(\\d{2}-\\d{2}-\\d{2})\\]"
+                    if let match = filename.range(of: pattern, options: .regularExpression) {
+                        let matchString = String(filename[match])
+                        let components = matchString.components(separatedBy: "]-[")
+                        
+                        if components.count >= 4 {
+                            let startDateString = components[1]
+                            let endDateString = components[2]
+                            let timeString = components[3].replacingOccurrences(of: "]", with: "")
+                            
+                            let dateFormatter = DateFormatter()
+                            dateFormatter.dateFormat = "MM-dd-yyyy"
+                            
+                            if let startDate = dateFormatter.date(from: startDateString),
+                               let endDate = dateFormatter.date(from: endDateString) {
+                                // Combine end date with time for proper sorting
+                                dateFormatter.dateFormat = "MM-dd-yyyy-HH-mm-ss"
+                                let endDateWithTime = "\(endDateString)-\(timeString)"
+                                fileDate = dateFormatter.date(from: endDateWithTime)
+                                
+                                // Format display date as range
+                                dateFormatter.dateFormat = "MMM d"
+                                let startDisplay = dateFormatter.string(from: startDate)
+                                let endDisplay = dateFormatter.string(from: endDate)
+                                displayDate = "Reflection: \(startDisplay) - \(endDisplay)"
                             }
                         }
                     }
@@ -1052,7 +1177,9 @@ struct ContentView: View {
                             .foregroundColor(.gray)
                         
                         Button(action: {
-                            createNewEntry()
+                            if !isStreamingReflection {
+                                createNewEntry()
+                            }
                         }) {
                             Text("New Entry")
                                 .font(.system(size: 13))
@@ -1060,12 +1187,14 @@ struct ContentView: View {
                         .buttonStyle(.plain)
                         .foregroundColor(isHoveringNewEntry ? textHoverColor : textColor)
                         .onHover { hovering in
-                            isHoveringNewEntry = hovering
-                            isHoveringBottomNav = hovering
-                            if hovering {
-                                NSCursor.pointingHand.push()
-                            } else {
-                                NSCursor.pop()
+                            if !isStreamingReflection {
+                                isHoveringNewEntry = hovering
+                                isHoveringBottomNav = hovering
+                                if hovering {
+                                    NSCursor.pointingHand.push()
+                                } else {
+                                    NSCursor.pop()
+                                }
                             }
                         }
                         
@@ -1801,7 +1930,7 @@ struct ContentView: View {
                         LazyVStack(spacing: 0) {
                             ForEach(entries) { entry in
                                 Button(action: {
-                                    if selectedEntryId != entry.id {
+                                    if !isStreamingReflection && selectedEntryId != entry.id {
                                         // Save current entry before switching
                                         if let currentId = selectedEntryId,
                                            let currentEntry = entries.first(where: { $0.id == currentId }) {
@@ -1888,8 +2017,10 @@ struct ContentView: View {
                                 .buttonStyle(PlainButtonStyle())
                                 .contentShape(Rectangle())
                                 .onHover { hovering in
-                                    withAnimation(.easeInOut(duration: 0.2)) {
-                                        hoveredEntryId = hovering ? entry.id : nil
+                                    if !isStreamingReflection {
+                                        withAnimation(.easeInOut(duration: 0.2)) {
+                                            hoveredEntryId = hovering ? entry.id : nil
+                                        }
                                     }
                                 }
                                 .onAppear {
@@ -1956,11 +2087,25 @@ struct ContentView: View {
             } else {
                 preview = fullContent.trimmingCharacters(in: .whitespacesAndNewlines)
             }
-            // Remove --- USER --- and --- REFLECTION --- from preview, and trim whitespace/newlines
-            preview = preview.replacingOccurrences(of: userSeparator, with: "")
-            preview = preview.replacingOccurrences(of: reflectionSeparator, with: "")
-            preview = preview.trimmingCharacters(in: .whitespacesAndNewlines)
-            preview = preview.replacingOccurrences(of: "\n", with: " ").trimmingCharacters(in: .whitespacesAndNewlines)
+            
+            // Special handling for reflection entries - show only "Read x entries"
+            if entry.filename.hasPrefix("[Reflection]-") {
+                // Use regex to extract "Read x entries" from the preview text
+                let readPattern = "Read \\d+ entries"
+                if let range = preview.range(of: readPattern, options: .regularExpression) {
+                    preview = String(preview[range])
+                } else {
+                    // Fallback: just show "Read entries" if regex fails
+                    preview = "Read entries"
+                }
+            } else {
+                // For non-reflection entries, remove separators and clean up as before
+                preview = preview.replacingOccurrences(of: userSeparator, with: "")
+                preview = preview.replacingOccurrences(of: reflectionSeparator, with: "")
+                preview = preview.trimmingCharacters(in: .whitespacesAndNewlines)
+                preview = preview.replacingOccurrences(of: "\n", with: " ").trimmingCharacters(in: .whitespacesAndNewlines)
+            }
+            
             let truncated = preview.isEmpty ? "" : (preview.count > 24 ? String(preview.prefix(24)) + "..." : preview)
             if let index = entries.firstIndex(where: { $0.id == entry.id }) {
                 entries[index].previewText = truncated
@@ -1977,8 +2122,17 @@ struct ContentView: View {
         var contentToSave = ""
         
         // Ensure the latest USER section is updated with current editing text
-        if let lastUserIndex = sections.lastIndex(where: { $0.type == .user }) {
+        // But skip the first USER section if it contains reflection summary text
+        let userIndices = sections.enumerated().compactMap { index, section in
+            section.type == .user ? index : nil
+        }
+        
+        if let lastUserIndex = userIndices.last, userIndices.count > 1 {
+            // Only update if there are multiple USER sections (skip the first one with "Read x entries")
             sections[lastUserIndex].text = editingText
+        } else if userIndices.count == 1, !sections[userIndices[0]].text.hasPrefix("Read ") {
+            // Only update if the single USER section doesn't start with "Read" (not a reflection summary)
+            sections[userIndices[0]].text = editingText
         }
         
         // Add all sections in order with proper markers
@@ -3763,7 +3917,9 @@ struct ReflectionsSettingsView: View {
     @State private var customToDate: Date = Date()
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 16) {
+        VStack(alignment: .leading, spacing: 0) {
+            Spacer()
+            
             // Week Section
             VStack(alignment: .leading, spacing: 12) {
                 Text("Last Week")
@@ -3794,6 +3950,8 @@ struct ReflectionsSettingsView: View {
                     }
                 }
             }
+            
+            Spacer()
             
             // Month Section
             VStack(alignment: .leading, spacing: 12) {
@@ -3826,6 +3984,8 @@ struct ReflectionsSettingsView: View {
                 }
             }
             
+            Spacer()
+            
             // Year Section
             VStack(alignment: .leading, spacing: 12) {
                 Text("Last Year")
@@ -3856,6 +4016,8 @@ struct ReflectionsSettingsView: View {
                     }
                 }
             }
+            
+            Spacer()
             
             // Custom Section
             VStack(alignment: .leading, spacing: 12) {
