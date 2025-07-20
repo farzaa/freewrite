@@ -1159,7 +1159,8 @@ struct ContentView: View {
     var placeholderOffset: CGFloat {
         // Instead of using calculated line height, use a simple offset
         // Add extra offset to account for line spacing and positioning differences
-        return userFontSize * 2.2
+        // In fullscreen mode, compensate for TextEditor's internal inset changes
+        return isFullscreen ? userFontSize * 0.6 : userFontSize * 2.2
     }
     
     var aiLineHeight: CGFloat {
