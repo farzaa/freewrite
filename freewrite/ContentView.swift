@@ -50,6 +50,11 @@ enum SettingsTab: String, CaseIterable {
     case transcription = "Transcription"
 }
 
+enum ReflectionTimeframe {
+    case week
+    case month
+}
+
 // Settings data structure for JSON persistence
 struct AppSettings: Codable {
     var transcription: TranscriptionSettings
@@ -266,6 +271,9 @@ struct ContentView: View {
 
     @State private var isHoveringReflect = false
     @State private var isHoveringSidebar = false
+    @State private var isHoveringReflectWeek = false
+    @State private var isHoveringReflectMonth = false
+    @State private var isHoveringReflectCustom = false
     @State private var colorScheme: ColorScheme = .light // Add state for color scheme
 
     @State private var didCopyPrompt: Bool = false // Add state for copy prompt feedback
@@ -463,11 +471,28 @@ struct ContentView: View {
         // Count the number of entries for the "Read x entries" text
         let entryCount = countEntriesInRange(from: fromDate, to: toDate)
         
+        // Map timeframe type from UI strings to standardized format
+        let timeframeType: String
+        switch type {
+        case "Last Week", "This Week":
+            timeframeType = "Week"
+        case "Last Month", "This Month":
+            timeframeType = "Month"
+        case "Last Year", "This Year":
+            timeframeType = "Year"
+        case "Week":
+            timeframeType = "Week"
+        case "Month":
+            timeframeType = "Month"
+        default:
+            timeframeType = "Custom"
+        }
+        
         // Create title with date range
         let reflectionTitle = "\(type): \(startDateString)-\(endDateString)"
         
         // Create new reflection entry with proper format
-        let newEntry = createReflectionEntry(title: reflectionTitle, fromDate: fromDate, toDate: toDate, entryCount: entryCount)
+        let newEntry = createReflectionEntry(title: reflectionTitle, fromDate: fromDate, toDate: toDate, entryCount: entryCount, timeframeType: timeframeType)
         
         // Select the new entry and set up the reflection UI like "New Entry + Reflect"
         selectedEntryId = newEntry.id
@@ -509,6 +534,30 @@ struct ContentView: View {
         
         // Close settings
         showingSettings = false
+    }
+    
+    // Function to start reflection for specified timeframe
+    private func startReflection(timeframe: ReflectionTimeframe) {
+        let calendar = Calendar.current
+        let now = Date()
+        let toDate = now
+        var fromDate: Date
+        var type: String
+        
+        switch timeframe {
+        case .week:
+            let weekday = calendar.component(.weekday, from: now)
+            let daysToSubtract = weekday == 1 ? 7 : weekday - 1 // Sunday = 1, so if today is Sunday, go back 7 days
+            fromDate = calendar.date(byAdding: .day, value: -daysToSubtract, to: now) ?? now
+            type = "This Week"
+        case .month:
+            let year = calendar.component(.year, from: now)
+            let month = calendar.component(.month, from: now)
+            fromDate = calendar.date(from: DateComponents(year: year, month: month, day: 1)) ?? now
+            type = "This Month"
+        }
+        
+        runDateRangeReflection(fromDate: fromDate, toDate: toDate, type: type)
     }
     
     // Function to gather entries from the last 7 days
@@ -791,7 +840,7 @@ struct ContentView: View {
     }
     
     // Function to create a new reflection entry
-    private func createReflectionEntry(title: String, fromDate: Date, toDate: Date, entryCount: Int) -> HumanEntry {
+    private func createReflectionEntry(title: String, fromDate: Date, toDate: Date, entryCount: Int, timeframeType: String) -> HumanEntry {
         let id = UUID()
         let now = Date()
         let dateFormatter = DateFormatter()
@@ -805,13 +854,13 @@ struct ContentView: View {
         dateFormatter.dateFormat = "HH-mm-ss"
         let timeString = dateFormatter.string(from: now)
         
-        let filename = "[Reflection]-[\(startDateString)]-[\(endDateString)]-[\(timeString)].md"
+        let filename = "[Reflection]-[\(timeframeType)]-[\(startDateString)]-[\(endDateString)]-[\(timeString)].md"
         
-        // Create date range for sidebar display (like "Jul 11 - Jul 18")
+        // Create date range for sidebar display (like "Week: Jul 11 - Jul 18")
         dateFormatter.dateFormat = "MMM d"
         let displayStartDate = dateFormatter.string(from: fromDate)
         let displayEndDate = dateFormatter.string(from: toDate)
-        let displayDateRange = "\(displayStartDate) - \(displayEndDate)"
+        let displayDateRange = "\(timeframeType): \(displayStartDate) - \(displayEndDate)"
         
         // Create preview text with just the entry count for reflections
         let previewText = "Read \(entryCount) entries"
@@ -1869,181 +1918,292 @@ struct ContentView: View {
     @ViewBuilder
     private var sidebar: some View {
         if showingSidebar {
+            sidebarContent
+        }
+    }
+    
+    @ViewBuilder
+    private var sidebarContent: some View {
+        Group {
             let textColor = colorScheme == .light ? Color.gray : Color.gray.opacity(0.8)
             let textHoverColor = colorScheme == .light ? Color.black : Color.white
             
             ZStack(alignment: .trailing) {
                 VStack(spacing: 0) {
-                    // Header with settings button
-                    HStack(alignment: .firstTextBaseline) {
-                        Button(action: {
-                            NSWorkspace.shared.selectFile(nil, inFileViewerRootedAtPath: getDocumentsDirectory().path)
-                        }) {
-                            VStack(alignment: .leading, spacing: 4) {
-                                HStack(spacing: 4) {
-                                    Text("Journal")
-                                        .font(.system(size: 16))
-                                        .foregroundColor(isHoveringHistory ? textHoverColor : textColor)
-                                    Image(systemName: "arrow.up.right")
-                                        .font(.system(size: 10))
-                                        .foregroundColor(isHoveringHistory ? textHoverColor : textColor)
-                                }
-                                Text(getDocumentsDirectory().path)
-                                    .font(.system(size: 10))
-                                    .foregroundColor(.secondary)
-                                    .lineLimit(1)
-                            }
-                        }
-                        .buttonStyle(.plain)
-                        .onHover { hovering in
-                            isHoveringHistory = hovering
-                        }
-                        
-                        Spacer()
-                        
-                        // Settings button moved to sidebar - aligned with journal title
-                        Button(action: {
-                            withAnimation(.easeInOut(duration: 0.2)) {
-                                showingSettings = true
-                            }
-                        }) {
-                            Image(systemName: "gearshape.fill")
-                                .foregroundColor(isHoveringSettings ? textHoverColor : textColor)
-                        }
-                        .buttonStyle(.plain)
-                        .onHover { hovering in
-                            isHoveringSettings = hovering
-                            if hovering {
-                                NSCursor.pointingHand.push()
-                            } else {
-                                NSCursor.pop()
-                            }
-                        }
-                    }
-                    .padding(.horizontal, 16)
-                    .padding(.vertical, 12)
-                    
+                    sidebarHeader(textColor: textColor, textHoverColor: textHoverColor)
                     Divider()
-                    
-                    // Entries List
-                    ScrollView {
-                        LazyVStack(spacing: 0) {
-                            ForEach(entries) { entry in
-                                Button(action: {
-                                    if !isStreamingReflection && selectedEntryId != entry.id {
-                                        // Save current entry before switching
-                                        if let currentId = selectedEntryId,
-                                           let currentEntry = entries.first(where: { $0.id == currentId }) {
-                                            saveEntry(entry: currentEntry)
-                                            updatePreviewText(for: currentEntry)
-                                        }
-                                        
-                                        selectedEntryId = entry.id
-                                        loadEntry(entry: entry)
-                                    }
-                                }) {
-                                    HStack(alignment: .top) {
-                                        VStack(alignment: .leading, spacing: 4) {
-                                            HStack {
-                                                Text(entry.date)
-                                                    .font(.system(size: 14))
-                                                    .lineLimit(1)
-                                                    .foregroundColor(.primary)
-                                                
-                                                Spacer()
-                                                
-                                                // Export/Trash icons that appear on hover
-                                                if hoveredEntryId == entry.id {
-                                                    HStack(spacing: 8) {
-                                                        // Export PDF button
-                                                        Button(action: {
-                                                            exportEntryAsPDF(entry: entry)
-                                                        }) {
-                                                            Image(systemName: "arrow.down.circle")
-                                                                .font(.system(size: 11))
-                                                                .foregroundColor(hoveredExportId == entry.id ? 
-                                                                    (colorScheme == .light ? .black : .white) : 
-                                                                    (colorScheme == .light ? .gray : .gray.opacity(0.8)))
-                                                        }
-                                                        .buttonStyle(.plain)
-                                                        .help("Export entry as PDF")
-                                                        .onHover { hovering in
-                                                            withAnimation(.easeInOut(duration: 0.2)) {
-                                                                hoveredExportId = hovering ? entry.id : nil
-                                                            }
-                                                            if hovering {
-                                                                NSCursor.pointingHand.push()
-                                                            } else {
-                                                                NSCursor.pop()
-                                                            }
-                                                        }
-                                                        
-                                                        // Trash icon
-                                                        Button(action: {
-                                                            deleteEntry(entry: entry)
-                                                        }) {
-                                                            Image(systemName: "trash")
-                                                                .font(.system(size: 11))
-                                                                .foregroundColor(hoveredTrashId == entry.id ? .red : .gray)
-                                                        }
-                                                        .buttonStyle(.plain)
-                                                        .onHover { hovering in
-                                                            withAnimation(.easeInOut(duration: 0.2)) {
-                                                                hoveredTrashId = hovering ? entry.id : nil
-                                                            }
-                                                            if hovering {
-                                                                NSCursor.pointingHand.push()
-                                                            } else {
-                                                                NSCursor.pop()
-                                                            }
-                                                        }
-                                                    }
-                                                }
-                                            }
-                                            
-                                            Text(entry.previewText)
-                                                .font(.system(size: 12))
-                                                .foregroundColor(.secondary)
-                                        }
-                                    }
-                                    .frame(maxWidth: .infinity)
-                                    .padding(.horizontal, 16)
-                                    .padding(.vertical, 8)
-                                    .background(
-                                        RoundedRectangle(cornerRadius: 4)
-                                            .fill(backgroundColor(for: entry))
-                                    )
-                                }
-                                .buttonStyle(PlainButtonStyle())
-                                .contentShape(Rectangle())
-                                .onHover { hovering in
-                                    if !isStreamingReflection {
-                                        withAnimation(.easeInOut(duration: 0.2)) {
-                                            hoveredEntryId = hovering ? entry.id : nil
-                                        }
-                                    }
-                                }
-                                .onAppear {
-                                    NSCursor.pop()  // Reset cursor when button appears
-                                }
-                                .help("Click to select this entry")  // Add tooltip
-                                
-                                if entry.id != entries.last?.id {
-                                    Divider()
-                                }
-                            }
-                        }
-                    }
-                    .scrollIndicators(.never)
+                    sidebarEntriesList
+                    Spacer()
+                    sidebarReflectionSection(textColor: textColor, textHoverColor: textHoverColor)
                 }
                 .frame(width: 200)
                 .background(Color(colorScheme == .light ? .white : NSColor.black))
+                
                 // Add right border
                 Rectangle()
                     .fill(Color.gray.opacity(0.3))
                     .frame(width: 1)
                     .edgesIgnoringSafeArea(.vertical)
             }
+        }
+    }
+    
+    @ViewBuilder
+    private func sidebarHeader(textColor: Color, textHoverColor: Color) -> some View {
+        HStack(alignment: .firstTextBaseline) {
+            Button(action: {
+                NSWorkspace.shared.selectFile(nil, inFileViewerRootedAtPath: getDocumentsDirectory().path)
+            }) {
+                VStack(alignment: .leading, spacing: 2) {
+                    HStack(spacing: 4) {
+                        Text("Journal")
+                            .font(.system(size: 16))
+                            .foregroundColor(isHoveringHistory ? textHoverColor : textColor)
+                        Image(systemName: "arrow.up.right")
+                            .font(.system(size: 10))
+                            .foregroundColor(isHoveringHistory ? textHoverColor : textColor)
+                    }
+                    Text(getDocumentsDirectory().path)
+                        .font(.system(size: 10))
+                        .foregroundColor(.secondary)
+                        .lineLimit(1)
+                }
+            }
+            .buttonStyle(.plain)
+            .onHover { hovering in
+                isHoveringHistory = hovering
+            }
+            
+            Spacer()
+            
+            // Settings button moved to sidebar - aligned with journal title
+            Button(action: {
+                withAnimation(.easeInOut(duration: 0.2)) {
+                    showingSettings = true
+                }
+            }) {
+                Image(systemName: "gearshape.fill")
+                    .foregroundColor(isHoveringSettings ? textHoverColor : textColor)
+            }
+            .buttonStyle(.plain)
+            .onHover { hovering in
+                isHoveringSettings = hovering
+                if hovering {
+                    NSCursor.pointingHand.push()
+                } else {
+                    NSCursor.pop()
+                }
+            }
+        }
+        .padding(.horizontal, 16)
+        .padding(.vertical, 12)
+    }
+    
+    @ViewBuilder
+    private var sidebarEntriesList: some View {
+        ScrollView {
+            LazyVStack(spacing: 0) {
+                ForEach(entries) { entry in
+                    sidebarEntryRow(entry: entry)
+                    if entry.id != entries.last?.id {
+                        Divider()
+                    }
+                }
+            }
+        }
+        .scrollIndicators(.never)
+    }
+    
+    @ViewBuilder
+    private func sidebarEntryRow(entry: HumanEntry) -> some View {
+        Button(action: {
+            if !isStreamingReflection && selectedEntryId != entry.id {
+                // Save current entry before switching
+                if let currentId = selectedEntryId,
+                   let currentEntry = entries.first(where: { $0.id == currentId }) {
+                    saveEntry(entry: currentEntry)
+                    updatePreviewText(for: currentEntry)
+                }
+                
+                selectedEntryId = entry.id
+                loadEntry(entry: entry)
+            }
+        }) {
+            HStack(alignment: .top) {
+                VStack(alignment: .leading, spacing: 2) {
+                    HStack {
+                        Text(entry.date)
+                            .font(.system(size: 14))
+                            .lineLimit(1)
+                            .foregroundColor(.primary)
+                        
+                        Spacer()
+                        
+                        // Export/Trash icons that appear on hover
+                        if hoveredEntryId == entry.id {
+                            HStack(spacing: 8) {
+                                // Export PDF button
+                                Button(action: {
+                                    exportEntryAsPDF(entry: entry)
+                                }) {
+                                    let exportIconColor: Color = {
+                                        if hoveredExportId == entry.id {
+                                            return colorScheme == .light ? .black : .white
+                                        } else {
+                                            return colorScheme == .light ? .gray : .gray.opacity(0.8)
+                                        }
+                                    }()
+                                    
+                                    Image(systemName: "arrow.down.circle")
+                                        .font(.system(size: 11))
+                                        .foregroundColor(exportIconColor)
+                                }
+                                .buttonStyle(.plain)
+                                .help("Export entry as PDF")
+                                .onHover { hovering in
+                                    withAnimation(.easeInOut(duration: 0.2)) {
+                                        hoveredExportId = hovering ? entry.id : nil
+                                    }
+                                    if hovering {
+                                        NSCursor.pointingHand.push()
+                                    } else {
+                                        NSCursor.pop()
+                                    }
+                                }
+                                
+                                // Trash icon
+                                Button(action: {
+                                    deleteEntry(entry: entry)
+                                }) {
+                                    Image(systemName: "trash")
+                                        .font(.system(size: 11))
+                                        .foregroundColor(hoveredTrashId == entry.id ? .red : .gray)
+                                }
+                                .buttonStyle(.plain)
+                                .onHover { hovering in
+                                    withAnimation(.easeInOut(duration: 0.2)) {
+                                        hoveredTrashId = hovering ? entry.id : nil
+                                    }
+                                    if hovering {
+                                        NSCursor.pointingHand.push()
+                                    } else {
+                                        NSCursor.pop()
+                                    }
+                                }
+                            }
+                        }
+                    }
+                    
+                    Text(entry.previewText)
+                        .font(.system(size: 12))
+                        .foregroundColor(.secondary)
+                }
+            }
+            .padding(.horizontal, 16)
+            .padding(.vertical, 8)
+            .background(
+                RoundedRectangle(cornerRadius: 4)
+                    .fill(backgroundColor(for: entry))
+            )
+        }
+        .buttonStyle(PlainButtonStyle())
+        .contentShape(Rectangle())
+        .onHover { hovering in
+            if !isStreamingReflection {
+                withAnimation(.easeInOut(duration: 0.2)) {
+                    hoveredEntryId = hovering ? entry.id : nil
+                }
+            }
+        }
+        .onAppear {
+            NSCursor.pop()  // Reset cursor when button appears
+        }
+        .help("Click to select this entry")  // Add tooltip
+    }
+    
+    @ViewBuilder
+    private func sidebarReflectionSection(textColor: Color, textHoverColor: Color) -> some View {
+        VStack(spacing: 0) {
+            Divider()
+            
+            VStack(spacing: 8) {
+                // First line: "Reflect"
+                HStack {
+                    Text("Run Reflection ↓")
+                        .font(.system(size: 13))
+                        .foregroundColor(textColor)
+                        .padding(.top, 8)
+                    Spacer()
+                }
+                
+                // Second line: "Week Month Custom"
+                HStack(spacing: 4) {
+                    Button("Week") {
+                        startReflection(timeframe: .week)
+                    }
+                    .buttonStyle(.plain)
+                    .foregroundColor(isHoveringReflectWeek ? textHoverColor : textColor)
+                    .font(.system(size: 13))
+                    .onHover { hovering in
+                        isHoveringReflectWeek = hovering
+                        if hovering {
+                            NSCursor.pointingHand.push()
+                        } else {
+                            NSCursor.pop()
+                        }
+                    }
+                    
+                    Text("•")
+                        .foregroundColor(.gray)
+                        .font(.system(size: 13))
+                    
+                    Button("Month") {
+                        startReflection(timeframe: .month)
+                    }
+                    .buttonStyle(.plain)
+                    .foregroundColor(isHoveringReflectMonth ? textHoverColor : textColor)
+                    .font(.system(size: 13))
+                    .onHover { hovering in
+                        isHoveringReflectMonth = hovering
+                        if hovering {
+                            NSCursor.pointingHand.push()
+                        } else {
+                            NSCursor.pop()
+                        }
+                    }
+                    
+                    Text("•")
+                        .foregroundColor(.gray)
+                        .font(.system(size: 13))
+                    
+                    Button("Custom") {
+                        withAnimation(.easeInOut(duration: 0.2)) {
+                            showingSettings = true
+                            selectedSettingsTab = .reflections
+                        }
+                    }
+                    .buttonStyle(.plain)
+                    .foregroundColor(isHoveringReflectCustom ? textHoverColor : textColor)
+                    .font(.system(size: 13))
+                    .onHover { hovering in
+                        isHoveringReflectCustom = hovering
+                        if hovering {
+                            NSCursor.pointingHand.push()
+                        } else {
+                            NSCursor.pop()
+                        }
+                    }
+                    
+                    Spacer()
+                }
+            }
+            .padding(.horizontal, 16)
+            .padding(.vertical, 6)
+            
+            // Bottom spacer for alignment with navbar
+            Rectangle()
+                .fill(Color.clear)
+                .frame(height: 12) // Further reduced for alignment with New Entry
         }
     }
     
@@ -3721,15 +3881,15 @@ struct SettingsContent: View {
             case .reflections:
                 ReflectionsSettingsView(
                     settingsManager: settingsManager,
-                    onRunWeek: { fromDate, toDate in runDateRangeReflection(fromDate, toDate, "Week") },
-                    onRunMonth: { fromDate, toDate in runDateRangeReflection(fromDate, toDate, "Month") },
-                    onRunYear: { fromDate, toDate in runDateRangeReflection(fromDate, toDate, "Year") },
+                    onRunWeek: { fromDate, toDate in runDateRangeReflection(fromDate, toDate, "This Week") },
+                    onRunMonth: { fromDate, toDate in runDateRangeReflection(fromDate, toDate, "This Month") },
+                    onRunYear: { fromDate, toDate in runDateRangeReflection(fromDate, toDate, "This Year") },
                     onRunCustom: { fromDate, toDate in runDateRangeReflection(fromDate, toDate, "Custom") }
                 )
             case .apiKeys:
-                APIKeysSettingsView(openAIapiKey: $openAIapiKey, deepgramApiKey: $deepgramApiKey)
+                APIKeysSettingsView(openAIapiKey: $openAIapiKey)
             case .transcription:
-                TranscriptionSettingsView(showMicrophone: $showMicrophone, settingsManager: settingsManager)
+                TranscriptionSettingsView(showMicrophone: $showMicrophone, deepgramApiKey: $deepgramApiKey, settingsManager: settingsManager)
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
@@ -3740,14 +3900,10 @@ struct SettingsContent: View {
 struct APIKeysSettingsView: View {
     @Environment(\.colorScheme) var colorScheme
     @Binding var openAIapiKey: String
-    @Binding var deepgramApiKey: String
     
     @State private var tempOpenAIApiKey: String = ""
-    @State private var tempDeepgramApiKey: String = ""
     @State private var hasUnsavedOpenAI: Bool = false
-    @State private var hasUnsavedDeepgram: Bool = false
     @State private var showOpenAISaveConfirmation: Bool = false
-    @State private var showDeepgramSaveConfirmation: Bool = false
     
     var body: some View {
         VStack(alignment: .leading, spacing: 24) {
@@ -3816,79 +3972,12 @@ struct APIKeysSettingsView: View {
                 }
                 .animation(.easeInOut(duration: 0.2), value: showOpenAISaveConfirmation)
             }
-            // Deepgram API Key Input
-            VStack(alignment: .leading, spacing: 8) {
-                Text("Deepgram API Key")
-                    .font(.system(size: 14, weight: .medium))
-                    .foregroundColor(.primary)
-                
-                SecureField("Enter your Deepgram API key", text: $tempDeepgramApiKey)
-                    .textFieldStyle(PlainTextFieldStyle())
-                    .font(.system(size: 13, design: .monospaced))
-                    .padding(.horizontal, 8)
-                    .padding(.vertical, 6)
-                    .background(
-                        RoundedRectangle(cornerRadius: 5)
-                            .stroke(Color.gray.opacity(0.5), lineWidth: 1)
-                    )
-                    .onChange(of: tempDeepgramApiKey) { newValue in
-                        hasUnsavedDeepgram = (newValue != deepgramApiKey)
-                    }
-                
-                Text("Used for speech-to-text transcription.")
-                    .font(.caption)
-                    .foregroundColor(.secondary)
-                
-                HStack(spacing: 12) {
-                    Button(action: {
-                        if !tempDeepgramApiKey.isEmpty {
-                            KeychainHelper.shared.saveAPIKey(tempDeepgramApiKey, for: .deepgram)
-                            deepgramApiKey = tempDeepgramApiKey
-                        } else {
-                            KeychainHelper.shared.deleteAPIKey(for: .deepgram)
-                            deepgramApiKey = ""
-                        }
-                        hasUnsavedDeepgram = false
-                        showDeepgramSaveConfirmation = true
-                        DispatchQueue.main.asyncAfter(deadline: .now() + 2.0) {
-                            showDeepgramSaveConfirmation = false
-                        }
-                    }) {
-                        Text("Save")
-                            .font(.system(size: 13, weight: .medium))
-                            .foregroundColor(.white)
-                            .padding(.horizontal, 16)
-                            .padding(.vertical, 8)
-                            .background(
-                                RoundedRectangle(cornerRadius: 6)
-                                    .fill(colorScheme == .dark ? Color.black : (hasUnsavedDeepgram ? .primary : .secondary))
-                            )
-                    }
-                    .buttonStyle(PlainButtonStyle())
-                    .disabled(!hasUnsavedDeepgram)
-                    
-                    if showDeepgramSaveConfirmation {
-                        HStack(spacing: 6) {
-                            Image(systemName: "checkmark.circle.fill")
-                                .foregroundColor(.green)
-                                .font(.system(size: 12))
-                            Text("Saved")
-                                .font(.system(size: 12))
-                                .foregroundColor(.secondary)
-                        }
-                        .transition(.opacity)
-                    }
-                }
-                .animation(.easeInOut(duration: 0.2), value: showDeepgramSaveConfirmation)
-            }
             Spacer()
         }
         .padding(.top, 8)
         .onAppear {
             tempOpenAIApiKey = openAIapiKey
-            tempDeepgramApiKey = deepgramApiKey
             hasUnsavedOpenAI = false
-            hasUnsavedDeepgram = false
         }
     }
 }
@@ -3901,15 +3990,32 @@ struct ReflectionsSettingsView: View {
     let onRunCustom: (Date, Date) -> Void
     
     // Week
-    @State private var weekFromDate: Date = Calendar.current.date(byAdding: .day, value: -7, to: Date()) ?? Date()
+    @State private var weekFromDate: Date = {
+        let calendar = Calendar.current
+        let today = Date()
+        let weekday = calendar.component(.weekday, from: today)
+        let daysToSubtract = weekday == 1 ? 7 : weekday - 1 // Sunday = 1, so if today is Sunday, go back 7 days
+        return calendar.date(byAdding: .day, value: -daysToSubtract, to: today) ?? today
+    }()
     @State private var weekToDate: Date = Date()
     
     // Month  
-    @State private var monthFromDate: Date = Calendar.current.date(byAdding: .day, value: -30, to: Date()) ?? Date()
+    @State private var monthFromDate: Date = {
+        let calendar = Calendar.current
+        let today = Date()
+        let year = calendar.component(.year, from: today)
+        let month = calendar.component(.month, from: today)
+        return calendar.date(from: DateComponents(year: year, month: month, day: 1)) ?? today
+    }()
     @State private var monthToDate: Date = Date()
     
     // Year
-    @State private var yearFromDate: Date = Calendar.current.date(byAdding: .day, value: -365, to: Date()) ?? Date()
+    @State private var yearFromDate: Date = {
+        let calendar = Calendar.current
+        let today = Date()
+        let year = calendar.component(.year, from: today)
+        return calendar.date(from: DateComponents(year: year, month: 1, day: 1)) ?? today
+    }()
     @State private var yearToDate: Date = Date()
     
     // Custom
@@ -3921,133 +4027,165 @@ struct ReflectionsSettingsView: View {
             Spacer()
             
             // Week Section
-            VStack(alignment: .leading, spacing: 12) {
-                Text("Last Week")
+            VStack(alignment: .leading, spacing: 8) {
+                Text("This Week")
                     .font(.headline)
                     .fontWeight(.semibold)
                 
                 HStack(spacing: 16) {
-                    VStack(alignment: .leading, spacing: 4) {
+                    VStack(alignment: .leading, spacing: 2) {
                         Text("From")
                             .font(.caption)
                             .foregroundColor(.secondary)
                         DatePicker("", selection: $weekFromDate, displayedComponents: .date)
                             .datePickerStyle(.compact)
+                            .padding(.leading, -8)
                     }
                     
-                    VStack(alignment: .leading, spacing: 4) {
+                    VStack(alignment: .leading, spacing: 2) {
                         Text("To")
                             .font(.caption)
                             .foregroundColor(.secondary)
                         DatePicker("", selection: $weekToDate, displayedComponents: .date)
                             .datePickerStyle(.compact)
+                            .padding(.leading, -8)
                     }
                     
-                    Spacer()
-                    
-                    Button("Run now") {
-                        onRunWeek(weekFromDate, weekToDate)
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text("")
+                            .font(.caption)
+                            .foregroundColor(.clear)
+                        Button("Run") {
+                            onRunWeek(weekFromDate, weekToDate)
+                        }
                     }
                 }
             }
             
-            Spacer()
+            VStack(spacing: 4) {
+                Spacer()
+                Divider()
+                Spacer()
+            }
             
             // Month Section
-            VStack(alignment: .leading, spacing: 12) {
-                Text("Last Month")
+            VStack(alignment: .leading, spacing: 8) {
+                Text("This Month")
                     .font(.headline)
                     .fontWeight(.semibold)
                 
                 HStack(spacing: 16) {
-                    VStack(alignment: .leading, spacing: 4) {
+                    VStack(alignment: .leading, spacing: 2) {
                         Text("From")
                             .font(.caption)
                             .foregroundColor(.secondary)
                         DatePicker("", selection: $monthFromDate, displayedComponents: .date)
                             .datePickerStyle(.compact)
+                            .padding(.leading, -8)
                     }
                     
-                    VStack(alignment: .leading, spacing: 4) {
+                    VStack(alignment: .leading, spacing: 2) {
                         Text("To")
                             .font(.caption)
                             .foregroundColor(.secondary)
                         DatePicker("", selection: $monthToDate, displayedComponents: .date)
                             .datePickerStyle(.compact)
+                            .padding(.leading, -8)
                     }
                     
-                    Spacer()
-                    
-                    Button("Run now") {
-                        onRunMonth(monthFromDate, monthToDate)
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text("")
+                            .font(.caption)
+                            .foregroundColor(.clear)
+                        Button("Run") {
+                            onRunMonth(monthFromDate, monthToDate)
+                        }
                     }
                 }
             }
             
-            Spacer()
+            VStack(spacing: 4) {
+                Spacer()
+                Divider()
+                Spacer()
+            }
             
             // Year Section
-            VStack(alignment: .leading, spacing: 12) {
-                Text("Last Year")
+            VStack(alignment: .leading, spacing: 8) {
+                Text("This Year")
                     .font(.headline)
                     .fontWeight(.semibold)
                 
                 HStack(spacing: 16) {
-                    VStack(alignment: .leading, spacing: 4) {
+                    VStack(alignment: .leading, spacing: 2) {
                         Text("From")
                             .font(.caption)
                             .foregroundColor(.secondary)
                         DatePicker("", selection: $yearFromDate, displayedComponents: .date)
                             .datePickerStyle(.compact)
+                            .padding(.leading, -8)
                     }
                     
-                    VStack(alignment: .leading, spacing: 4) {
+                    VStack(alignment: .leading, spacing: 2) {
                         Text("To")
                             .font(.caption)
                             .foregroundColor(.secondary)
                         DatePicker("", selection: $yearToDate, displayedComponents: .date)
                             .datePickerStyle(.compact)
+                            .padding(.leading, -8)
                     }
                     
-                    Spacer()
-                    
-                    Button("Run now") {
-                        onRunYear(yearFromDate, yearToDate)
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text("")
+                            .font(.caption)
+                            .foregroundColor(.clear)
+                        Button("Run") {
+                            onRunYear(yearFromDate, yearToDate)
+                        }
                     }
                 }
             }
             
-            Spacer()
+            VStack(spacing: 4) {
+                Spacer()
+                Divider()
+                Spacer()
+            }
             
             // Custom Section
-            VStack(alignment: .leading, spacing: 12) {
+            VStack(alignment: .leading, spacing: 8) {
                 Text("Custom")
                     .font(.headline)
                     .fontWeight(.semibold)
                 
                 HStack(spacing: 16) {
-                    VStack(alignment: .leading, spacing: 4) {
+                    VStack(alignment: .leading, spacing: 2) {
                         Text("From")
                             .font(.caption)
                             .foregroundColor(.secondary)
                         DatePicker("", selection: $customFromDate, displayedComponents: .date)
                             .datePickerStyle(.compact)
+                            .padding(.leading, -8)
                     }
                     
-                    VStack(alignment: .leading, spacing: 4) {
+                    VStack(alignment: .leading, spacing: 2) {
                         Text("To")
                             .font(.caption)
                             .foregroundColor(.secondary)
                         DatePicker("", selection: $customToDate, displayedComponents: .date)
                             .datePickerStyle(.compact)
+                            .padding(.leading, -8)
                     }
                     
-                    Spacer()
-                    
-                    Button("Run now") {
-                        onRunCustom(customFromDate, customToDate)
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text("")
+                            .font(.caption)
+                            .foregroundColor(.clear)
+                        Button("Run") {
+                            onRunCustom(customFromDate, customToDate)
+                        }
+                        .disabled(customFromDate > customToDate)
                     }
-                    .disabled(customFromDate > customToDate)
                 }
             }
             
@@ -4059,16 +4197,20 @@ struct ReflectionsSettingsView: View {
             let today = Date()
             let calendar = Calendar.current
             
-            // Week: 7 days prior to today
-            weekFromDate = calendar.date(byAdding: .day, value: -7, to: today) ?? today
+            // Week: From last Sunday to today
+            let weekday = calendar.component(.weekday, from: today)
+            let daysToSubtract = weekday == 1 ? 7 : weekday - 1 // Sunday = 1, so if today is Sunday, go back 7 days
+            weekFromDate = calendar.date(byAdding: .day, value: -daysToSubtract, to: today) ?? today
             weekToDate = today
             
-            // Month: 30 days prior to today
-            monthFromDate = calendar.date(byAdding: .day, value: -30, to: today) ?? today
+            // Month: From 1st of current month to today
+            let year = calendar.component(.year, from: today)
+            let month = calendar.component(.month, from: today)
+            monthFromDate = calendar.date(from: DateComponents(year: year, month: month, day: 1)) ?? today
             monthToDate = today
             
-            // Year: 365 days prior to today
-            yearFromDate = calendar.date(byAdding: .day, value: -365, to: today) ?? today
+            // Year: From 1/1 of current year to today
+            yearFromDate = calendar.date(from: DateComponents(year: year, month: 1, day: 1)) ?? today
             yearToDate = today
             
             // Custom: To = today, From = blank (will show today initially)
@@ -4080,7 +4222,13 @@ struct ReflectionsSettingsView: View {
 
 struct TranscriptionSettingsView: View {
     @Binding var showMicrophone: Bool
+    @Binding var deepgramApiKey: String
     @ObservedObject var settingsManager: SettingsManager
+    
+    @State private var tempDeepgramApiKey: String = ""
+    @State private var hasUnsavedDeepgram: Bool = false
+    @State private var showDeepgramSaveConfirmation: Bool = false
+    @Environment(\.colorScheme) var colorScheme
 
     var body: some View {
         VStack(alignment: .leading, spacing: 16) {
@@ -4094,9 +4242,71 @@ struct TranscriptionSettingsView: View {
                 .font(.caption)
                 .foregroundColor(.secondary)
 
+            // Deepgram API Key Input - only show if microphone is enabled
+            if showMicrophone {
+                VStack(alignment: .leading, spacing: 8) {
+                    Text("Deepgram API Key")
+                        .font(.system(size: 14, weight: .medium))
+                        .foregroundColor(.primary)
+                    
+                    SecureField("Enter your Deepgram API key", text: $tempDeepgramApiKey)
+                        .textFieldStyle(PlainTextFieldStyle())
+                        .font(.system(size: 13, design: .monospaced))
+                        .padding(.horizontal, 8)
+                        .padding(.vertical, 6)
+                        .background(
+                            RoundedRectangle(cornerRadius: 5)
+                                .stroke(Color.gray.opacity(0.5), lineWidth: 1)
+                        )
+                        .onChange(of: tempDeepgramApiKey) { newValue in
+                            hasUnsavedDeepgram = (newValue != deepgramApiKey)
+                        }
+                    
+                    Text("Used for speech-to-text transcription.")
+                        .font(.caption)
+                        .foregroundColor(.secondary)
+                    
+                    HStack(spacing: 12) {
+                        Button(action: {
+                            if !tempDeepgramApiKey.isEmpty {
+                                KeychainHelper.shared.saveAPIKey(tempDeepgramApiKey, for: .deepgram)
+                                deepgramApiKey = tempDeepgramApiKey
+                            } else {
+                                KeychainHelper.shared.deleteAPIKey(for: .deepgram)
+                                deepgramApiKey = ""
+                            }
+                            hasUnsavedDeepgram = false
+                            showDeepgramSaveConfirmation = true
+                            DispatchQueue.main.asyncAfter(deadline: .now() + 2.0) {
+                                showDeepgramSaveConfirmation = false
+                            }
+                        }) {
+                            Text("Save")
+                                .font(.system(size: 12))
+                                .padding(.horizontal, 12)
+                                .padding(.vertical, 4)
+                        }
+                        .buttonStyle(.borderedProminent)
+                        .disabled(!hasUnsavedDeepgram)
+                        
+                        if showDeepgramSaveConfirmation {
+                            Text("✓ Saved")
+                                .font(.caption)
+                                .foregroundColor(.green)
+                                .transition(.opacity)
+                        }
+                    }
+                    .animation(.easeInOut(duration: 0.2), value: showDeepgramSaveConfirmation)
+                }
+            }
+
             Spacer()
         }
         .padding(.top, 8)
+        .onAppear {
+            tempDeepgramApiKey = deepgramApiKey
+            hasUnsavedDeepgram = false
+        }
     }
 }
 
