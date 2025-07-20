@@ -1252,8 +1252,17 @@ struct ContentView: View {
                         
                         Button("Fullscreen") {
                             if !isFullscreen {
-                                if let window = NSApplication.shared.windows.first {
-                                    window.toggleFullScreen(nil)
+                                // Close sidebar first
+                                if showingSidebar {
+                                    withAnimation(.easeInOut(duration: 0.2)) {
+                                        showingSidebar = false
+                                    }
+                                }
+                                // Then activate fullscreen after a brief delay
+                                DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
+                                    if let window = NSApplication.shared.windows.first {
+                                        window.toggleFullScreen(nil)
+                                    }
                                 }
                             }
                         }
@@ -1592,6 +1601,17 @@ struct ContentView: View {
                         }
                     }
                 }
+                .onChange(of: isRecording) { _ in
+                    if !isHoveringBottomNav && (timerIsRunning || isRecording) {
+                        withAnimation(.easeInOut(duration: 0.2)) {
+                            bottomNavOpacity = 0.0
+                        }
+                    } else if !isHoveringBottomNav && !timerIsRunning && !isRecording {
+                        withAnimation(.easeInOut(duration: 0.2)) {
+                            bottomNavOpacity = 1.0
+                        }
+                    }
+                }
             }
             
             // Microphone Button (centered, outside navbar opacity control)
@@ -1600,7 +1620,6 @@ struct ContentView: View {
                 let borderWidth: CGFloat = 1
                 let dotRadius: CGFloat = (buttonSize / 2) - (borderWidth / 2)
                 Button(action: {
-                    toggleNavbarVisibility()
                     toggleRecording()
                 }) {
                     ZStack {
@@ -1643,6 +1662,7 @@ struct ContentView: View {
                 }
             }
         }
+        .frame(height: navHeight)
     }
     
     var body: some View {
@@ -1704,7 +1724,6 @@ struct ContentView: View {
         }
         .onReceive(NotificationCenter.default.publisher(for: NSWindow.willEnterFullScreenNotification)) { _ in
             isFullscreen = true
-            showingSidebar = false
         }
         .onReceive(NotificationCenter.default.publisher(for: NSWindow.willExitFullScreenNotification)) { _ in
             isFullscreen = false
@@ -2712,10 +2731,6 @@ struct ContentView: View {
         // Enter voice input mode - remove cursor focus and prepare for voice input
         isVoiceInputMode = true
         
-        // Hide bottom navigation bar when recording starts
-        withAnimation(.easeInOut(duration: 0.3)) {
-            bottomNavOpacity = 0.0
-        }
         
         // Remove focus from text editor by hiding the keyboard/cursor
         DispatchQueue.main.async {
@@ -2750,10 +2765,6 @@ struct ContentView: View {
         } catch {
             showToast(message: "Failed to start recording: \(error.localizedDescription)", type: .error)
             isVoiceInputMode = false
-            // Show bottom navigation bar again if recording failed
-            withAnimation(.easeInOut(duration: 0.3)) {
-                bottomNavOpacity = 1.0
-            }
         }
     }
     
@@ -2815,12 +2826,6 @@ struct ContentView: View {
         isListening = false
         stopMicAnimation()
         
-        // Show bottom navigation bar when recording stops
-        if !isHoveringBottomNav && !timerIsRunning {
-            withAnimation(.easeInOut(duration: 0.3)) {
-                bottomNavOpacity = 1.0
-            }
-        }
 
     }
     
@@ -3057,10 +3062,6 @@ struct ContentView: View {
         liveFinalText = ""
         liveInterimText = ""
         
-        // Hide bottom navigation
-        withAnimation(.easeInOut(duration: 0.3)) {
-            bottomNavOpacity = 0.0
-        }
         
         // Remove focus from text editor
         DispatchQueue.main.async {
@@ -3142,10 +3143,6 @@ struct ContentView: View {
         // Stop microphone animation
         stopMicAnimation()
         
-        // Show bottom navigation
-        withAnimation(.easeInOut(duration: 0.3)) {
-            bottomNavOpacity = 1.0
-        }
         
         print("🔌 Live transcription stopped")
     }
@@ -4282,18 +4279,28 @@ struct TranscriptionSettingsView: View {
                             }
                         }) {
                             Text("Save")
-                                .font(.system(size: 12))
-                                .padding(.horizontal, 12)
-                                .padding(.vertical, 4)
+                                .font(.system(size: 13, weight: .medium))
+                                .foregroundColor(.white)
+                                .padding(.horizontal, 16)
+                                .padding(.vertical, 8)
+                                .background(
+                                    RoundedRectangle(cornerRadius: 6)
+                                        .fill(colorScheme == .dark ? Color.black : (hasUnsavedDeepgram ? .primary : .secondary))
+                                )
                         }
-                        .buttonStyle(.borderedProminent)
+                        .buttonStyle(PlainButtonStyle())
                         .disabled(!hasUnsavedDeepgram)
                         
                         if showDeepgramSaveConfirmation {
-                            Text("✓ Saved")
-                                .font(.caption)
-                                .foregroundColor(.green)
-                                .transition(.opacity)
+                            HStack(spacing: 6) {
+                                Image(systemName: "checkmark.circle.fill")
+                                    .foregroundColor(.green)
+                                    .font(.system(size: 12))
+                                Text("Saved")
+                                    .font(.system(size: 12))
+                                    .foregroundColor(.secondary)
+                            }
+                            .transition(.opacity)
                         }
                     }
                     .animation(.easeInOut(duration: 0.2), value: showDeepgramSaveConfirmation)
