@@ -300,6 +300,7 @@ struct ContentView: View {
     @State private var sections: [EntrySection] = [] // All USER and REFLECTION sections
     @State private var editingText: String = "" // Current text being edited (always the latest USER section)
     @State private var isStreamingReflection: Bool = false // Freeze text editor during streaming
+    @State private var forceRefresh: Bool = false // Force UI refresh after streaming completion
     
     @State private var shouldScrollToBottom: Bool = false
     
@@ -520,6 +521,12 @@ struct ContentView: View {
             self.sections.append(EntrySection(type: .user, text: "\n\n"))
             self.editingText = "\n\n"
             self.isStreamingReflection = false
+            
+            // Force UI refresh to ensure final chunk renders
+            DispatchQueue.main.async {
+                self.forceRefresh.toggle()
+            }
+            
             if let currentId = self.selectedEntryId,
                let entry = self.entries.first(where: { $0.id == currentId }) {
                 self.saveEntry(entry: entry)
@@ -1415,6 +1422,12 @@ struct ContentView: View {
                                     sections.append(EntrySection(type: .user, text: "\n\n"))
                                     editingText = "\n\n"
                                     isStreamingReflection = false
+                                    
+                                    // Force UI refresh to ensure final chunk renders
+                                    DispatchQueue.main.async {
+                                        forceRefresh.toggle()
+                                    }
+                                    
                                     if let currentId = selectedEntryId,
                                        let entry = entries.first(where: { $0.id == currentId }) {
                                         saveEntry(entry: entry)
@@ -1915,6 +1928,7 @@ struct ContentView: View {
                                     
                                     VStack(spacing: 0) { EmptyView() }.id("reflectionBottomAnchor")
                                 }
+                                .id(forceRefresh)
                                 .padding(.horizontal, 24)
                                 .padding(.top, 38)
                                 .padding(.bottom, bottomNavOpacity > 0 ? navHeight : 0)
