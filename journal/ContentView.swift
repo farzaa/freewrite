@@ -1,7 +1,7 @@
 // Swift 5.0
 //
 //  ContentView.swift
-//  freewrite
+//  journal
 //
 //  Created by thorfinn on 2/14/25.
 //
@@ -13,6 +13,10 @@ import PDFKit
 import AVFoundation
 import Security
 import Network
+
+extension Color {
+    static let lightModeBackground = Color(red: 247/255, green: 246/255, blue: 243/255)
+}
 
 struct HumanEntry: Identifiable {
     let id: UUID
@@ -80,16 +84,16 @@ class SettingsManager: ObservableObject {
     
     init() {
         // Create settings file in the same directory as journal entries
-        let documentsDirectory = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0].appendingPathComponent("Freewrite")
+        let documentsDirectory = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0].appendingPathComponent("Journal")
         self.settingsURL = documentsDirectory.appendingPathComponent("Settings.json")
         
-        // Ensure the Freewrite directory exists
+        // Ensure the Journal directory exists
         if !FileManager.default.fileExists(atPath: documentsDirectory.path) {
             do {
                 try FileManager.default.createDirectory(at: documentsDirectory, withIntermediateDirectories: true)
-                print("Created Freewrite directory at: \(documentsDirectory.path)")
+                print("Created Journal directory at: \(documentsDirectory.path)")
             } catch {
-                print("Error creating Freewrite directory: \(error)")
+                print("Error creating Journal directory: \(error)")
             }
         }
         
@@ -148,7 +152,7 @@ class KeychainHelper {
     static let shared = KeychainHelper()
     private init() {}
     
-    private let service = "com.freewrite.apikeys"
+    private let service = "com.journal.apikeys"
     
     enum KeyType: String {
         case openAI = "openai_api_key"
@@ -348,13 +352,13 @@ struct ContentView: View {
     
     // Add cached documents directory
     private let documentsDirectory: URL = {
-        let directory = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0].appendingPathComponent("Freewrite")
+        let directory = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0].appendingPathComponent("Journal")
         
-        // Create Freewrite directory if it doesn't exist
+        // Create Journal directory if it doesn't exist
         if !FileManager.default.fileExists(atPath: directory.path) {
             do {
                 try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
-                print("Successfully created Freewrite directory")
+                print("Successfully created Journal directory")
             } catch {
                 print("Error creating directory: \(error)")
             }
@@ -1086,7 +1090,7 @@ struct ContentView: View {
             }
             
             // Check if we have only one entry and it's the welcome message
-            let hasOnlyWelcomeEntry = entries.count == 1 && entriesWithDates.first?.content.contains("Welcome to Freewrite.") == true
+            let hasOnlyWelcomeEntry = entries.count == 1 && entriesWithDates.first?.content.contains("Welcome to Journal.") == true
             
             if entries.isEmpty {
                 // First time user - create entry with welcome message
@@ -1169,7 +1173,7 @@ struct ContentView: View {
     
     // Add a color utility computed property
     var popoverBackgroundColor: Color {
-        return colorScheme == .light ? Color(NSColor.controlBackgroundColor) : Color(NSColor.darkGray)
+        return colorScheme == .light ? Color.lightModeBackground : Color(NSColor.darkGray)
     }
     
     var popoverTextColor: Color {
@@ -1588,7 +1592,7 @@ struct ContentView: View {
             .padding(.leading, 16)
             .padding(.trailing, 16)
             .padding(.vertical, 10)
-            .background(Color(colorScheme == .light ? .white : .black))
+            .background(colorScheme == .light ? Color.lightModeBackground : Color.black)
                 .opacity(bottomNavOpacity)
                 .onHover { hovering in
                     isHoveringBottomNav = hovering
@@ -1625,7 +1629,7 @@ struct ContentView: View {
                 }) {
                     ZStack {
                         Circle()
-                            .fill(colorScheme == .light ? Color.white : Color.black)
+                            .fill(colorScheme == .light ? Color.lightModeBackground : Color.black)
                             .frame(width: buttonSize, height: buttonSize)
                             .overlay(
                                 Circle()
@@ -1686,7 +1690,7 @@ struct ContentView: View {
                 
                 // Navigation is an overlay within each of those views
             }
-            .background(Color(colorScheme == .light ? .white : .black))
+            .background(colorScheme == .light ? Color.lightModeBackground : Color.black)
         }
         .frame(minWidth: 1100, minHeight: 600)
         .animation(.easeInOut(duration: 0.2), value: showingSidebar)
@@ -1766,7 +1770,7 @@ struct ContentView: View {
     
     private var mainContent: some View {
         ZStack {
-            Color(colorScheme == .light ? .white : .black)
+            (colorScheme == .light ? Color.lightModeBackground : Color.black)
                 .ignoresSafeArea()
             
             HStack(alignment: .top, spacing: 0) {
@@ -1957,7 +1961,7 @@ struct ContentView: View {
                     sidebarReflectionSection(textColor: textColor, textHoverColor: textHoverColor)
                 }
                 .frame(width: 200)
-                .background(Color(colorScheme == .light ? .white : NSColor.black))
+                .background(colorScheme == .light ? Color.lightModeBackground : Color.black)
                 
                 // Add right border
                 Rectangle()
@@ -2223,7 +2227,7 @@ struct ContentView: View {
             // Bottom spacer for alignment with navbar
             Rectangle()
                 .fill(Color.clear)
-                .frame(height: 12) // Further reduced for alignment with New Entry
+                .frame(height: 16) // Increased to push content up higher
         }
     }
     
@@ -3409,7 +3413,7 @@ struct ContentView: View {
 
     private var centeredReflectionView: some View {
         ZStack {
-            Color(colorScheme == .light ? .white : .black)
+            (colorScheme == .light ? Color.lightModeBackground : Color.black)
                 .ignoresSafeArea()
 
             ScrollView {
@@ -3758,6 +3762,7 @@ extension DeepgramLiveTranscription: URLSessionWebSocketDelegate {
 
 // Add these view structs before the main ContentView struct
 struct SettingsModal: View {
+    @Environment(\.colorScheme) var colorScheme
     @Binding var showingSettings: Bool
     @Binding var selectedSettingsTab: SettingsTab
     @Binding var openAIapiKey: String
@@ -3779,13 +3784,14 @@ struct SettingsModal: View {
             )
         }
         .frame(width: 600, height: 400)
-        .background(Color(NSColor.windowBackgroundColor))
+        .background(colorScheme == .light ? Color.lightModeBackground : Color(NSColor.windowBackgroundColor))
         .cornerRadius(12)
         .shadow(color: .black.opacity(0.2), radius: 20, x: 0, y: 10)
     }
 }
 
 struct SettingsSidebar: View {
+    @Environment(\.colorScheme) var colorScheme
     @Binding var selectedTab: SettingsTab
     
     var body: some View {
@@ -3829,7 +3835,7 @@ struct SettingsSidebar: View {
             Spacer()
         }
         .frame(width: 180)
-        .background(Color(NSColor.controlBackgroundColor))
+        .background(colorScheme == .light ? Color.lightModeBackground : Color(NSColor.controlBackgroundColor))
     }
 }
 
@@ -4411,7 +4417,7 @@ struct ToastView: View {
             .padding(.vertical, 16)
             .background(
                 Capsule()
-                    .fill(Color(NSColor.controlBackgroundColor))
+                    .fill(colorScheme == .light ? Color.lightModeBackground : Color(NSColor.controlBackgroundColor))
                     .shadow(color: .black.opacity(0.15), radius: 12, x: 0, y: 4)
             )
             .frame(maxWidth: 400) // Max width constraint
@@ -4582,4 +4588,3 @@ struct TextEditorCursorColorView: NSViewRepresentable {
         }
     }
 }
-

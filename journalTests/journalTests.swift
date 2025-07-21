@@ -1,13 +1,14 @@
 //
-//  freewriteTests.swift
-//  freewriteTests
+//  journalTests.swift
+//  journalTests
 //
-//  Created by thorfinn on 2/14/25.
+//  Created by Ali Ahmed on 7/20/25.
 //
 
 import Testing
+@testable import journal
 
-struct freewriteTests {
+struct journalTests {
 
     @Test func example() async throws {
         // Write your test here and use APIs like `#expect(...)` to check expected conditions.

@@ -1,6 +1,6 @@
 //
-//  freewriteApp.swift
-//  freewrite
+//  journalApp.swift
+//  journal
 //
 //  Created by thorfinn on 2/14/25.
 //
@@ -8,7 +8,7 @@
 import SwiftUI
 
 @main
-struct freewriteApp: App {
+struct journalApp: App {
     @NSApplicationDelegateAdaptor(AppDelegate.self) var appDelegate
     @AppStorage("colorScheme") private var colorSchemeString: String = "light"
     

@@ -2,7 +2,7 @@
 
 a simple, open-source mac app for journaling. remixed from [freewrite](https://www.freewrite.io/) by [farza](https://x.com/FarzaTV).
 
-download latest version [here](https://www.freejournal.ai/)
+download latest version [here](https://www.aliahmed.ai/journal)
 
 if you wanna make an addition + pr,
 or just wanna remix the app for yourself go for it.

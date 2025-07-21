@@ -1,13 +1,13 @@
 //
-//  freewriteUITestsLaunchTests.swift
-//  freewriteUITests
+//  journalUITestsLaunchTests.swift
+//  journalUITests
 //
-//  Created by thorfinn on 2/14/25.
+//  Created by Ali Ahmed on 7/20/25.
 //
 
 import XCTest
 
-final class freewriteUITestsLaunchTests: XCTestCase {
+final class journalUITestsLaunchTests: XCTestCase {
 
     override class var runsForEachTargetApplicationUIConfiguration: Bool {
         true
