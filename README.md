@@ -1,4 +1,4 @@
-# hi, this is Journal
+# hi, this is Journal ✍️
 
 a simple, open-source mac app for journaling. remixed from [freewrite](https://www.freewrite.io/) by [farza](https://x.com/FarzaTV).
 
