@@ -1841,7 +1841,7 @@ struct ContentView: View {
                     .lineSpacing(userLineHeight)
                     .frame(maxWidth: showReflectionPanel ? .infinity : 650)
                     .padding(.horizontal, showReflectionPanel ? 24 : 16)
-                    .padding(.bottom, bottomNavOpacity > 0 ? navHeight : 0)
+                    .padding(.bottom, navHeight)
                     .background(Color.clear)
                     .textSelection(.enabled)
                     .disabled(reflectionViewModel.isLoading || isStreamingReflection)
@@ -1931,7 +1931,7 @@ struct ContentView: View {
                                 .id(forceRefresh)
                                 .padding(.horizontal, 24)
                                 .padding(.top, 38)
-                                .padding(.bottom, bottomNavOpacity > 0 ? navHeight : 0)
+                                .padding(.bottom, navHeight)
                             }
                             .scrollIndicators(.never)
                             .onChange(of: sections) { _ in
@@ -3451,7 +3451,7 @@ struct ContentView: View {
                 .frame(minHeight: (NSScreen.main?.visibleFrame.height ?? 800) - navHeight)
             }
             .scrollIndicators(.never)
-            .padding(.bottom, bottomNavOpacity > 0 ? navHeight : 0)
+            .padding(.bottom, navHeight)
             
             VStack {
                 Spacer()
