@@ -1379,6 +1379,15 @@ struct ContentView: View {
                             }
                             
                             Button(action: {
+                                // Check if OpenAI API key is missing first
+                                if openAIAPIKey.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                                    withAnimation(.easeInOut(duration: 0.2)) {
+                                        showingSettings = true
+                                        selectedSettingsTab = .apiKeys
+                                    }
+                                    return
+                                }
+                                
                                 if editingText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
                                     showToast(message: "Empty! Write something and try again.", type: .error)
                                     return
@@ -3930,9 +3939,15 @@ struct APIKeysSettingsView: View {
                         hasUnsavedOpenAI = (newValue != openAIapiKey)
                     }
                 
-                Text("Used for reflections.")
-                    .font(.caption)
-                    .foregroundColor(.secondary)
+                HStack(spacing: 2) {
+                    Text("Used for reflections. Get your key at")
+                        .font(.caption)
+                        .foregroundColor(.secondary)
+                    
+                    Link("platform.openai.com/api-keys", destination: URL(string: "https://platform.openai.com/api-keys")!)
+                        .font(.caption)
+                        .foregroundColor(.blue)
+                }
                 
                 HStack(spacing: 12) {
                     Button(action: {
@@ -4266,9 +4281,15 @@ struct TranscriptionSettingsView: View {
                             hasUnsavedDeepgram = (newValue != deepgramApiKey)
                         }
                     
-                    Text("Used for speech-to-text transcription.")
-                        .font(.caption)
-                        .foregroundColor(.secondary)
+                    HStack(spacing: 2) {
+                        Text("Used for speech-to-text transcription. Get your key at")
+                            .font(.caption)
+                            .foregroundColor(.secondary)
+                    
+                        Link("console.deepgram.com", destination: URL(string: "https://console.deepgram.com")!)
+                            .font(.caption)
+                            .foregroundColor(.blue)
+                    }
                     
                     HStack(spacing: 12) {
                         Button(action: {

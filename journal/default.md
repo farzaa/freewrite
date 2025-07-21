@@ -1,4 +1,4 @@
-Hi. Welcome to Journal :).
+Hi! Welcome to Journal :)
 
 Plz read this guide.
 
@@ -8,20 +8,27 @@ It’s 5 min max.
 
 My name is Ali.
 
-TBD
+I built this app. It is a forked/inspired remix of Farza’s freewrite (including this guide) – with a slight twist. This is a tool designed to help you understand your thoughts.
 
-I will tell you how to use it.
+It’s a journal. You freewrite, and then you ask your journal to reflect.
 
-Basically
+What is freewriting?
 
-1. Think of a topic to write about (ex. a breakup, a struggle at work, a new idea)
-2. Click fullscreen
-3. Click the timer
-4. Start writing. No backspaces allowed. Don’t stop writing.
+Freewriting is a writing strategy developed in 1973 — it’s where you write continuously for a set time without worrying about grammar, spelling, or anything like that. A pure stream of consciousness.
+
+Freewriting alone is quite helpful. But I’m also quite lazy. So I stopped. But then I combined it with chatgpt. And that’s when I stuck with it.
+
+Having chatgpt as a sidekick has helped me through a lot — overcoming survivor’s guilt, leaving my last company, and just figuring out what actually matters to me as I continuously figure out the next chapter of life.
+
+Using this app is quite simple:
+
+1. Click fullscreen
+2. Click the timer
+3. Start writing. No backspaces allowed. Don’t stop writing.
 
 Once the timer is done, it’ll fade back in — and you’ll know to stop.
 
-5. Then click reflect.
+4. Then click “Reflect”.
 
 Some basic rules:
 
@@ -29,67 +36,80 @@ Some basic rules:
 - No fixing spelling
 - Little 5–10s breaks are fine, but try to not stop typing
 - No need to stay on the topic you started with — let your mind wander
-- No judgment — trust your mind!
+- No judgment — trust yourself!
 
-It’s like your brain is GPT and you just exhaust all the tokens in your head around a particular topic — and by the end, you’ll likely feel clearer about whatever it was you were writing about.
+It’s like your brain is GPT and you just exhaust all the tokens in your head around a particular topic — and by the end, you’ll have this helpful homie make you feel clearer about whatever it was you were writing about.
 
-This little is how I plan, prioritize and reflect on my days for many years. And in the last 6 months, with ChatGPT.
+This is how I’ve ended my day for the past 4 years. And in the last 2 years, with ChatGPT.
 
-You’d be surprised how easy it is to get sucked into nonsense right when the day starts — and then end up getting nothing of real value done over the next 8–12 hours.
+If you’re new to writing, try this:
 
-Often after this planning session, I’m 100x more clear and excited about what I’m about to do — and I usually end up changing what I originally planned, for the better.
+After your day is done, look at your calendar and ask yourself: “what did I do and how did that make me feel.”
 
-If you don’t wanna write about work, other starting prompts I use for myself:
+And don’t stop writing for 10 minutes.
+
+If you don’t wanna write about feelings, then write about work. Or complex thoughts when you’re in a bind. Here are some prompts:
 
 - “Today, X happened. And it’s got me feeling really down. I think — ”
 - “I had a new idea around Z today and want to think through it. Basically — ”
 - “I’m in love. And I just wanna talk about it. So — ”
 - “I think I wanna pivot some stuff. Here’s how I’m thinking about it — ”
 
-The starting prompt is everything. So, think on it.
+Topic prompts help you get started, but embrace the tangents. Where the mind chooses to wander is telling.
 
 Some people are better at writing about emotions.
 Some are better at writing about work or ideas.
 
 Try everything. See what works for you.
 
-Freewriting is the most important skill I picked up in the last 10 years.
-
-It’s helped me think through my most difficult life decisions.
-It’s helped me think through startups in a more thorough way.
-It’s made me a better partner and friend (I like communicating with letters).
-It’s helped me be happier (on my down days, I write it all out and feel better).
-
 So that’s it! That’s the app. I hope it helps you.
 
-I know it’s a dumb little app — just a text view with some black text + a timer — but, use its ideas properly and it can make a big impact :).
+I know it’s a dumb little app — but use its ideas properly and it can make a big impact :).
 
-(Or it ends up being dumb and useless for you haha. Find out for yourself!)
+big bonus features:
 
-Lil bonus features:
+1. After you reflect, you can keep adding more to your entry. When you click reflect again, it’ll see the additions and reflect on both that and the original.
 
-1. you can keep typing and keep chatting with your reflection
+2. Click on the book icon on the bottom left to see your previous entries. You’ll see text at the bottom that says “Run Reflection ↓”.
+
+Click “Week/Month/Custom” for journal to reflect on all entries in the last week (starting Sunday) or the last Month (starting on the 1st).
+
+3. Some people find it easier to talk (like a therapist vibe). Use Apple Dictation, Wispr Flow (if you have) or if you have none – click the settings gear icon at the top of the sidebar, click on the “Transcription” tab, and click “Show microphone button”, and put in a Deepgram API Key. It uses live audio streaming to stream exactly what to say.
+
+I do this a lot, sometimes days are long and you’re tired. This is how you don’t skip a beat. And speaking is faster than writing, it's almost more real. Try it out!
+
+fun lil bonus features:
+
+1. “I’ve always felt that the font and size should reflect the mood of my writing. I’m kinda weird like that. But maybe there are other weird people like me out there haha” - Farza.
+
+I’m also a bit weird, so I kept it. Maybe you are too.
+
+My Notion has “18px System”. I use Arial for anything official. The random button is there to help you find the vibe you’re looking for.
 
 2. Try to scroll on the timer using your trackpad — this is how you set different timer.
 
-Maybe start with 5m or 10m if 15m feels like a lot. For longer sessions where I’m writing scripts or brainstorming, I do 25m.
+Maybe start with 5m if 10m feels like a lot. For longer sessions where I’ve gone through something big, I do 30m.
 
 3. There is no spellcheck. There is no markdown. This is on purpose. It doesn’t matter.
 
-4. I’ve always felt that the font and size should reflect the mood of my writing. I’m kinda weird like that. But maybe there are other weird people like me out there haha.
+4. In the sidebar (book icon, bottom left), you can see all of your entries. You can upload them all to chatgpt and ask some interesting prompts like:
 
-For example, for more emotional entries I like a larger “24px Lato”.
-If I’m thinking through a new business idea, I prefer a more official-looking “18px Serif”. I also added the random button to help you find the vibe you’re looking for.
+- “Tell me something incredibly special or unique you've noticed about me, but you think I haven't realized about myself yet. It doesn’t have to be something positive and you don’t have to be nice to me, just be truthful.”
 
-5. Click the bar on the bottom left to see your history. It’s all saved locally. Click the file path at the top to open it in Finder.
-6. Click on the settings wheel in the history toggle. Click Reflections. Click Run now on any of them. it'll reflect on your last week/month/whatever
+- “Ask me 10 questions that will help me discover the most uncomfortable truth about myself that I am not aware of”
+
+- “Any books you can recommend given what I’ve been going through, and why?”
+
+- “Predict my future for the next 12 months, given my past. Give me my best timeline + my darkest timeline along with the events that'd lead me there (like a movie).”
+
+This part is really magical <3
 
 See a bug? Wanna add something? See open issues and requests on the repo here:
-tbd
+<https://github.com/ali-aka-ahmed/journal>
 
-Wanna join your fellow writers? Join:
-tbd
+Have any good prompts? Join Farza’s freewrite chat and send there:
+<https://freewrite.io/> (click “join writing group" at the top)
 
-Enjoy everyone!!
+Enjoy!!!
 
 – Ali
