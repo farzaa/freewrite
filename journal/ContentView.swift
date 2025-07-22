@@ -1894,6 +1894,7 @@ struct ContentView: View {
                                                     .padding(.horizontal, 16) // Add horizontal padding to match reflection text
                                                     .padding(.top, 16) // Add top padding to match bottom
                                                     .padding(.bottom, 16)
+                                                    .textSelection(.enabled)
                                             } else {
                                                 // Show reflection content with proper styling
                                                 VStack(alignment: .leading, spacing: 0) {
@@ -4521,8 +4522,8 @@ struct MarkdownTextView: View {
             // Apply base font and color
             let baseFont = NSFont(name: font, size: fontSize) ?? NSFont.systemFont(ofSize: fontSize)
             let textColor = colorScheme == .light ? 
-                NSColor(red: 0.20, green: 0.20, blue: 0.20, alpha: 1.0) : 
-                NSColor(calibratedWhite: 0.90, alpha: 1.0)
+                NSColor(red: 0.10, green: 0.10, blue: 0.10, alpha: 1.0) : 
+                NSColor(calibratedWhite: 0.95, alpha: 1.0)
             
             // Apply base styling to entire string
             parsed.font = baseFont
