@@ -459,7 +459,7 @@ struct ContentView: View {
     // Function to run date range reflection (replaces runWeeklyReflection)
     private func runDateRangeReflection(fromDate: Date, toDate: Date, type: String) {
         // Gather entries from the specified date range
-        let rangeContent = gatherWeeklyEntries(from: fromDate, to: toDate)
+        let rangeContent = gatherEntriesInDateRange(from: fromDate, to: toDate)
         
         // Check if there are any entries for the date range
         if rangeContent.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
@@ -572,7 +572,7 @@ struct ContentView: View {
     }
     
     // Function to gather entries from the last 7 days
-    private func gatherWeeklyEntries(from startDate: Date, to endDate: Date) -> String {
+    private func gatherEntriesInDateRange(from startDate: Date, to endDate: Date) -> String {
         let documentsDirectory = getDocumentsDirectory()
         var weeklyContent = ""
         var processedFiles: [String] = []
@@ -655,16 +655,17 @@ struct ContentView: View {
                         }
                     }
                 }
-                // Handle Reflection entries: [Reflection]-[MM-dd-yyyy]-[MM-dd-yyyy]-[HH-mm-ss].md
+                // Handle Reflection entries: [Reflection]-[timeframeType]-[MM-dd-yyyy]-[MM-dd-yyyy]-[HH-mm-ss].md
                 else if filename.hasPrefix("[Reflection]-") {
-                    let pattern = "\\[Reflection\\]-\\[(\\d{2}-\\d{2}-\\d{4})\\]-\\[(\\d{2}-\\d{2}-\\d{4})\\]-\\[(\\d{2}-\\d{2}-\\d{2})\\]"
+                    let pattern = "\\[Reflection\\]-\\[([^\\]]+)\\]-\\[(\\d{2}-\\d{2}-\\d{4})\\]-\\[(\\d{2}-\\d{2}-\\d{4})\\]-\\[(\\d{2}-\\d{2}-\\d{2})\\]"
                     if let match = filename.range(of: pattern, options: .regularExpression) {
                         let matchString = String(filename[match])
                         let components = matchString.components(separatedBy: "]-[")
                         
-                        if components.count >= 4 {
-                            let reflectionStartDateString = components[1]
-                            let reflectionEndDateString = components[2]
+                        if components.count >= 5 {
+                            let timeframeType = components[1]
+                            let reflectionStartDateString = components[2]
+                            let reflectionEndDateString = components[3]
                             
                             let dateFormatter = DateFormatter()
                             dateFormatter.dateFormat = "MM-dd-yyyy"
@@ -682,7 +683,7 @@ struct ContentView: View {
                                     dateFormatter.dateFormat = "MMMM d"
                                     let startDisplay = dateFormatter.string(from: reflectionStartDate)
                                     let endDisplay = dateFormatter.string(from: reflectionEndDate)
-                                    displayDate = "Reflection: \(startDisplay) - \(endDisplay)"
+                                    displayDate = "Reflection (\(timeframeType)): \(startDisplay) - \(endDisplay)"
                                 }
                             }
                         }
@@ -811,17 +812,18 @@ struct ContentView: View {
                         }
                     }
                 }
-                // Handle Reflection entries: [Reflection]-[MM-dd-yyyy]-[MM-dd-yyyy]-[HH-mm-ss].md
+                // Handle Reflection entries: [Reflection]-[timeframeType]-[MM-dd-yyyy]-[MM-dd-yyyy]-[HH-mm-ss].md
                 else if filename.hasPrefix("[Reflection]-") {
                     print("Checking Reflection file: \(filename)")
-                    let pattern = "\\[Reflection\\]-\\[(\\d{2}-\\d{2}-\\d{4})\\]-\\[(\\d{2}-\\d{2}-\\d{4})\\]-\\[(\\d{2}-\\d{2}-\\d{2})\\]"
+                    let pattern = "\\[Reflection\\]-\\[([^\\]]+)\\]-\\[(\\d{2}-\\d{2}-\\d{4})\\]-\\[(\\d{2}-\\d{2}-\\d{4})\\]-\\[(\\d{2}-\\d{2}-\\d{2})\\]"
                     if let match = filename.range(of: pattern, options: .regularExpression) {
                         let matchString = String(filename[match])
                         let components = matchString.components(separatedBy: "]-[")
                         
-                        if components.count >= 4 {
-                            let reflectionStartDateString = components[1]
-                            let reflectionEndDateString = components[2]
+                        if components.count >= 5 {
+                            let timeframeType = components[1]
+                            let reflectionStartDateString = components[2]
+                            let reflectionEndDateString = components[3]
                             
                             let dateFormatter = DateFormatter()
                             dateFormatter.dateFormat = "MM-dd-yyyy"
@@ -848,6 +850,41 @@ struct ContentView: View {
         
         print("Final entry count: \(entryCount)")
         return entryCount
+    }
+    
+    // Function to extract date range from reflection filename
+    private func extractDateRangeFromReflectionFilename(_ filename: String) -> (startDate: Date, endDate: Date, timeframeType: String)? {
+        guard filename.hasPrefix("[Reflection]-") else { return nil }
+        
+        let pattern = "\\[Reflection\\]-\\[([^\\]]+)\\]-\\[(\\d{2}-\\d{2}-\\d{4})\\]-\\[(\\d{2}-\\d{2}-\\d{4})\\]-\\[(\\d{2}-\\d{2}-\\d{2})\\]"
+        
+        guard let match = filename.range(of: pattern, options: .regularExpression) else {
+            print("Failed to match reflection filename pattern: \(filename)")
+            return nil
+        }
+        
+        let matchString = String(filename[match])
+        let components = matchString.components(separatedBy: "]-[")
+        
+        guard components.count >= 5 else {
+            print("Insufficient components in reflection filename: \(filename)")
+            return nil
+        }
+        
+        let timeframeType = components[1]
+        let startDateString = components[2]
+        let endDateString = components[3]
+        
+        let dateFormatter = DateFormatter()
+        dateFormatter.dateFormat = "MM-dd-yyyy"
+        
+        guard let startDate = dateFormatter.date(from: startDateString),
+              let endDate = dateFormatter.date(from: endDateString) else {
+            print("Failed to parse dates from reflection filename: \(filename)")
+            return nil
+        }
+        
+        return (startDate: startDate, endDate: endDate, timeframeType: timeframeType)
     }
     
     // Function to create a new reflection entry
@@ -1413,34 +1450,80 @@ struct ContentView: View {
                                 hasInitiatedReflection = true
                                 isStreamingReflection = true
                                 
-                                // Build full conversation context including all previous sections
-                                let fullContext = buildFullConversationContext()
-                                
-                                // Start reflection with streaming to file
-                                reflectionViewModel.start(apiKey: openAIAPIKey, entryText: fullContext) {
-                                    // On complete: add new empty USER section (not copying previous text), unfreeze editor, and save
-                                    sections.append(EntrySection(type: .user, text: "\n\n"))
-                                    editingText = "\n\n"
-                                    isStreamingReflection = false
+                                // Check if current entry is a reflection file and handle accordingly
+                                if let currentId = selectedEntryId,
+                                   let entry = entries.first(where: { $0.id == currentId }),
+                                   let dateRange = extractDateRangeFromReflectionFilename(entry.filename) {
                                     
-                                    // Force UI refresh to ensure final chunk renders
-                                    DispatchQueue.main.async {
-                                        forceRefresh.toggle()
-                                    }
+                                    // This is a reflection file - gather original entries and combine with current content
+                                    print("Detected reflection file followup: \(entry.filename)")
+                                    let originalEntries = gatherEntriesInDateRange(from: dateRange.startDate, to: dateRange.endDate)
+                                    let currentReflectionContent = buildFullConversationContext()
                                     
-                                    if let currentId = selectedEntryId,
-                                       let entry = entries.first(where: { $0.id == currentId }) {
-                                        saveEntry(entry: entry)
-                                    }
-                                } onStream: { streamedText in
-                                    // Update the latest REFLECTION section as it streams
-                                    if let lastReflectionIndex = sections.lastIndex(where: { $0.type == .reflection }) {
-                                        sections[lastReflectionIndex].text = streamedText
-                                    }
-                                    // Save to file during streaming
-                                    if let currentId = selectedEntryId,
-                                       let entry = entries.first(where: { $0.id == currentId }) {
-                                        saveEntry(entry: entry)
+                                    // Start reflection followup with full context
+                                    reflectionViewModel.startReflectionFollowup(
+                                        apiKey: openAIAPIKey,
+                                        originalEntries: originalEntries,
+                                        reflectionContent: currentReflectionContent,
+                                        onComplete: {
+                                            // On complete: add new empty USER section, unfreeze editor, and save
+                                            sections.append(EntrySection(type: .user, text: "\n\n"))
+                                            editingText = "\n\n"
+                                            isStreamingReflection = false
+                                            
+                                            // Force UI refresh to ensure final chunk renders
+                                            DispatchQueue.main.async {
+                                                forceRefresh.toggle()
+                                            }
+                                            
+                                            if let currentId = selectedEntryId,
+                                               let entry = entries.first(where: { $0.id == currentId }) {
+                                                saveEntry(entry: entry)
+                                            }
+                                        },
+                                        onStream: { streamedText in
+                                            // Update the latest REFLECTION section as it streams
+                                            if let lastReflectionIndex = sections.lastIndex(where: { $0.type == .reflection }) {
+                                                sections[lastReflectionIndex].text = streamedText
+                                            }
+                                            
+                                            // Save entry as it streams with the partial content
+                                            if let currentId = selectedEntryId,
+                                               let entry = entries.first(where: { $0.id == currentId }) {
+                                                saveEntry(entry: entry)
+                                            }
+                                        }
+                                    )
+                                } else {
+                                    // Regular single-entry reflection
+                                    let fullContext = buildFullConversationContext()
+                                    
+                                    // Start reflection with streaming to file
+                                    reflectionViewModel.start(apiKey: openAIAPIKey, entryText: fullContext) {
+                                        // On complete: add new empty USER section, unfreeze editor, and save
+                                        sections.append(EntrySection(type: .user, text: "\n\n"))
+                                        editingText = "\n\n"
+                                        isStreamingReflection = false
+                                        
+                                        // Force UI refresh to ensure final chunk renders
+                                        DispatchQueue.main.async {
+                                            forceRefresh.toggle()
+                                        }
+                                        
+                                        if let currentId = selectedEntryId,
+                                           let entry = entries.first(where: { $0.id == currentId }) {
+                                            saveEntry(entry: entry)
+                                        }
+                                    } onStream: { streamedText in
+                                        // Update the latest REFLECTION section as it streams
+                                        if let lastReflectionIndex = sections.lastIndex(where: { $0.type == .reflection }) {
+                                            sections[lastReflectionIndex].text = streamedText
+                                        }
+                                        // Save to file during streaming
+                                        if let currentId = selectedEntryId,
+                                           let entry = entries.first(where: { $0.id == currentId }) {
+                                            saveEntry(entry: entry)
+                                        }
                                     }
                                 }
                             }) {
@@ -3228,14 +3311,14 @@ struct ContentView: View {
             streamOpenAIResponse(apiKey: apiKey, entryText: entryText)
         }
         
-        func startWeeklyReflection(apiKey: String, weeklyContent: String, onComplete: @escaping () -> Void) {
+        func startReflectionFollowup(apiKey: String, originalEntries: String, reflectionContent: String, onComplete: @escaping () -> Void, onStream: ((String) -> Void)? = nil) {
             guard !apiKey.isEmpty else {
                 self.error = "Please enter your OpenAI API key in Settings"
                 return
             }
             
-            guard !weeklyContent.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
-                self.error = "No entries found for the past week."
+            guard !originalEntries.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+                self.error = "No original entries found for reflection followup."
                 return
             }
 
@@ -3244,8 +3327,12 @@ struct ContentView: View {
             self.error = nil
             self.hasBeenRun = true
             self.onComplete = onComplete
-
-            streamWeeklyOpenAIResponse(apiKey: apiKey, weeklyContent: weeklyContent)
+            self.onStream = onStream
+            
+            // Combine original entries with current reflection content
+            let combinedContent = originalEntries + "\n\n=== PREVIOUS REFLECTION AND NEW THOUGHTS ===\n\n" + reflectionContent
+            
+            streamOpenAIResponse(apiKey: apiKey, weeklyContent: combinedContent)
         }
 
         private func streamOpenAIResponse(apiKey: String, entryText: String) {
@@ -3257,7 +3344,7 @@ struct ContentView: View {
             request.setValue("application/json", forHTTPHeaderField: "Content-Type")
             
             let systemPrompt = """
-            below is my journal entry for the day as well as my reflections on them. wyt? talk through it with me like a friend. don't therapize me and give me a whole breakdown, don't repeat my thoughts with headings. really take all of this, and tell me back stuff truly as if you're an old homie.
+            below are my journal entries as well as my reflections on them. wyt? talk through it with me like a friend. don't therapize me and give me a whole breakdown, don't repeat my thoughts with headings. really take all of this, and tell me back stuff truly as if you're an old homie.
 
             Keep it casual, dont say yo, help me make new connections i don't see, comfort, validate, challenge, all of it. dont be afraid to say a lot. format with headings if needed. use new paragrahs to make what you say more readable. don't use markdown or any other formatting. just use text.
 
@@ -3275,52 +3362,6 @@ struct ContentView: View {
                 "messages": [
                     ["role": "system", "content": systemPrompt],
                     ["role": "user", "content": entryText]
-                ],
-                "stream": true
-            ]
-            
-            do {
-                request.httpBody = try JSONSerialization.data(withJSONObject: payload)
-            } catch {
-                DispatchQueue.main.async {
-                    self.isLoading = false
-                    self.error = "Failed to prepare request."
-                }
-                return
-            }
-            
-            let session = URLSession(configuration: .default, delegate: self, delegateQueue: nil)
-            streamingTask = session.dataTask(with: request)
-            streamingTask?.resume()
-        }
-        
-        private func streamWeeklyOpenAIResponse(apiKey: String, weeklyContent: String) {
-            let endpoint = URL(string: "https://api.openai.com/v1/chat/completions")!
-            
-            var request = URLRequest(url: endpoint)
-            request.httpMethod = "POST"
-            request.setValue("Bearer \(apiKey)", forHTTPHeaderField: "Authorization")
-            request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-            
-            let systemPrompt = """
-            below are my journal entries for the week. sometimes with reflections from a friend. wyt? talk through it with me like a friend. don't therapize me and give me a whole breakdown, don't repeat my thoughts with headings. really take all of this, and tell me back stuff truly as if you're an old homie.
-
-            Keep it casual, dont say yo, help me make new connections i don't see, comfort, validate, challenge, all of it. dont be afraid to say a lot. format with headings if needed. use new paragrahs to make what you say more readable. don't use markdown or any other formatting. just use text.
-
-            do not just go through every single thing i say, and say it back to me. you need to process everything i say, make connections i don't see it, and deliver it all back to me as a story that makes me feel what you think i wanna feel. thats what the best therapists do.
-
-            ideally, you're style/tone should sound like the user themselves. it's as if the user is hearing their own tone but it should still feel different, because you have different things to say and don't just repeat back they say.
-
-            else, start by saying, "hey, thanks for showing me this :) my thoughts:" or "more thoughts:"
-
-            my entries:
-            """
-            
-            let payload: [String: Any] = [
-                "model": "gpt-4o",
-                "messages": [
-                    ["role": "system", "content": systemPrompt],
-                    ["role": "user", "content": weeklyContent]
                 ],
                 "stream": true
             ]
