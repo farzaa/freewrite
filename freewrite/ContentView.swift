@@ -417,7 +417,7 @@ struct ContentView: View {
                     .frame(maxWidth: 650)
                     
           
-                    .id("\(selectedFont)-\(fontSize)-\(colorScheme)")
+                    .id("\(selectedFont)-\(fontSize)")
                     .padding(.bottom, bottomNavOpacity > 0 ? navHeight : 0)
                     .ignoresSafeArea()
                     .colorScheme(colorScheme)
