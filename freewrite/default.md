@@ -35,7 +35,7 @@ That’s it.
 
 Some basic rules:
 
-- Again, no backspaces
+- Again, no backspaces (click on the padlock to toggle strict mode and really enforce this)
 - No fixing spelling
 - Little 5–10s breaks are fine, but try to not stop typing
 - No need to stay on the topic you started with — let your mind wander
