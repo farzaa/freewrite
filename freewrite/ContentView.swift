@@ -85,6 +85,8 @@ struct ContentView: View {
     @State private var colorScheme: ColorScheme = .light // Add state for color scheme
     @State private var isHoveringThemeToggle = false // Add state for theme toggle hover
     @State private var didCopyPrompt: Bool = false // Add state for copy prompt feedback
+    @State private var strictMode = false // Add state for strict mode
+    @State private var isHoveringStrictMode = false // Add state for strict mode hover
     let timer = Timer.publish(every: 1, on: .main, in: .common).autoconnect()
     let entryHeight: CGFloat = 40
     
@@ -155,6 +157,19 @@ struct ContentView: View {
         // Load saved color scheme preference
         let savedScheme = UserDefaults.standard.string(forKey: "colorScheme") ?? "light"
         _colorScheme = State(initialValue: savedScheme == "dark" ? .dark : .light)
+    }
+    
+    // Setup key event monitor for strict mode
+    private func setupStrictModeKeyMonitor() {
+        NSEvent.addLocalMonitorForEvents(matching: .keyDown) { event in
+            // Check if strict mode is enabled and the key is backspace (keyCode 51)
+            if strictMode && event.keyCode == 51 {
+                // Block the backspace key by returning nil
+                return nil
+            }
+            // Allow all other key events to pass through
+            return event
+        }
     }
     
     // Modify getDocumentsDirectory to use cached value
@@ -385,7 +400,6 @@ struct ContentView: View {
     @State private var viewHeight: CGFloat = 0
     
     var body: some View {
-        let buttonBackground = colorScheme == .light ? Color.white : Color.black
         let navHeight: CGFloat = 68
         let textColor = colorScheme == .light ? Color.gray : Color.gray.opacity(0.8)
         let textHoverColor = colorScheme == .light ? Color.black : Color.white
@@ -818,6 +832,30 @@ struct ContentView: View {
                             Text("•")
                                 .foregroundColor(.gray)
                             
+                            // Strict mode toggle button
+                            Button(action: {
+                                strictMode.toggle()
+                            }) {
+                                Image(systemName: strictMode ? "lock.fill" : "lock.open")
+                                    .foregroundColor(strictMode ? 
+                                        (isHoveringStrictMode ? textHoverColor : .red) : 
+                                        (isHoveringStrictMode ? textHoverColor : textColor))
+                            }
+                            .buttonStyle(.plain)
+                            .onHover { hovering in
+                                isHoveringStrictMode = hovering
+                                isHoveringBottomNav = hovering
+                                if hovering {
+                                    NSCursor.pointingHand.push()
+                                } else {
+                                    NSCursor.pop()
+                                }
+                            }
+                            .help(strictMode ? "Strict mode enabled - backspace disabled" : "Enable strict mode")
+                            
+                            Text("•")
+                                .foregroundColor(.gray)
+                            
                             // Theme toggle button
                             Button(action: {
                                 colorScheme = colorScheme == .light ? .dark : .light
@@ -1039,6 +1077,7 @@ struct ContentView: View {
         .onAppear {
             showingSidebar = false  // Hide sidebar by default
             loadExistingEntries()
+            setupStrictModeKeyMonitor()
         }
         .onChange(of: text) { _ in
             // Save current entry when text changes
