@@ -82,6 +82,8 @@ struct ContentView: View {
     @State private var isHoveringHistoryText = false
     @State private var isHoveringHistoryPath = false
     @State private var isHoveringHistoryArrow = false
+    @State private var isHoveringBackspaceToggle = false
+    @State private var isBackspaceDisabled = false
     @State private var colorScheme: ColorScheme = .light // Add state for color scheme
     @State private var isHoveringThemeToggle = false // Add state for theme toggle hover
     @State private var didCopyPrompt: Bool = false // Add state for copy prompt feedback
@@ -400,6 +402,11 @@ struct ContentView: View {
                     TextEditor(text: Binding(
                         get: { text },
                         set: { newValue in
+                            // Prevent backspace if disabled
+                            if isBackspaceDisabled && newValue.count < text.count {
+                                return
+                            }
+
                             // Ensure the text always starts with two newlines
                             if !newValue.hasPrefix("\n\n") {
                                 text = "\n\n" + newValue.trimmingCharacters(in: .newlines)
@@ -815,6 +822,28 @@ struct ContentView: View {
                                 }
                             }
                             
+                            Text("•")
+                                .foregroundColor(.gray)
+
+                            // Backspace toggle button - disable the use of backspace
+                            Button(action: {
+                                isBackspaceDisabled.toggle()
+                            }) {
+                                Text(isBackspaceDisabled ? "←" : "⌫")
+                                    .font(.system(size: 13))
+                            }
+                            .buttonStyle(.plain)
+                            .foregroundColor(isHoveringBackspaceToggle ? textHoverColor : textColor)
+                            .onHover { hovering in
+                                isHoveringBackspaceToggle = hovering
+                                isHoveringBottomNav = hovering
+                                if hovering {
+                                    NSCursor.pointingHand.push()
+                                } else {
+                                    NSCursor.pop()
+                                }
+                            }
+
                             Text("•")
                                 .foregroundColor(.gray)
                             
