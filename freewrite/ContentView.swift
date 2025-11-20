@@ -382,6 +382,8 @@ struct ContentView: View {
         return colorScheme == .light ? Color.primary : Color.white
     }
     
+    @State private var viewHeight: CGFloat = 0
+    
     var body: some View {
         let buttonBackground = colorScheme == .light ? Color.white : Color.black
         let navHeight: CGFloat = 68
@@ -394,17 +396,18 @@ struct ContentView: View {
                 Color(colorScheme == .light ? .white : .black)
                     .ignoresSafeArea()
                 
-                TextEditor(text: Binding(
-                    get: { text },
-                    set: { newValue in
-                        // Ensure the text always starts with two newlines
-                        if !newValue.hasPrefix("\n\n") {
-                            text = "\n\n" + newValue.trimmingCharacters(in: .newlines)
-                        } else {
-                            text = newValue
+              
+                    TextEditor(text: Binding(
+                        get: { text },
+                        set: { newValue in
+                            // Ensure the text always starts with two newlines
+                            if !newValue.hasPrefix("\n\n") {
+                                text = "\n\n" + newValue.trimmingCharacters(in: .newlines)
+                            } else {
+                                text = newValue
+                            }
                         }
-                    }
-                ))
+                    ))
                     .background(Color(colorScheme == .light ? .white : .black))
                     .font(.custom(selectedFont, size: fontSize))
                     .foregroundColor(colorScheme == .light ? Color(red: 0.20, green: 0.20, blue: 0.20) : Color(red: 0.9, green: 0.9, blue: 0.9))
@@ -412,6 +415,8 @@ struct ContentView: View {
                     .scrollIndicators(.never)
                     .lineSpacing(lineHeight)
                     .frame(maxWidth: 650)
+                    
+          
                     .id("\(selectedFont)-\(fontSize)-\(colorScheme)")
                     .padding(.bottom, bottomNavOpacity > 0 ? navHeight : 0)
                     .ignoresSafeArea()
@@ -426,13 +431,20 @@ struct ContentView: View {
                                 Text(placeholderText)
                                     .font(.custom(selectedFont, size: fontSize))
                                     .foregroundColor(colorScheme == .light ? .gray.opacity(0.5) : .gray.opacity(0.6))
-                                    // .padding(.top, 8)
-                                    // .padding(.leading, 8)
+                                // .padding(.top, 8)
+                                // .padding(.leading, 8)
                                     .allowsHitTesting(false)
                                     .offset(x: 5, y: placeholderOffset)
                             }
                         }, alignment: .topLeading
                     )
+                    .onGeometryChange(for: CGFloat.self) { proxy in
+                                    proxy.size.height
+                                } action: { height in
+                                    viewHeight = height
+                                }
+                                .contentMargins(.bottom, viewHeight / 4)
+                    
                 
                 VStack {
                     Spacer()
@@ -641,7 +653,7 @@ struct ContentView: View {
                                     
                                     if isUrlTooLong {
                                         // View for long text (URL too long)
-                                        Text("Hey, your entry is long. It'll break the URL. Instead, copy prompt by clicking below and paste into AI of your choice!")
+                                        Text("Hey, your entry is quite long. You'll need to manually copy the prompt by clicking 'Copy Prompt' below and then paste it into AI of your choice (ex. ChatGPT). The prompt includes your entry as well. So just copy paste and go! See what the AI says.")
                                             .font(.system(size: 14))
                                             .foregroundColor(popoverTextColor)
                                             .lineLimit(nil)
@@ -1143,7 +1155,7 @@ struct ContentView: View {
         let fullText = aiChatPrompt + "\n\n" + trimmedText
         
         if let encodedText = fullText.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed),
-           let url = URL(string: "https://chat.openai.com/?m=" + encodedText) {
+           let url = URL(string: "https://chat.openai.com/?prompt=" + encodedText) {
             NSWorkspace.shared.open(url)
         }
     }
