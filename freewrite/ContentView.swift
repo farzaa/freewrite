@@ -430,8 +430,8 @@ struct ContentView: View {
                                 Text(placeholderText)
                                     .font(.custom(selectedFont, size: fontSize))
                                     .foregroundColor(colorScheme == .light ? .gray.opacity(0.5) : .gray.opacity(0.6))
-                                // .padding(.top, 8)
-                                // .padding(.leading, 8)
+                                    // .padding(.top, 8)
+                                    // .padding(.leading, 8)
                                     .allowsHitTesting(false)
                                     .offset(x: 5, y: placeholderOffset)
                             }
