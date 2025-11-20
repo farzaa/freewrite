@@ -381,8 +381,7 @@ struct ContentView: View {
     var popoverTextColor: Color {
         return colorScheme == .light ? Color.primary : Color.white
     }
-    
-    @State private var viewHeight: CGFloat = 0
+
     
     var body: some View {
         let buttonBackground = colorScheme == .light ? Color.white : Color.black
@@ -438,12 +437,6 @@ struct ContentView: View {
                             }
                         }, alignment: .topLeading
                     )
-                    .onGeometryChange(for: CGFloat.self) { proxy in
-                                    proxy.size.height
-                                } action: { height in
-                                    viewHeight = height
-                                }
-                                .contentMargins(.bottom, viewHeight / 4)
                     
                 
                 VStack {
