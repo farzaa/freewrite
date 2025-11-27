@@ -786,7 +786,7 @@ struct ContentView: View {
                             Button(action: {
                                 backspaceDisabled.toggle()
                             }) {
-                                Text(backspaceDisabled ? "Turn On Backspace" : "Turn Off Backspace")
+                                Text(backspaceDisabled ? "Backspace is Off" : "Backspace is On")
                                     .foregroundColor(isHoveringBackspaceToggle ? textHoverColor : textColor)
                             }
                             .buttonStyle(.plain)
