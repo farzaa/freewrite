@@ -85,6 +85,8 @@ struct ContentView: View {
     @State private var colorScheme: ColorScheme = .light // Add state for color scheme
     @State private var isHoveringThemeToggle = false // Add state for theme toggle hover
     @State private var didCopyPrompt: Bool = false // Add state for copy prompt feedback
+    @State private var backspaceDisabled = false // Add state for backspace toggle
+    @State private var isHoveringBackspaceToggle = false // Add state for backspace toggle hover
     let timer = Timer.publish(every: 1, on: .main, in: .common).autoconnect()
     let entryHeight: CGFloat = 40
     
@@ -423,6 +425,16 @@ struct ContentView: View {
                     .onAppear {
                         placeholderText = placeholderOptions.randomElement() ?? "\n\nBegin writing"
                         // Removed findSubview code which was causing errors
+
+                        // Add keyboard monitor for backspace/delete keys
+                        NSEvent.addLocalMonitorForEvents(matching: .keyDown) { event in
+                            // Check if backspace is disabled and the key is delete/backspace
+                            if backspaceDisabled && (event.keyCode == 51 || event.keyCode == 117) {
+                                // Block the backspace/delete key
+                                return nil
+                            }
+                            return event
+                        }
                     }
                     .overlay(
                         ZStack(alignment: .topLeading) {
@@ -769,7 +781,28 @@ struct ContentView: View {
                             
                             Text("•")
                                 .foregroundColor(.gray)
-                            
+
+                            // Backspace toggle button
+                            Button(action: {
+                                backspaceDisabled.toggle()
+                            }) {
+                                Text(backspaceDisabled ? "Turn On Backspace" : "Turn Off Backspace")
+                                    .foregroundColor(isHoveringBackspaceToggle ? textHoverColor : textColor)
+                            }
+                            .buttonStyle(.plain)
+                            .onHover { hovering in
+                                isHoveringBackspaceToggle = hovering
+                                isHoveringBottomNav = hovering
+                                if hovering {
+                                    NSCursor.pointingHand.push()
+                                } else {
+                                    NSCursor.pop()
+                                }
+                            }
+
+                            Text("•")
+                                .foregroundColor(.gray)
+
                             Button(isFullscreen ? "Minimize" : "Fullscreen") {
                                 if let window = NSApplication.shared.windows.first {
                                     window.toggleFullScreen(nil)
@@ -833,7 +866,7 @@ struct ContentView: View {
 
                             Text("•")
                                 .foregroundColor(.gray)
-                            
+
                             // Version history button
                             Button(action: {
                                 withAnimation(.easeInOut(duration: 0.2)) {
