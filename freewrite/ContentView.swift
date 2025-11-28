@@ -48,6 +48,12 @@ struct ContentView: View {
     @State private var entries: [HumanEntry] = []
     @State private var text: String = ""  // Remove initial welcome text since we'll handle it in createNewEntry
     
+    // Add state for favorite fonts
+    @State private var favoriteFonts: [String] = []
+    @State private var showingFavoritesMenu = false
+    @State private var isHoveringFavorite = false
+    @State private var isHoveringFavoritesMenu = false
+    
     @State private var isFullscreen = false
     @State private var selectedFont: String = "Lato-Regular"
     @State private var currentRandomFont: String = ""
@@ -157,6 +163,8 @@ struct ContentView: View {
         // Load saved color scheme preference
         let savedScheme = UserDefaults.standard.string(forKey: "colorScheme") ?? "light"
         _colorScheme = State(initialValue: savedScheme == "dark" ? .dark : .light)
+        // Load favorite fonts
+        loadFavoriteFonts()
     }
     
     // Modify getDocumentsDirectory to use cached value
@@ -568,6 +576,94 @@ struct ContentView: View {
                                     NSCursor.pointingHand.push()
                                 } else {
                                     NSCursor.pop()
+                                }
+                            }
+                            
+                            // Add the favorite button next to random
+                            if !currentRandomFont.isEmpty {
+                                Button(action: {
+                                    if !favoriteFonts.contains(currentRandomFont) {
+                                        favoriteFonts.append(currentRandomFont)
+                                        saveFavoriteFonts()
+                                    }
+                                }) {
+                                    Image(systemName: "star")
+                                        .font(.system(size: 10))
+                                }
+                                .buttonStyle(.plain)
+                                .foregroundColor(isHoveringFavorite ? textHoverColor : textColor)
+                                .help("Save this font to favorites")
+                                .onHover { hovering in
+                                    isHoveringFavorite = hovering
+                                    isHoveringBottomNav = hovering
+                                    if hovering {
+                                        NSCursor.pointingHand.push()
+                                    } else {
+                                        NSCursor.pop()
+                                    }
+                                }
+                            }
+                            
+                            // Add favorites button 
+                            if !favoriteFonts.isEmpty {
+                                Text("•")
+                                    .foregroundColor(.gray)
+                                
+                                Button("Favorites") {
+                                    showingFavoritesMenu = true
+                                }
+                                .buttonStyle(.plain)
+                                .foregroundColor(isHoveringFavoritesMenu ? textHoverColor : textColor)
+                                .popover(isPresented: $showingFavoritesMenu, attachmentAnchor: .point(UnitPoint(x: 0.5, y: 0)), arrowEdge: .top) {
+                                    VStack(spacing: 0) {
+                                        ForEach(favoriteFonts, id: \.self) { font in
+                                            Button(action: {
+                                                selectedFont = font
+                                                currentRandomFont = font
+                                                showingFavoritesMenu = false
+                                            }) {
+                                                HStack {
+                                                    Text(font)
+                                                        .font(.custom(font, size: 14))
+                                                        .frame(maxWidth: .infinity, alignment: .leading)
+                                                        .padding(.vertical, 4)
+                                                    
+                                                    Button(action: {
+                                                        if let index = favoriteFonts.firstIndex(of: font) {
+                                                            favoriteFonts.remove(at: index)
+                                                            saveFavoriteFonts()
+                                                        }
+                                                    }) {
+                                                        Image(systemName: "xmark.circle")
+                                                            .font(.system(size: 10))
+                                                            .foregroundColor(Color.gray)
+                                                    }
+                                                    .buttonStyle(.plain)
+                                                    .help("Remove from favorites")
+                                                }
+                                            }
+                                            .buttonStyle(.plain)
+                                            .foregroundColor(popoverTextColor)
+                                            .padding(.horizontal, 12)
+                                            
+                                            if font != favoriteFonts.last {
+                                                Divider()
+                                            }
+                                        }
+                                    }
+                                    .frame(width: 200)
+                                    .background(popoverBackgroundColor)
+                                    .cornerRadius(8)
+                                    .shadow(color: Color.black.opacity(0.1), radius: 4, y: 2)
+                                }
+                                .onHover { hovering in
+                                    isHoveringFavoritesMenu = hovering
+                                    isHoveringBottomNav = hovering
+                                    if hovering {
+                                        NSCursor.pointingHand.push()
+                                    } else {
+                                        NSCursor.pop()
+                                    }
                                 }
                             }
                         }
@@ -1397,6 +1493,17 @@ struct ContentView: View {
         pdfContext.closePDF()
         
         return pdfData as Data
+    }
+    
+    // Add methods for font favorites persistence
+    private func loadFavoriteFonts() {
+        if let savedFonts = UserDefaults.standard.array(forKey: "favoriteFonts") as? [String] {
+            favoriteFonts = savedFonts
+        }
+    }
+    
+    private func saveFavoriteFonts() {
+        UserDefaults.standard.set(favoriteFonts, forKey: "favoriteFonts")
     }
 }
 
