@@ -15,3 +15,6 @@ or just wanna remix the app for yourself go for it.
 - done -- you're up and running.
 
 make changes on a pr and i'll run on my end and then build a new version :).
+
+## community works
+- web version: [a64.in/w](https://a64.in/w)
