@@ -47,6 +47,7 @@ struct ContentView: View {
     private let headerString = "\n\n"
     @State private var entries: [HumanEntry] = []
     @State private var text: String = ""  // Remove initial welcome text since we'll handle it in createNewEntry
+    @AppStorage("customDirectoryPath") private var customDirectoryPath: String?
     
     @State private var isFullscreen = false
     @State private var selectedFont: String = "Lato-Regular"
@@ -108,8 +109,12 @@ struct ContentView: View {
     private let fileManager = FileManager.default
     private let saveTimer = Timer.publish(every: 1.0, on: .main, in: .common).autoconnect()
     
-    // Add cached documents directory
-    private let documentsDirectory: URL = {
+    // Update cached documents directory to handle custom path
+    private var documentsDirectory: URL {
+        if let customPath = customDirectoryPath {
+            return URL(fileURLWithPath: customPath)
+        }
+        
         let directory = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0].appendingPathComponent("Freewrite")
         
         // Create Freewrite directory if it doesn't exist
@@ -123,7 +128,33 @@ struct ContentView: View {
         }
         
         return directory
-    }()
+    }
+    
+    // Add function to select custom directory
+    private func selectCustomDirectory() {
+        let panel = NSOpenPanel()
+        panel.canChooseFiles = false
+        panel.canChooseDirectories = true
+        panel.allowsMultipleSelection = false
+        panel.message = "Choose a folder to store your Freewrite notes"
+        panel.prompt = "Choose"
+        
+        panel.begin { response in
+            if response == .OK {
+                if let url = panel.urls.first {
+                    customDirectoryPath = url.path
+                    // Reload entries from new location
+                    loadExistingEntries()
+                }
+            }
+        }
+    }
+    
+    // Add function to reset to default directory
+    private func resetToDefaultDirectory() {
+        customDirectoryPath = nil
+        loadExistingEntries()
+    }
     
     // Add shared prompt constant
     private let aiChatPrompt = """
@@ -916,9 +947,13 @@ struct ContentView: View {
                 Divider()
                 
                 VStack(spacing: 0) {
-                    // Header
+                    // Header with folder selection
                     Button(action: {
-                        NSWorkspace.shared.selectFile(nil, inFileViewerRootedAtPath: getDocumentsDirectory().path)
+                        if customDirectoryPath != nil {
+                            NSWorkspace.shared.selectFile(nil, inFileViewerRootedAtPath: getDocumentsDirectory().path)
+                        } else {
+                            selectCustomDirectory()
+                        }
                     }) {
                         HStack {
                             VStack(alignment: .leading, spacing: 4) {
@@ -936,6 +971,25 @@ struct ContentView: View {
                                     .lineLimit(1)
                             }
                             Spacer()
+                            
+                            // Add folder icon button
+                            if customDirectoryPath != nil {
+                                Button(action: resetToDefaultDirectory) {
+                                    Image(systemName: "folder.badge.minus")
+                                        .font(.system(size: 12))
+                                        .foregroundColor(.secondary)
+                                }
+                                .buttonStyle(.plain)
+                                .help("Reset to default location")
+                            } else {
+                                Button(action: selectCustomDirectory) {
+                                    Image(systemName: "folder.badge.plus")
+                                        .font(.system(size: 12))
+                                        .foregroundColor(.secondary)
+                                }
+                                .buttonStyle(.plain)
+                                .help("Choose custom folder location")
+                            }
                         }
                     }
                     .buttonStyle(.plain)
