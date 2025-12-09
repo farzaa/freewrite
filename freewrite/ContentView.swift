@@ -43,6 +43,45 @@ struct HeartEmoji: Identifiable {
     var offset: CGFloat = 0
 }
 
+// MARK: - Bublr API Types
+
+enum PublishStatus {
+    case idle
+    case publishing
+    case success(url: String)
+    case error(message: String)
+}
+
+struct BublrPostRequest: Codable {
+    let title: String
+    let content: String
+    let published: Bool
+    let excerpt: String?
+}
+
+struct BublrPostResponse: Codable {
+    let id: String
+    let slug: String
+    let title: String
+    let excerpt: String?
+    let published: Bool
+    let createdAt: String
+}
+
+struct BublrErrorResponse: Codable {
+    let error: String
+    let code: String?
+}
+
+struct BublrProfileResponse: Codable {
+    let profile: BublrProfile
+}
+
+struct BublrProfile: Codable {
+    let name: String
+    let displayName: String?
+}
+
 struct ContentView: View {
     private let headerString = "\n\n"
     @State private var entries: [HumanEntry] = []
@@ -87,6 +126,14 @@ struct ContentView: View {
     @State private var didCopyPrompt: Bool = false // Add state for copy prompt feedback
     @State private var backspaceDisabled = false // Add state for backspace toggle
     @State private var isHoveringBackspaceToggle = false // Add state for backspace toggle hover
+
+    // Bublr publishing state
+    @State private var isHoveringPublish = false
+    @State private var showingPublishMenu = false
+    @State private var bublrApiKey: String = ""
+    @State private var bublrUsername: String = ""
+    @State private var publishStatus: PublishStatus = .idle
+
     let timer = Timer.publish(every: 1, on: .main, in: .common).autoconnect()
     let entryHeight: CGFloat = 40
     
@@ -157,6 +204,14 @@ struct ContentView: View {
         // Load saved color scheme preference
         let savedScheme = UserDefaults.standard.string(forKey: "colorScheme") ?? "light"
         _colorScheme = State(initialValue: savedScheme == "dark" ? .dark : .light)
+
+        // Load saved Bublr API key
+        let savedApiKey = UserDefaults.standard.string(forKey: "bublrApiKey") ?? ""
+        _bublrApiKey = State(initialValue: savedApiKey)
+
+        // Load saved Bublr username
+        let savedUsername = UserDefaults.standard.string(forKey: "bublrUsername") ?? ""
+        _bublrUsername = State(initialValue: savedUsername)
     }
     
     // Modify getDocumentsDirectory to use cached value
@@ -840,10 +895,33 @@ struct ContentView: View {
                                     NSCursor.pop()
                                 }
                             }
-                            
+
                             Text("•")
                                 .foregroundColor(.gray)
-                            
+
+                            // Bublr publish button
+                            Button("Publish") {
+                                showingPublishMenu = true
+                                publishStatus = .idle
+                            }
+                            .buttonStyle(.plain)
+                            .foregroundColor(isHoveringPublish ? textHoverColor : textColor)
+                            .onHover { hovering in
+                                isHoveringPublish = hovering
+                                isHoveringBottomNav = hovering
+                                if hovering {
+                                    NSCursor.pointingHand.push()
+                                } else {
+                                    NSCursor.pop()
+                                }
+                            }
+                            .popover(isPresented: $showingPublishMenu, attachmentAnchor: .point(UnitPoint(x: 0.5, y: 0)), arrowEdge: .top) {
+                                publishPopoverContent(textColor: textColor, textHoverColor: textHoverColor)
+                            }
+
+                            Text("•")
+                                .foregroundColor(.gray)
+
                             // Theme toggle button
                             Button(action: {
                                 colorScheme = colorScheme == .light ? .dark : .light
@@ -1205,7 +1283,379 @@ struct ContentView: View {
         pasteboard.setString(fullText, forType: .string)
         print("Prompt copied to clipboard")
     }
-    
+
+    // MARK: - Bublr Publishing
+
+    @ViewBuilder
+    private func publishPopoverContent(textColor: Color, textHoverColor: Color) -> some View {
+        VStack(spacing: 0) {
+            let trimmedText = text.trimmingCharacters(in: .whitespacesAndNewlines)
+
+            if bublrApiKey.isEmpty {
+                // API Key Input View
+                VStack(alignment: .leading, spacing: 8) {
+                    Text("Connect to Bublr")
+                        .font(.system(size: 14, weight: .medium))
+                        .foregroundColor(popoverTextColor)
+
+                    Text("Enter your Bublr API key to publish entries as blog posts.")
+                        .font(.system(size: 12))
+                        .foregroundColor(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
+
+                    TextField("bublr_sk_...", text: $bublrApiKey)
+                        .textFieldStyle(.roundedBorder)
+                        .font(.system(size: 12))
+
+                    Button(action: {
+                        UserDefaults.standard.set(bublrApiKey, forKey: "bublrApiKey")
+                        fetchBublrUsername()
+                    }) {
+                        Text("Save Key")
+                            .frame(maxWidth: .infinity)
+                            .padding(.vertical, 6)
+                    }
+                    .buttonStyle(.borderedProminent)
+                    .disabled(bublrApiKey.isEmpty || !bublrApiKey.hasPrefix("bublr_sk_"))
+
+                    Link("Get your API key at bublr.life/docs", destination: URL(string: "https://bublr.life/docs")!)
+                        .font(.system(size: 11))
+                        .foregroundColor(.blue)
+                }
+                .padding(12)
+                .frame(width: 250)
+
+            } else if trimmedText.isEmpty {
+                Text("Write something first before publishing.")
+                    .font(.system(size: 14))
+                    .foregroundColor(popoverTextColor)
+                    .frame(width: 200)
+                    .padding(.horizontal, 12)
+                    .padding(.vertical, 8)
+
+            } else if trimmedText.hasPrefix("hi. my name is farza.") {
+                Text("You can't publish the welcome guide. Please write your own entry.")
+                    .font(.system(size: 14))
+                    .foregroundColor(popoverTextColor)
+                    .frame(width: 250)
+                    .padding(.horizontal, 12)
+                    .padding(.vertical, 8)
+
+            } else if trimmedText.count > 500000 {
+                Text("Your entry is too long to publish. Maximum 500,000 characters.")
+                    .font(.system(size: 14))
+                    .foregroundColor(popoverTextColor)
+                    .frame(width: 250)
+                    .padding(.horizontal, 12)
+                    .padding(.vertical, 8)
+
+            } else {
+                switch publishStatus {
+                case .idle:
+                    publishIdleView(trimmedText: trimmedText, textColor: textColor, textHoverColor: textHoverColor)
+
+                case .publishing:
+                    VStack(spacing: 8) {
+                        ProgressView()
+                            .scaleEffect(0.8)
+                        Text("Publishing...")
+                            .font(.system(size: 13))
+                            .foregroundColor(popoverTextColor)
+                    }
+                    .padding(16)
+                    .frame(width: 200)
+
+                case .success(let url):
+                    VStack(spacing: 8) {
+                        Image(systemName: "checkmark.circle.fill")
+                            .foregroundColor(.green)
+                            .font(.system(size: 24))
+
+                        Text("Published!")
+                            .font(.system(size: 14, weight: .medium))
+                            .foregroundColor(popoverTextColor)
+
+                        Button(action: {
+                            if let postUrl = URL(string: url) {
+                                NSWorkspace.shared.open(postUrl)
+                            }
+                            showingPublishMenu = false
+                        }) {
+                            Text("View Post")
+                                .frame(maxWidth: .infinity)
+                                .padding(.vertical, 6)
+                        }
+                        .buttonStyle(.borderedProminent)
+                    }
+                    .padding(16)
+                    .frame(width: 200)
+
+                case .error(let message):
+                    VStack(spacing: 8) {
+                        Image(systemName: "exclamationmark.triangle.fill")
+                            .foregroundColor(.orange)
+                            .font(.system(size: 24))
+
+                        Text("Publish Failed")
+                            .font(.system(size: 14, weight: .medium))
+                            .foregroundColor(popoverTextColor)
+
+                        Text(message)
+                            .font(.system(size: 12))
+                            .foregroundColor(.secondary)
+                            .multilineTextAlignment(.center)
+
+                        Button(action: {
+                            publishStatus = .idle
+                        }) {
+                            Text("Try Again")
+                                .frame(maxWidth: .infinity)
+                                .padding(.vertical, 6)
+                        }
+                        .buttonStyle(.bordered)
+                    }
+                    .padding(16)
+                    .frame(width: 220)
+                }
+            }
+        }
+        .background(popoverBackgroundColor)
+        .cornerRadius(8)
+        .shadow(color: Color.black.opacity(0.1), radius: 4, y: 2)
+    }
+
+    @ViewBuilder
+    private func publishIdleView(trimmedText: String, textColor: Color, textHoverColor: Color) -> some View {
+        let extractedTitle = extractBlogTitle(from: trimmedText)
+        let wordCount = trimmedText.components(separatedBy: .whitespacesAndNewlines).filter { !$0.isEmpty }.count
+
+        VStack(alignment: .leading, spacing: 12) {
+            VStack(alignment: .leading, spacing: 4) {
+                Text("Title")
+                    .font(.system(size: 11))
+                    .foregroundColor(.secondary)
+                Text(extractedTitle)
+                    .font(.system(size: 14, weight: .medium))
+                    .foregroundColor(popoverTextColor)
+                    .lineLimit(2)
+            }
+
+            Text("\(wordCount) words")
+                .font(.system(size: 12))
+                .foregroundColor(.secondary)
+
+            Divider()
+
+            Button(action: {
+                publishToBublr(title: extractedTitle, content: trimmedText, published: true)
+            }) {
+                HStack {
+                    Text("Publish Now")
+                    Spacer()
+                    Image(systemName: "globe")
+                }
+                .frame(maxWidth: .infinity)
+                .padding(.horizontal, 12)
+                .padding(.vertical, 8)
+            }
+            .buttonStyle(.plain)
+            .foregroundColor(popoverTextColor)
+            .onHover { hovering in
+                if hovering {
+                    NSCursor.pointingHand.push()
+                } else {
+                    NSCursor.pop()
+                }
+            }
+
+            Divider()
+
+            Button(action: {
+                publishToBublr(title: extractedTitle, content: trimmedText, published: false)
+            }) {
+                HStack {
+                    Text("Save as Draft")
+                    Spacer()
+                    Image(systemName: "doc")
+                }
+                .frame(maxWidth: .infinity)
+                .padding(.horizontal, 12)
+                .padding(.vertical, 8)
+            }
+            .buttonStyle(.plain)
+            .foregroundColor(popoverTextColor)
+            .onHover { hovering in
+                if hovering {
+                    NSCursor.pointingHand.push()
+                } else {
+                    NSCursor.pop()
+                }
+            }
+
+            Divider()
+
+            Button(action: {
+                bublrApiKey = ""
+                bublrUsername = ""
+                UserDefaults.standard.removeObject(forKey: "bublrApiKey")
+                UserDefaults.standard.removeObject(forKey: "bublrUsername")
+            }) {
+                HStack {
+                    Text("Change API Key")
+                    Spacer()
+                    Image(systemName: "key")
+                }
+                .frame(maxWidth: .infinity)
+                .padding(.horizontal, 12)
+                .padding(.vertical, 8)
+            }
+            .buttonStyle(.plain)
+            .foregroundColor(.secondary)
+            .font(.system(size: 12))
+            .onHover { hovering in
+                if hovering {
+                    NSCursor.pointingHand.push()
+                } else {
+                    NSCursor.pop()
+                }
+            }
+        }
+        .padding(12)
+        .frame(width: 220)
+    }
+
+    private func extractBlogTitle(from content: String) -> String {
+        let trimmed = content.trimmingCharacters(in: .whitespacesAndNewlines)
+
+        if trimmed.isEmpty {
+            return "Untitled"
+        }
+
+        let lines = trimmed.components(separatedBy: .newlines)
+        if let firstLine = lines.first {
+            let cleaned = firstLine.trimmingCharacters(in: .whitespacesAndNewlines)
+            if !cleaned.isEmpty {
+                if cleaned.count > 200 {
+                    return String(cleaned.prefix(197)) + "..."
+                }
+                return cleaned
+            }
+        }
+
+        let words = trimmed
+            .components(separatedBy: .whitespacesAndNewlines)
+            .filter { !$0.isEmpty }
+            .prefix(10)
+
+        let title = words.joined(separator: " ")
+        if title.count > 200 {
+            return String(title.prefix(197)) + "..."
+        }
+        return title.isEmpty ? "Untitled" : title
+    }
+
+    private func fetchBublrUsername() {
+        guard let url = URL(string: "https://bublr.life/api/v1/profile") else { return }
+
+        var request = URLRequest(url: url)
+        request.httpMethod = "GET"
+        request.setValue("Bearer \(bublrApiKey)", forHTTPHeaderField: "Authorization")
+
+        URLSession.shared.dataTask(with: request) { data, response, error in
+            DispatchQueue.main.async {
+                guard let data = data,
+                      let profileResponse = try? JSONDecoder().decode(BublrProfileResponse.self, from: data) else {
+                    return
+                }
+                self.bublrUsername = profileResponse.profile.name
+                UserDefaults.standard.set(self.bublrUsername, forKey: "bublrUsername")
+            }
+        }.resume()
+    }
+
+    private func publishToBublr(title: String, content: String, published: Bool) {
+        publishStatus = .publishing
+
+        guard let url = URL(string: "https://bublr.life/api/v1/posts") else {
+            publishStatus = .error(message: "Invalid API URL")
+            return
+        }
+
+        var request = URLRequest(url: url)
+        request.httpMethod = "POST"
+        request.setValue("Bearer \(bublrApiKey)", forHTTPHeaderField: "Authorization")
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+
+        let excerpt = String(content.prefix(500))
+
+        let postRequest = BublrPostRequest(
+            title: title,
+            content: content,
+            published: published,
+            excerpt: excerpt
+        )
+
+        do {
+            request.httpBody = try JSONEncoder().encode(postRequest)
+        } catch {
+            publishStatus = .error(message: "Failed to encode request")
+            return
+        }
+
+        URLSession.shared.dataTask(with: request) { data, response, error in
+            DispatchQueue.main.async {
+                if let error = error {
+                    self.publishStatus = .error(message: error.localizedDescription)
+                    return
+                }
+
+                guard let httpResponse = response as? HTTPURLResponse else {
+                    self.publishStatus = .error(message: "Invalid response")
+                    return
+                }
+
+                guard let data = data else {
+                    self.publishStatus = .error(message: "No data received")
+                    return
+                }
+
+                switch httpResponse.statusCode {
+                case 200, 201:
+                    if let postResponse = try? JSONDecoder().decode(BublrPostResponse.self, from: data) {
+                        let postUrl: String
+                        if !self.bublrUsername.isEmpty {
+                            postUrl = "https://bublr.life/@\(self.bublrUsername)/\(postResponse.slug)"
+                        } else {
+                            postUrl = "https://bublr.life"
+                        }
+                        self.publishStatus = .success(url: postUrl)
+                    } else {
+                        self.publishStatus = .success(url: "https://bublr.life")
+                    }
+
+                case 401:
+                    self.publishStatus = .error(message: "Invalid API key. Please check your key.")
+
+                case 404:
+                    self.publishStatus = .error(message: "User profile not found.")
+
+                case 429:
+                    self.publishStatus = .error(message: "Rate limited. Please wait a minute and try again.")
+
+                case 400:
+                    if let errorResponse = try? JSONDecoder().decode(BublrErrorResponse.self, from: data) {
+                        self.publishStatus = .error(message: errorResponse.error)
+                    } else {
+                        self.publishStatus = .error(message: "Invalid request. Please check your content.")
+                    }
+
+                default:
+                    self.publishStatus = .error(message: "Server error (\(httpResponse.statusCode)). Please try again later.")
+                }
+            }
+        }.resume()
+    }
+
     private func deleteEntry(entry: HumanEntry) {
         // Delete the file from the filesystem
         let documentsDirectory = getDocumentsDirectory()
