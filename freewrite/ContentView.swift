@@ -87,6 +87,7 @@ struct ContentView: View {
     @State private var didCopyPrompt: Bool = false // Add state for copy prompt feedback
     @State private var backspaceDisabled = false // Add state for backspace toggle
     @State private var isHoveringBackspaceToggle = false // Add state for backspace toggle hover
+    @State private var pendingSaveWorkItem: DispatchWorkItem? = nil // For debounced saves
     let timer = Timer.publish(every: 1, on: .main, in: .common).autoconnect()
     let entryHeight: CGFloat = 40
     
@@ -104,9 +105,8 @@ struct ContentView: View {
         "\n\nJust say it"
     ]
     
-    // Add file manager and save timer
+    // Add file manager
     private let fileManager = FileManager.default
-    private let saveTimer = Timer.publish(every: 1.0, on: .main, in: .common).autoconnect()
     
     // Add cached documents directory
     private let documentsDirectory: URL = {
@@ -1067,11 +1067,18 @@ struct ContentView: View {
             loadExistingEntries()
         }
         .onChange(of: text) { _ in
-            // Save current entry when text changes
-            if let currentId = selectedEntryId,
-               let currentEntry = entries.first(where: { $0.id == currentId }) {
-                saveEntry(entry: currentEntry)
+            // Cancel any pending save
+            pendingSaveWorkItem?.cancel()
+            
+            // Schedule a new save after 500ms of no typing
+            let workItem = DispatchWorkItem { [self] in
+                if let currentId = selectedEntryId,
+                   let currentEntry = entries.first(where: { $0.id == currentId }) {
+                    saveEntry(entry: currentEntry)
+                }
             }
+            pendingSaveWorkItem = workItem
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.5, execute: workItem)
         }
         .onReceive(timer) { _ in
             if timerIsRunning && timeRemaining > 0 {
@@ -1083,6 +1090,14 @@ struct ContentView: View {
                         bottomNavOpacity = 1.0
                     }
                 }
+            }
+        }
+        .onReceive(NotificationCenter.default.publisher(for: NSApplication.willResignActiveNotification)) { _ in
+            // Force save when app loses focus
+            pendingSaveWorkItem?.cancel()
+            if let currentId = selectedEntryId,
+               let currentEntry = entries.first(where: { $0.id == currentId }) {
+                saveEntry(entry: currentEntry)
             }
         }
         .onReceive(NotificationCenter.default.publisher(for: NSWindow.willEnterFullScreenNotification)) { _ in
@@ -1109,30 +1124,42 @@ struct ContentView: View {
         
         do {
             let content = try String(contentsOf: fileURL, encoding: .utf8)
-            let preview = content
-                .replacingOccurrences(of: "\n", with: " ")
-                .trimmingCharacters(in: .whitespacesAndNewlines)
-            let truncated = preview.isEmpty ? "" : (preview.count > 30 ? String(preview.prefix(30)) + "..." : preview)
-            
-            // Find and update the entry in the entries array
-            if let index = entries.firstIndex(where: { $0.id == entry.id }) {
-                entries[index].previewText = truncated
-            }
+            updatePreviewTextFromContent(content, for: entry)
         } catch {
             print("Error updating preview text: \(error)")
+        }
+    }
+    
+    // New method that computes preview from content without disk I/O
+    private func updatePreviewTextFromContent(_ content: String, for entry: HumanEntry) {
+        let preview = content
+            .replacingOccurrences(of: "\n", with: " ")
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        let truncated = preview.isEmpty ? "" : (preview.count > 30 ? String(preview.prefix(30)) + "..." : preview)
+        
+        // Find and update the entry in the entries array
+        if let index = entries.firstIndex(where: { $0.id == entry.id }) {
+            entries[index].previewText = truncated
         }
     }
     
     private func saveEntry(entry: HumanEntry) {
         let documentsDirectory = getDocumentsDirectory()
         let fileURL = documentsDirectory.appendingPathComponent(entry.filename)
+        let textToSave = text  // Capture the text value
         
-        do {
-            try text.write(to: fileURL, atomically: true, encoding: .utf8)
-            print("Successfully saved entry: \(entry.filename)")
-            updatePreviewText(for: entry)  // Update preview after saving
-        } catch {
-            print("Error saving entry: \(error)")
+        DispatchQueue.global(qos: .utility).async {
+            do {
+                try textToSave.write(to: fileURL, atomically: true, encoding: .utf8)
+                print("Successfully saved entry: \(entry.filename)")
+                
+                // Update preview text on main thread
+                DispatchQueue.main.async {
+                    self.updatePreviewTextFromContent(textToSave, for: entry)
+                }
+            } catch {
+                print("Error saving entry: \(error)")
+            }
         }
     }
     
