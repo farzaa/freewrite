@@ -76,6 +76,13 @@ struct HeartEmoji: Identifiable {
 }
 
 struct ContentView: View {
+    private struct VideoPermissionPopoverItem: Identifiable {
+        let id = UUID()
+        let message: String
+        let buttonLabel: String
+        let settingsPane: String
+    }
+
     private let headerString = "\n\n"
     @State private var entries: [HumanEntry] = []
     @State private var text: String = ""  // Remove initial welcome text since we'll handle it in createNewEntry
@@ -129,8 +136,8 @@ struct ContentView: View {
     @State private var preparedCameraManager: CameraManager? = nil
     @State private var videoRecordingPreparationID: UUID? = nil
     @State private var showingVideoPermissionPopover = false
-    @State private var videoPermissionPopoverMessage = ""
-    @State private var videoPermissionSettingsPane = "Privacy_Camera"
+    @State private var videoPermissionPopoverItems: [VideoPermissionPopoverItem] = []
+    @State private var videoPermissionPopoverFallbackMessage: String? = nil
     let timer = Timer.publish(every: 1, on: .main, in: .common).autoconnect()
     let entryHeight: CGFloat = 40
     
@@ -679,7 +686,8 @@ struct ContentView: View {
         }
 
         showingVideoPermissionPopover = false
-        videoPermissionPopoverMessage = ""
+        videoPermissionPopoverItems = []
+        videoPermissionPopoverFallbackMessage = nil
 
         let preparationID = UUID()
         let manager = CameraManager()
@@ -715,8 +723,8 @@ struct ContentView: View {
                     microphoneGranted: manager.microphonePermissionGranted,
                     speechGranted: manager.speechPermissionGranted
                 )
-                self.videoPermissionPopoverMessage = payload.message
-                self.videoPermissionSettingsPane = payload.settingsPane
+                self.videoPermissionPopoverItems = payload.items
+                self.videoPermissionPopoverFallbackMessage = payload.fallbackMessage
                 self.showingVideoPermissionPopover = true
                 self.clearVideoRecordingPreparationState()
             }
@@ -769,50 +777,55 @@ struct ContentView: View {
         cameraGranted: Bool,
         microphoneGranted: Bool,
         speechGranted: Bool
-    ) -> (message: String, settingsPane: String) {
-        var missing: [(name: String, pane: String)] = []
+    ) -> (items: [VideoPermissionPopoverItem], fallbackMessage: String?) {
+        var items: [VideoPermissionPopoverItem] = []
         if !cameraGranted {
-            missing.append(("camera", "Privacy_Camera"))
+            items.append(
+                VideoPermissionPopoverItem(
+                    message: "Hey, we need camera permission.",
+                    buttonLabel: "Open Camera Settings",
+                    settingsPane: "Privacy_Camera"
+                )
+            )
         }
         if !microphoneGranted {
-            missing.append(("microphone", "Privacy_Microphone"))
+            items.append(
+                VideoPermissionPopoverItem(
+                    message: "Hey, we need microphone permission.",
+                    buttonLabel: "Open Microphone Settings",
+                    settingsPane: "Privacy_Microphone"
+                )
+            )
         }
         if !speechGranted {
-            missing.append(("speech recognition", "Privacy_SpeechRecognition"))
-        }
-
-        if missing.isEmpty {
-            return (
-                message: "Could not prepare camera right now. Please try again.",
-                settingsPane: "Privacy_Camera"
+            items.append(
+                VideoPermissionPopoverItem(
+                    message: "Hey, we need speech recognition permission.",
+                    buttonLabel: "Open Speech Settings",
+                    settingsPane: "Privacy_SpeechRecognition"
+                )
             )
         }
 
-        let names = missing.map(\.name)
-        let missingList: String
-        switch names.count {
-        case 0:
-            missingList = "camera"
-        case 1:
-            missingList = names[0]
-        case 2:
-            missingList = "\(names[0]) and \(names[1])"
-        default:
-            missingList = "\(names[0]), \(names[1]), and \(names[2])"
+        if items.isEmpty {
+            return (
+                items: [],
+                fallbackMessage: "Could not prepare camera right now. Please try again."
+            )
         }
 
         return (
-            message: "Enable \(missingList) access in System Settings to start recording.",
-            settingsPane: missing.first?.pane ?? "Privacy_Camera"
+            items: items,
+            fallbackMessage: nil
         )
     }
 
-    private func openVideoPermissionSettings() {
-        if let url = URL(string: "x-apple.systempreferences:com.apple.preference.security?\(videoPermissionSettingsPane)") {
+    private func openVideoPermissionSettings(_ settingsPane: String) {
+        if let url = URL(string: "x-apple.systempreferences:com.apple.preference.security?\(settingsPane)") {
             NSWorkspace.shared.open(url)
         }
     }
-    
+
     var timerButtonTitle: String {
         if !timerIsRunning && timeRemaining == 900 {
             return "15:00"
@@ -919,7 +932,7 @@ struct ContentView: View {
                     }
                     .overlay(
                         ZStack(alignment: .topLeading) {
-                            if text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                            if text.isEmpty || text == headerString {
                                 Text(placeholderText)
                                     .font(.custom(selectedFont, size: fontSize))
                                     .foregroundColor(colorScheme == .light ? .gray.opacity(0.5) : .gray.opacity(0.6))
@@ -1164,42 +1177,60 @@ struct ContentView: View {
                                     NSCursor.pop()
                                 }
                             }
-                            .popover(isPresented: $showingVideoPermissionPopover, attachmentAnchor: .point(UnitPoint(x: 0.5, y: 0)), arrowEdge: .top) {
+                            .popover(
+                                isPresented: $showingVideoPermissionPopover,
+                                attachmentAnchor: .point(UnitPoint(x: 0.5, y: 0.0)),
+                                arrowEdge: .top
+                            ) {
                                 VStack(spacing: 0) {
-                                    Text(videoPermissionPopoverMessage)
-                                        .font(.system(size: 14))
-                                        .foregroundColor(popoverTextColor)
-                                        .lineLimit(nil)
-                                        .multilineTextAlignment(.leading)
-                                        .frame(maxWidth: .infinity, alignment: .leading)
-                                        .padding(.horizontal, 12)
-                                        .padding(.vertical, 8)
-
-                                    Divider()
-
-                                    Button(action: {
-                                        showingVideoPermissionPopover = false
-                                        openVideoPermissionSettings()
-                                    }) {
-                                        Text("Open System Settings")
+                                    if let fallbackMessage = videoPermissionPopoverFallbackMessage {
+                                        Text(fallbackMessage)
+                                            .font(.system(size: 14))
+                                            .foregroundColor(popoverTextColor)
+                                            .lineLimit(nil)
+                                            .multilineTextAlignment(.leading)
                                             .frame(maxWidth: .infinity, alignment: .leading)
                                             .padding(.horizontal, 12)
                                             .padding(.vertical, 8)
-                                    }
-                                    .buttonStyle(.plain)
-                                    .foregroundColor(popoverTextColor)
-                                    .onHover { hovering in
-                                        if hovering {
-                                            NSCursor.pointingHand.push()
-                                        } else {
-                                            NSCursor.pop()
+                                }
+
+                                    ForEach(videoPermissionPopoverItems) { item in
+                                        if item.id != videoPermissionPopoverItems.first?.id || videoPermissionPopoverFallbackMessage != nil {
+                                            Divider()
+                                        }
+
+                                        Button(action: {
+                                            showingVideoPermissionPopover = false
+                                            openVideoPermissionSettings(item.settingsPane)
+                                        }) {
+                                            VStack(alignment: .leading, spacing: 3) {
+                                                Text(item.message)
+                                                    .font(.system(size: 14))
+                                                    .lineLimit(nil)
+                                                    .multilineTextAlignment(.leading)
+                                                    .fixedSize(horizontal: false, vertical: true)
+
+                                                Text(item.buttonLabel)
+                                                    .font(.system(size: 12))
+                                                    .opacity(0.85)
+                                            }
+                                            .frame(maxWidth: .infinity, alignment: .leading)
+                                            .padding(.horizontal, 12)
+                                            .padding(.vertical, 8)
+                                        }
+                                        .buttonStyle(.plain)
+                                        .foregroundColor(popoverTextColor)
+                                        .onHover { hovering in
+                                            if hovering {
+                                                NSCursor.pointingHand.push()
+                                            } else {
+                                                NSCursor.pop()
+                                            }
                                         }
                                     }
                                 }
-                                .frame(minWidth: 120, maxWidth: 250)
-                                .background(popoverBackgroundColor)
-                                .cornerRadius(8)
-                                .shadow(color: Color.black.opacity(0.1), radius: 4, y: 2)
+                                .frame(minWidth: 300, idealWidth: 320, maxWidth: 360)
+                                .background(colorScheme == .light ? Color.white : Color.black)
                             }
 
                             Text("•")
