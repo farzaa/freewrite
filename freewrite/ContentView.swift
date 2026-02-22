@@ -805,7 +805,10 @@ struct ContentView: View {
 
                 // Show video player if a video entry is selected
                 if let videoURL = currentVideoURL {
-                    VideoPlayerView(videoURL: videoURL)
+                    VideoPlayerView(
+                        videoURL: videoURL,
+                        isPlaybackSuspended: isPreparingVideoRecording || showingVideoRecording
+                    )
                         .id(videoURL.path)
                         .frame(maxWidth: .infinity, maxHeight: .infinity)
                         .ignoresSafeArea(edges: .top)

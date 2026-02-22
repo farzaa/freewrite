@@ -69,6 +69,7 @@ private struct FillVideoPlayerSurface: NSViewRepresentable {
 
 struct VideoPlayerView: View {
     let videoURL: URL
+    let isPlaybackSuspended: Bool
     @State private var player = AVPlayer()
     @State private var playbackEndObserver: NSObjectProtocol?
     @State private var playbackStatusObservation: NSKeyValueObservation?
@@ -104,9 +105,13 @@ struct VideoPlayerView: View {
             player.automaticallyWaitsToMinimizeStalling = false
             observePlaybackState()
             configurePlayer(for: videoURL)
+            applyPlaybackSuspension(isPlaybackSuspended)
         }
         .onChange(of: videoURL) { _, _ in
             configurePlayer(for: videoURL)
+        }
+        .onChange(of: isPlaybackSuspended) { _, isSuspended in
+            applyPlaybackSuspension(isSuspended)
         }
         .onDisappear {
             tearDownPlayer()
@@ -120,7 +125,9 @@ struct VideoPlayerView: View {
             playbackSecondsForCurrentItem = 0
             player.isMuted = false
             player.seek(to: .zero)
-            player.playImmediately(atRate: 1.0)
+            if !isPlaybackSuspended {
+                player.playImmediately(atRate: 1.0)
+            }
             return
         }
 
@@ -135,7 +142,9 @@ struct VideoPlayerView: View {
                 if item.status == .readyToPlay {
                     self.currentItemReadyToPlay = true
                     self.revealVideoWhenReady()
-                    self.player.playImmediately(atRate: 1.0)
+                    if !self.isPlaybackSuspended {
+                        self.player.playImmediately(atRate: 1.0)
+                    }
                 }
             }
         }
@@ -153,7 +162,9 @@ struct VideoPlayerView: View {
             player?.playImmediately(atRate: 1.0)
         }
 
-        player.playImmediately(atRate: 1.0)
+        if !isPlaybackSuspended {
+            player.playImmediately(atRate: 1.0)
+        }
     }
     
     private func tearDownPlayer() {
@@ -206,9 +217,18 @@ struct VideoPlayerView: View {
 
     private func revealVideoWhenReady() {
         guard !hasRevealedCurrentItem else { return }
+        guard !isPlaybackSuspended else { return }
         guard currentItemReadyToPlay, playerIsActivelyPlaying, playbackSecondsForCurrentItem >= 1.0 else { return }
         withAnimation(.easeOut(duration: 0.75)) {
             hasRevealedCurrentItem = true
+        }
+    }
+
+    private func applyPlaybackSuspension(_ suspended: Bool) {
+        if suspended {
+            player.pause()
+        } else if player.currentItem != nil {
+            player.playImmediately(atRate: 1.0)
         }
     }
 }
