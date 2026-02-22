@@ -88,7 +88,7 @@ I know it’s a dumb little app — just a text view with some black text + a ti
 
 (Or it ends up being dumb and useless for you haha. Find out for yourself!)
 
-Lil bonus features:
+Little bonus features:
 
 1. Once you finish a freewrite session, click “Chat”.
 
@@ -107,11 +107,18 @@ If I’m thinking through a new business idea, I prefer a more official-looking 
 
 5. Click the clock on the bottom right to see your history. It’s all saved locally. Click the file path at the top to open it in Finder.
 
+Lastly, you'll see a video icon at the bottom.
+
+I added this recently. It allows you to create video entries. I like recording long video logs where I talk to myself to think through a thought I’m having or simply detail my day. It's kinda like freewrite, but, as a video log where I'm yapping vs writing.
+
+I highly recommend recording a 5-minute video entry where you talk through a problem you’re facing and see how it goes.
+
+It requires 3 permissions: camera, mic, and speech.
+
+What’s nice is that it also creates a transcript. You can use this in your favorite AI to chat further about the video entry just like a freewrite entry. The "Chat" button also works on video entries.
+
 See a bug? Wanna add something? See open issues and requests on the repo here:
 https://github.com/farzaa/freewrite
-
-Wanna join your fellow writers? Join:
-https://freewrite.io (click join writing at top).
 
 Enjoy everyone!!
 
