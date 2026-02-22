@@ -114,9 +114,12 @@ struct ContentView: View {
     @State private var isHoveringHistoryText = false
     @State private var isHoveringHistoryPath = false
     @State private var isHoveringHistoryArrow = false
+    @State private var isHoveringCopyTranscript = false
     @State private var colorScheme: ColorScheme = .light // Add state for color scheme
     @State private var isHoveringThemeToggle = false // Add state for theme toggle hover
     @State private var didCopyPrompt: Bool = false // Add state for copy prompt feedback
+    @State private var didCopyTranscript: Bool = false
+    @State private var selectedVideoHasTranscript = false
     @State private var backspaceDisabled = false // Add state for backspace toggle
     @State private var isHoveringBackspaceToggle = false // Add state for backspace toggle hover
     @State private var showingVideoRecording = false // Add state for video recording view
@@ -240,6 +243,10 @@ struct ContentView: View {
 
     private func getVideoThumbnailURL(for filename: String) -> URL {
         getVideoEntryDirectory(for: filename).appendingPathComponent("thumbnail.jpg")
+    }
+
+    private func getVideoTranscriptURL(for filename: String) -> URL {
+        getVideoEntryDirectory(for: filename).appendingPathComponent("transcript.md")
     }
 
     @discardableResult
@@ -369,10 +376,11 @@ struct ContentView: View {
         let managedDirectory = getVideoEntryDirectory(for: videoFilename)
         let managedVideoURL = managedDirectory.appendingPathComponent(videoFilename)
         let managedThumbnailURL = managedDirectory.appendingPathComponent("thumbnail.jpg")
+        let managedTranscriptURL = managedDirectory.appendingPathComponent("transcript.md")
         let flatVideosURL = getVideosDirectory().appendingPathComponent(videoFilename)
         let rootVideosURL = getDocumentsDirectory().appendingPathComponent(videoFilename)
 
-        let candidateURLs = [managedVideoURL, managedThumbnailURL, flatVideosURL, rootVideosURL]
+        let candidateURLs = [managedVideoURL, managedThumbnailURL, managedTranscriptURL, flatVideosURL, rootVideosURL]
         for url in candidateURLs where fileManager.fileExists(atPath: url.path) {
             do {
                 try fileManager.removeItem(at: url)
@@ -387,6 +395,65 @@ struct ContentView: View {
             } catch {
                 print("Error deleting video entry directory: \(error)")
             }
+        }
+    }
+
+    private func loadTranscriptText(for videoFilename: String) -> String? {
+        let transcriptURL = getVideoTranscriptURL(for: videoFilename)
+        guard fileManager.fileExists(atPath: transcriptURL.path),
+              let content = try? String(contentsOf: transcriptURL, encoding: .utf8) else {
+            return nil
+        }
+        let cleaned = content.trimmingCharacters(in: .whitespacesAndNewlines)
+        return cleaned.isEmpty ? nil : cleaned
+    }
+
+    private func previewTextFromTranscript(_ transcript: String?) -> String {
+        guard let transcript else {
+            return "Video Entry"
+        }
+
+        let normalized = transcript
+            .replacingOccurrences(of: "\n", with: " ")
+            .replacingOccurrences(of: "\\s+", with: " ", options: .regularExpression)
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+
+        guard !normalized.isEmpty else {
+            return "Video Entry"
+        }
+
+        var preview = String(normalized.prefix(10))
+
+        while let last = preview.last, (!last.isLetter && !last.isNumber) {
+            preview.removeLast()
+        }
+
+        if preview.isEmpty {
+            return "Video Entry"
+        }
+
+        return preview + "..."
+    }
+
+    private func videoPreviewText(for videoFilename: String) -> String {
+        previewTextFromTranscript(loadTranscriptText(for: videoFilename))
+    }
+
+    private func copyTranscriptForSelectedVideoEntry() {
+        guard let selectedEntryId,
+              let selectedEntry = entries.first(where: { $0.id == selectedEntryId }),
+              let videoFilename = resolvedVideoFilename(for: selectedEntry),
+              let transcript = loadTranscriptText(for: videoFilename) else {
+            return
+        }
+
+        let pasteboard = NSPasteboard.general
+        pasteboard.clearContents()
+        pasteboard.setString(transcript, forType: .string)
+        didCopyTranscript = true
+
+        DispatchQueue.main.asyncAfter(deadline: .now() + 1.2) {
+            didCopyTranscript = false
         }
     }
     
@@ -515,7 +582,7 @@ struct ContentView: View {
                             id: uuid,
                             date: displayDate,
                             filename: filename,
-                            previewText: hasVideo ? "Video Entry" : truncated,
+                            previewText: hasVideo ? videoPreviewText(for: videoFilename) : truncated,
                             entryType: hasVideo ? .video : .text,
                             videoFilename: hasVideo ? videoFilename : nil
                         ),
@@ -623,7 +690,11 @@ struct ContentView: View {
         manager.onReadyToRecord = { [weak manager] in
             guard let manager else { return }
             DispatchQueue.main.async {
-                finishVideoRecordingPreflight(preparationID: preparationID, manager: manager)
+                finishVideoRecordingPreflight(
+                    preparationID: preparationID,
+                    manager: manager,
+                    presentationDelay: 0.5
+                )
             }
         }
 
@@ -637,21 +708,35 @@ struct ContentView: View {
         manager.checkPermissions()
     }
 
-    private func finishVideoRecordingPreflight(preparationID: UUID, manager: CameraManager) {
-        guard videoRecordingPreparationID == preparationID else {
-            return
+    private func finishVideoRecordingPreflight(
+        preparationID: UUID,
+        manager: CameraManager,
+        presentationDelay: TimeInterval = 0
+    ) {
+        let presentRecorder = {
+            guard videoRecordingPreparationID == preparationID else {
+                return
+            }
+
+            videoRecordingPreparationID = nil
+            manager.onReadyToRecord = nil
+            manager.onCannotRecord = nil
+            preparedCameraManager = manager
+
+            var transaction = Transaction()
+            transaction.disablesAnimations = true
+            withTransaction(transaction) {
+                isPreparingVideoRecording = false
+                showingVideoRecording = true
+            }
         }
 
-        videoRecordingPreparationID = nil
-        manager.onReadyToRecord = nil
-        manager.onCannotRecord = nil
-        preparedCameraManager = manager
-
-        var transaction = Transaction()
-        transaction.disablesAnimations = true
-        withTransaction(transaction) {
-            isPreparingVideoRecording = false
-            showingVideoRecording = true
+        if presentationDelay > 0 {
+            DispatchQueue.main.asyncAfter(deadline: .now() + presentationDelay) {
+                presentRecorder()
+            }
+        } else {
+            presentRecorder()
         }
     }
 
@@ -783,8 +868,35 @@ struct ContentView: View {
                 VStack {
                     Spacer()
                     HStack {
-                        if !isViewingVideoEntry {
-                            // Font buttons (moved to left)
+                        if isViewingVideoEntry {
+                            HStack(spacing: 8) {
+                                if selectedVideoHasTranscript {
+                                    Button(action: {
+                                        copyTranscriptForSelectedVideoEntry()
+                                    }) {
+                                        Text(didCopyTranscript ? "Copied Transcript" : "Copy Transcript")
+                                            .font(.system(size: 13))
+                                    }
+                                    .buttonStyle(.plain)
+                                    .foregroundColor(isHoveringCopyTranscript ? textHoverColor : textColor)
+                                    .onHover { hovering in
+                                        isHoveringCopyTranscript = hovering
+                                        isHoveringBottomNav = hovering
+                                        if hovering {
+                                            NSCursor.pointingHand.push()
+                                        } else {
+                                            NSCursor.pop()
+                                        }
+                                    }
+                                }
+                            }
+                            .padding(8)
+                            .cornerRadius(6)
+                            .onHover { hovering in
+                                isHoveringBottomNav = hovering
+                            }
+                        } else {
+                            // Font buttons (left)
                             HStack(spacing: 8) {
                                 Button(fontSizeButtonTitle) {
                                     if let currentIndex = fontSizes.firstIndex(of: fontSize) {
@@ -1006,11 +1118,12 @@ struct ContentView: View {
                             }
                             .popover(isPresented: $showingChatMenu, attachmentAnchor: .point(UnitPoint(x: 0.5, y: 0)), arrowEdge: .top) {
                                 VStack(spacing: 0) { // Wrap everything in a VStack for consistent styling and onChange
-                                    let trimmedText = text.trimmingCharacters(in: .whitespacesAndNewlines)
+                                    let isVideoEntry = currentVideoURL != nil
+                                    let chatSourceText = currentChatSourceText()
                                     
                                     // Calculate potential URL lengths
-                                    let gptFullText = aiChatPrompt + "\n\n" + trimmedText
-                                    let claudeFullText = claudePrompt + "\n\n" + trimmedText
+                                    let gptFullText = aiChatPrompt + "\n\n" + chatSourceText
+                                    let claudeFullText = claudePrompt + "\n\n" + chatSourceText
                                     let encodedGptText = gptFullText.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? ""
                                     let encodedClaudeText = claudeFullText.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? ""
                                     
@@ -1050,14 +1163,14 @@ struct ContentView: View {
                                             }
                                         }
                                         
-                                    } else if text.trimmingCharacters(in: .whitespacesAndNewlines).hasPrefix("hi. my name is farza.") {
+                                    } else if !isVideoEntry && text.trimmingCharacters(in: .whitespacesAndNewlines).hasPrefix("hi. my name is farza.") {
                                         Text("Yo. Sorry, you can't chat with the guide lol. Please write your own entry.")
                                             .font(.system(size: 14))
                                             .foregroundColor(popoverTextColor)
                                             .frame(width: 250)
                                             .padding(.horizontal, 12)
                                             .padding(.vertical, 8)
-                                    } else if text.count < 350 {
+                                    } else if !isVideoEntry && text.count < 350 {
                                         Text("Please free write for at minimum 5 minutes first. Then click this. Trust.")
                                             .font(.system(size: 14))
                                             .foregroundColor(popoverTextColor)
@@ -1463,9 +1576,9 @@ struct ContentView: View {
                 VideoRecordingView(
                     isPresented: $showingVideoRecording,
                     cameraManager: preparedCameraManager
-                ) { videoURL in
+                ) { videoURL, transcript in
                     // Save the video and create entry
-                    saveVideoEntry(from: videoURL)
+                    saveVideoEntry(from: videoURL, transcript: transcript)
                     var transaction = Transaction()
                     transaction.disablesAnimations = true
                     withTransaction(transaction) {
@@ -1527,8 +1640,9 @@ struct ContentView: View {
     
     private func updatePreviewText(for entry: HumanEntry) {
         if entry.entryType == .video {
-            if let index = entries.firstIndex(where: { $0.id == entry.id }) {
-                entries[index].previewText = "Video Entry"
+            if let index = entries.firstIndex(where: { $0.id == entry.id }),
+               let videoFilename = resolvedVideoFilename(for: entry) {
+                entries[index].previewText = videoPreviewText(for: videoFilename)
             }
             return
         }
@@ -1574,9 +1688,11 @@ struct ContentView: View {
             // Load video entry
             let videoURL = getVideoURL(for: videoFilename)
             let thumbnailURL = getVideoThumbnailURL(for: videoFilename)
+            let transcriptURL = getVideoTranscriptURL(for: videoFilename)
             historyDebug("LOAD VIDEO \(debugEntrySummary(entry)) resolvedVideoPath=\(videoURL.path) videoExists=\(fileManager.fileExists(atPath: videoURL.path)) thumbnailPath=\(thumbnailURL.path) thumbnailExists=\(fileManager.fileExists(atPath: thumbnailURL.path))")
-            currentVideoURL = nil
             text = ""
+            didCopyTranscript = false
+            selectedVideoHasTranscript = fileManager.fileExists(atPath: transcriptURL.path)
             if fileManager.fileExists(atPath: videoURL.path) {
                 currentVideoURL = videoURL
                 print("Successfully loaded video entry: \(videoFilename)")
@@ -1587,6 +1703,8 @@ struct ContentView: View {
             // Load text entry
             historyDebug("LOAD TEXT \(debugEntrySummary(entry))")
             currentVideoURL = nil
+            selectedVideoHasTranscript = false
+            didCopyTranscript = false
             let documentsDirectory = getDocumentsDirectory()
             let fileURL = documentsDirectory.appendingPathComponent(entry.filename)
 
@@ -1606,6 +1724,8 @@ struct ContentView: View {
         entries.insert(newEntry, at: 0) // Add to the beginning
         selectedEntryId = newEntry.id
         currentVideoURL = nil
+        selectedVideoHasTranscript = false
+        didCopyTranscript = false
         historyDebug("NEW ENTRY created \(debugEntrySummary(newEntry))")
         logEntriesOrder("createNewEntry")
 
@@ -1631,8 +1751,7 @@ struct ContentView: View {
     }
     
     private func openChatGPT() {
-        let trimmedText = text.trimmingCharacters(in: .whitespacesAndNewlines)
-        let fullText = aiChatPrompt + "\n\n" + trimmedText
+        let fullText = aiChatPrompt + "\n\n" + currentChatSourceText()
         
         if let encodedText = fullText.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed),
            let url = URL(string: "https://chat.openai.com/?prompt=" + encodedText) {
@@ -1641,8 +1760,7 @@ struct ContentView: View {
     }
     
     private func openClaude() {
-        let trimmedText = text.trimmingCharacters(in: .whitespacesAndNewlines)
-        let fullText = claudePrompt + "\n\n" + trimmedText
+        let fullText = claudePrompt + "\n\n" + currentChatSourceText()
         
         if let encodedText = fullText.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed),
            let url = URL(string: "https://claude.ai/new?q=" + encodedText) {
@@ -1651,8 +1769,7 @@ struct ContentView: View {
     }
 
     private func copyPromptToClipboard() {
-        let trimmedText = text.trimmingCharacters(in: .whitespacesAndNewlines)
-        let fullText = aiChatPrompt + "\n\n" + trimmedText
+        let fullText = aiChatPrompt + "\n\n" + currentChatSourceText()
 
         let pasteboard = NSPasteboard.general
         pasteboard.clearContents()
@@ -1660,7 +1777,18 @@ struct ContentView: View {
         print("Prompt copied to clipboard")
     }
 
-    private func saveVideoEntry(from tempURL: URL) {
+    private func currentChatSourceText() -> String {
+        if currentVideoURL != nil,
+           let selectedEntryId,
+           let selectedEntry = entries.first(where: { $0.id == selectedEntryId }),
+           let videoFilename = resolvedVideoFilename(for: selectedEntry),
+           let transcript = loadTranscriptText(for: videoFilename) {
+            return transcript.trimmingCharacters(in: .whitespacesAndNewlines)
+        }
+        return text.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    private func saveVideoEntry(from tempURL: URL, transcript: String?) {
         let replacementEntry = selectedEntryId
             .flatMap { id in entries.first(where: { $0.id == id }) }
             .flatMap { entry -> HumanEntry? in
@@ -1676,12 +1804,20 @@ struct ContentView: View {
                 id: replacementEntry.id,
                 date: replacementEntry.date,
                 filename: replacementEntry.filename,
-                previewText: "Video Entry",
+                previewText: previewTextFromTranscript(transcript),
                 entryType: .video,
                 videoFilename: videoFilename
             )
         } else {
-            videoEntry = HumanEntry.createVideoEntry()
+            let newEntry = HumanEntry.createVideoEntry()
+            videoEntry = HumanEntry(
+                id: newEntry.id,
+                date: newEntry.date,
+                filename: newEntry.filename,
+                previewText: previewTextFromTranscript(transcript),
+                entryType: .video,
+                videoFilename: newEntry.videoFilename
+            )
         }
 
         // Get the documents directory
@@ -1692,6 +1828,8 @@ struct ContentView: View {
             do {
                 let videoEntryDirectory = try ensureVideoEntryDirectoryExists(for: videoFilename)
                 let videoDestURL = videoEntryDirectory.appendingPathComponent(videoFilename)
+                let transcriptURL = videoEntryDirectory.appendingPathComponent("transcript.md")
+                let cleanedTranscript = transcript?.trimmingCharacters(in: .whitespacesAndNewlines)
 
                 // Copy the video file from temp location to documents directory
                 if fileManager.fileExists(atPath: videoDestURL.path) {
@@ -1712,6 +1850,13 @@ struct ContentView: View {
                 let metadataContent = "Video Entry"
                 try metadataContent.write(to: metadataURL, atomically: true, encoding: .utf8)
 
+                if let cleanedTranscript, !cleanedTranscript.isEmpty {
+                    try cleanedTranscript.write(to: transcriptURL, atomically: true, encoding: .utf8)
+                    print("Successfully saved transcript for video: \(videoFilename)")
+                } else if fileManager.fileExists(atPath: transcriptURL.path) {
+                    try fileManager.removeItem(at: transcriptURL)
+                }
+
                 let selectNewVideoEntry = {
                     if let existingIndex = self.entries.firstIndex(where: { $0.id == videoEntry.id }) {
                         self.entries[existingIndex] = videoEntry
@@ -1724,9 +1869,10 @@ struct ContentView: View {
                         return
                     }
                     self.selectedEntryId = insertedEntry.id
-                    self.currentVideoURL = nil
                     self.currentVideoURL = videoDestURL
                     self.text = ""
+                    self.didCopyTranscript = false
+                    self.selectedVideoHasTranscript = (cleanedTranscript?.isEmpty == false)
                     print("Successfully loaded new video entry: \(videoFilename)")
                     self.historyDebug("VIDEO SAVE selected \(self.debugEntrySummary(insertedEntry)) videoPath=\(videoDestURL.path)")
                     self.logEntriesOrder("saveVideoEntry")

@@ -115,6 +115,7 @@ struct HumanEntry: Identifiable {
 - Directory contents:
   - `[UUID]-[YYYY-MM-DD-HH-mm-ss].mov`
   - `thumbnail.jpg`
+  - `transcript.md` (optional; speech transcript for that recording)
 - Example directory: `~/Documents/Freewrite/Videos/[6910BBDE-75FC-415C-ABB9-C76644B037B2]-[2026-02-20-08-01-04]/`
 
 ## Key Components
@@ -230,6 +231,7 @@ struct VideoPlayerView: View {
 - **Font Size**: Cycles through [16, 18, 20, 22, 24, 26]px
 - **Font Selection**: Lato, Arial, System, Serif, Random
 - Hover changes cursor to pointing hand
+- **Video Mode Left Slot**: Replaced by `Copy Transcript` when viewing a video entry
 
 ### Right Side (Utilities)
 - **Timer**: Shows time remaining, click to start/stop, double-click to reset
@@ -247,7 +249,7 @@ struct VideoPlayerView: View {
 2. `showingVideoRecording` set to `true`
 3. `VideoRecordingView` rendered via `.overlay` on top of `ContentView` with animations disabled for open/close (plain swap, no transition)
 4. Camera preview fills the entire window content area edge-to-edge
-5. Transparent bottom nav appears over video with: `Close`, timer/status, and permission actions; a floating circular record button handles start/stop
+5. Transparent bottom nav appears over video with: `Close`, timer/status, and permission actions; recording control text switches between `Start Recording` and `Stop Recording`, and shows red `Recording` state while active
 6. Camera/microphone permissions requested (if needed)
 7. User clicks "Start Recording"
    - Recording begins to temp file
@@ -255,14 +257,16 @@ struct VideoPlayerView: View {
    - Button changes to "Stop Recording"
 8. User clicks "Stop Recording"
    - Recording stops
-   - `onRecordingComplete` closure called with temp URL
-9. `saveVideoEntry(from:)` called
+   - Speech transcript is finalized (spacing + sentence endings/capitalization)
+   - `onRecordingComplete` closure called with temp URL + finalized transcript
+9. `saveVideoEntry(from:transcript:)` called
    - Creates per-entry video directory in `~/Documents/Freewrite/Videos/[UUID]-[date]/`
    - Video copied from temp to `~/Documents/Freewrite/Videos/[UUID]-[date]/[UUID]-[date].mov`
    - Thumbnail generated once and saved to `~/Documents/Freewrite/Videos/[UUID]-[date]/thumbnail.jpg`
+   - Transcript saved to `~/Documents/Freewrite/Videos/[UUID]-[date]/transcript.md` when available
    - Metadata file created: `[UUID]-[date].md` with "Video Entry"
    - Entry added to `entries` array (on main thread), selected immediately, and loaded into the main view
-   - Playback starts automatically in muted mode
+   - Playback starts automatically with audio enabled
    - Overlay dismissed
 10. If user clicks `Close` while recording, the temp recording is discarded and no entry is created; recorder dismisses first, then camera cleanup runs on disappear
 
@@ -322,7 +326,9 @@ Required entitlements in `freewrite.entitlements`:
 <true/>
 <key>com.apple.security.device.camera</key>
 <true/>
-<key>com.apple.security.device.microphone</key>
+<key>com.apple.security.device.audio-input</key>
+<true/>
+<key>com.apple.security.personal-information.speech-recognition</key>
 <true/>
 ```
 
@@ -331,6 +337,7 @@ Privacy usage descriptions (in Xcode project build settings):
 ```
 INFOPLIST_KEY_NSCameraUsageDescription = "Freewrite needs camera access to record video entries."
 INFOPLIST_KEY_NSMicrophoneUsageDescription = "Freewrite needs microphone access to record audio with your video entries."
+INFOPLIST_KEY_NSSpeechRecognitionUsageDescription = "Freewrite uses speech recognition to show live captions while recording."
 ```
 
 ## Technical Nuances & Implementation Details
@@ -552,6 +559,9 @@ captureSession?.addInput(audioInput)
 // 6. Add output
 videoOutput = AVCaptureMovieFileOutput()
 captureSession?.addOutput(videoOutput!)
+audioDataOutput = AVCaptureAudioDataOutput()
+audioDataOutput?.setSampleBufferDelegate(self, queue: speechQueue)
+captureSession?.addOutput(audioDataOutput!)
 
 // 7. CRITICAL: Commit configuration
 captureSession?.commitConfiguration()
@@ -598,6 +608,24 @@ func fileOutput(_ output: AVCaptureFileOutput,
 - Record to temp directory: `FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString).appendingPathExtension("mov")`
 - On completion: Copy to permanent location
 - Why? If recording fails, temp file is auto-cleaned by OS
+
+### Speech Transcription (Speech Framework)
+
+Speech transcription in `VideoRecordingView` is implemented with Apple's `Speech` framework and runs in the background during recording:
+
+1. Request speech auth with `SFSpeechRecognizer.requestAuthorization`.
+2. Keep camera/video recording on `AVCaptureMovieFileOutput`.
+3. Add `AVCaptureAudioDataOutput` to the same capture session and stream sample buffers to speech recognition.
+4. Feed sample buffers into `SFSpeechAudioBufferRecognitionRequest` (`appendAudioSampleBuffer`).
+5. Build partial + committed transcript text while recording (no live caption overlay rendered).
+6. Finalize transcript on stop and persist it as `transcript.md` in that entry's video directory.
+
+Key details:
+- Speech permission is independent of camera/mic permission; recording can still work if speech is denied.
+- Transcription is started on recording start and stopped on recording stop.
+- Final transcript formatting is applied at stop to improve readability before saving/copying.
+- Video playback nav exposes `Copy Transcript` for saved video entries with a transcript file.
+- App sandbox requires `com.apple.security.personal-information.speech-recognition` entitlement plus `NSSpeechRecognitionUsageDescription`.
 
 ### Video Thumbnail Generation Nuances
 

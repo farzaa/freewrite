@@ -8,6 +8,7 @@
 import SwiftUI
 import AVFoundation
 import AppKit
+import Speech
 
 class CameraManager: NSObject, ObservableObject {
     @Published var isRecording = false
@@ -15,18 +16,32 @@ class CameraManager: NSObject, ObservableObject {
     @Published var permissionGranted = false
     @Published var microphonePermissionGranted = false
     @Published var previewLayer: AVCaptureVideoPreviewLayer?
+    private var liveCaptionText: String = ""
+    private var committedCaptionText: String = ""
+    @Published var speechPermissionGranted = false
 
     private let sessionQueue = DispatchQueue(label: "freewrite.camera.session")
+    private let speechQueue = DispatchQueue(label: "freewrite.camera.speech")
     private var captureSession: AVCaptureSession?
     private var videoOutput: AVCaptureMovieFileOutput?
+    private var audioDataOutput: AVCaptureAudioDataOutput?
     private var recordingTimer: Timer?
     private var outputURL: URL?
     private var isSessionConfigured = false
     private var isSettingUpSession = false
     private var hasNotifiedReady = false
     private var hasNotifiedCannotRecord = false
+    private var shouldRunLiveCaptions = false
+    private var speechRecognizer = SFSpeechRecognizer(locale: Locale.current)
+    private var speechRecognitionRequest: SFSpeechAudioBufferRecognitionRequest?
+    private var speechRecognitionTask: SFSpeechRecognitionTask?
+    private var captionPauseCommitWorkItem: DispatchWorkItem?
+    private var latestRecognitionText: String = ""
+    private var committedCharacterOffset: Int = 0
+    private let captionPauseCommitDelaySeconds: Double = 1.2
+    private var pendingTranscriptForCompletion: String = ""
 
-    var onRecordingComplete: ((URL) -> Void)?
+    var onRecordingComplete: ((URL, String) -> Void)?
     var onReadyToRecord: (() -> Void)?
     var onCannotRecord: (() -> Void)?
 
@@ -52,48 +67,88 @@ class CameraManager: NSObject, ObservableObject {
         logPermissionState("checkPermissions() start")
         hasNotifiedReady = false
         hasNotifiedCannotRecord = false
+        requestSpeechPermissionIfNeeded()
 
+        requestCameraPermissionIfNeeded { [weak self] in
+            self?.requestMicrophonePermissionIfNeeded {
+                self?.evaluateCapturePermissionsAndSetup()
+            }
+        }
+    }
+
+    private func requestSpeechPermissionIfNeeded() {
+        switch SFSpeechRecognizer.authorizationStatus() {
+        case .authorized:
+            speechPermissionGranted = true
+            refreshLiveCaptionState()
+        case .notDetermined:
+            SFSpeechRecognizer.requestAuthorization { [weak self] status in
+                DispatchQueue.main.async {
+                    self?.speechPermissionGranted = status == .authorized
+                    self?.refreshLiveCaptionState()
+                }
+            }
+        case .denied, .restricted:
+            speechPermissionGranted = false
+            refreshLiveCaptionState()
+        @unknown default:
+            speechPermissionGranted = false
+            refreshLiveCaptionState()
+        }
+    }
+
+    private func requestCameraPermissionIfNeeded(completion: @escaping () -> Void) {
         switch AVCaptureDevice.authorizationStatus(for: .video) {
         case .authorized:
             permissionGranted = true
-            requestMicrophonePermissionAndSetup()
+            completion()
         case .notDetermined:
             AVCaptureDevice.requestAccess(for: .video) { [weak self] granted in
                 DispatchQueue.main.async {
                     self?.logPermissionState("camera requestAccess callback granted=\(granted)")
                     self?.permissionGranted = granted
-                    if granted {
-                        self?.requestMicrophonePermissionAndSetup()
-                    }
+                    completion()
                 }
             }
         default:
             permissionGranted = false
-            notifyCannotRecordIfNeeded()
+            completion()
         }
     }
 
-    func requestMicrophonePermissionAndSetup() {
-        logPermissionState("requestMicrophonePermissionAndSetup() start")
+    private func requestMicrophonePermissionIfNeeded(completion: @escaping () -> Void) {
         switch AVCaptureDevice.authorizationStatus(for: .audio) {
         case .authorized:
             microphonePermissionGranted = true
-            setupCamera()
+            completion()
         case .notDetermined:
             AVCaptureDevice.requestAccess(for: .audio) { [weak self] granted in
                 DispatchQueue.main.async {
                     self?.logPermissionState("microphone requestAccess callback granted=\(granted)")
                     self?.microphonePermissionGranted = granted
-                    if granted {
-                        self?.setupCamera()
-                    }
+                    completion()
                 }
             }
         default:
             microphonePermissionGranted = false
-            print("[CameraManager] microphone access unavailable; recording is blocked until enabled in System Settings.")
-            notifyCannotRecordIfNeeded()
+            completion()
         }
+    }
+
+    private func evaluateCapturePermissionsAndSetup() {
+        if permissionGranted && microphonePermissionGranted {
+            setupCamera()
+            return
+        }
+
+        if !permissionGranted {
+            print("[CameraManager] camera access unavailable; recording is blocked until enabled in System Settings.")
+        }
+        if !microphonePermissionGranted {
+            print("[CameraManager] microphone access unavailable; recording is blocked until enabled in System Settings.")
+        }
+
+        notifyCannotRecordIfNeeded()
     }
 
     func setupCamera() {
@@ -125,6 +180,7 @@ class CameraManager: NSObject, ObservableObject {
                 let videoInput = try AVCaptureDeviceInput(device: videoDevice)
                 let audioInput = try AVCaptureDeviceInput(device: audioDevice)
                 let output = AVCaptureMovieFileOutput()
+                let captionAudioOutput = AVCaptureAudioDataOutput()
 
                 session.beginConfiguration()
                 session.sessionPreset = .high
@@ -141,10 +197,16 @@ class CameraManager: NSObject, ObservableObject {
                     session.addOutput(output)
                 }
 
+                if session.canAddOutput(captionAudioOutput) {
+                    captionAudioOutput.setSampleBufferDelegate(self, queue: self.speechQueue)
+                    session.addOutput(captionAudioOutput)
+                }
+
                 session.commitConfiguration()
 
                 self.captureSession = session
                 self.videoOutput = output
+                self.audioDataOutput = captionAudioOutput
                 self.isSessionConfigured = true
                 print("[CameraManager] capture session configured with audio + video")
                 self.ensureSessionRunningAndPreviewAttached()
@@ -173,6 +235,7 @@ class CameraManager: NSObject, ObservableObject {
                 layer.videoGravity = .resizeAspectFill
                 self.previewLayer = layer
             }
+            self.refreshLiveCaptionState()
             self.notifyReadyIfPossible()
         }
     }
@@ -196,6 +259,7 @@ class CameraManager: NSObject, ObservableObject {
 
     func startRecording(to url: URL) {
         outputURL = url
+        prepareTranscriptCaptureForRecording()
 
         sessionQueue.async { [weak self] in
             guard let self = self, let videoOutput = self.videoOutput else { return }
@@ -215,7 +279,9 @@ class CameraManager: NSObject, ObservableObject {
     }
 
     func stopRecording() {
-        DispatchQueue.main.async {
+        executeOnMain {
+            self.pendingTranscriptForCompletion = self.finalizedTranscriptText()
+            self.setCaptionsEnabled(false)
             self.recordingTimer?.invalidate()
             self.recordingTimer = nil
         }
@@ -227,6 +293,8 @@ class CameraManager: NSObject, ObservableObject {
     }
 
     func cleanup() {
+        setCaptionsEnabled(false)
+
         DispatchQueue.main.async {
             self.recordingTimer?.invalidate()
             self.recordingTimer = nil
@@ -247,6 +315,7 @@ class CameraManager: NSObject, ObservableObject {
 
             self.captureSession = nil
             self.videoOutput = nil
+            self.audioDataOutput = nil
             self.isSessionConfigured = false
             self.isSettingUpSession = false
             self.hasNotifiedReady = false
@@ -254,8 +323,202 @@ class CameraManager: NSObject, ObservableObject {
 
             DispatchQueue.main.async {
                 self.previewLayer = nil
+                self.stopLiveCaptionRecognition(clearText: true)
             }
         }
+    }
+
+    func setCaptionsEnabled(_ enabled: Bool) {
+        DispatchQueue.main.async {
+            self.shouldRunLiveCaptions = enabled
+            self.refreshLiveCaptionState()
+        }
+    }
+
+    private func refreshLiveCaptionState() {
+        let shouldStart = shouldRunLiveCaptions &&
+            isSessionConfigured &&
+            permissionGranted &&
+            microphonePermissionGranted &&
+            speechPermissionGranted
+
+        if shouldStart {
+            startLiveCaptionRecognitionIfNeeded()
+        } else {
+            stopLiveCaptionRecognition(clearText: !shouldRunLiveCaptions)
+        }
+    }
+
+    private func startLiveCaptionRecognitionIfNeeded() {
+        guard speechRecognitionTask == nil else { return }
+        guard let speechRecognizer = speechRecognizer, speechRecognizer.isAvailable else { return }
+
+        let request = SFSpeechAudioBufferRecognitionRequest()
+        request.shouldReportPartialResults = true
+        request.requiresOnDeviceRecognition = false
+        speechRecognitionRequest = request
+
+        speechRecognitionTask = speechRecognizer.recognitionTask(with: request) { [weak self] result, error in
+            guard let self = self else { return }
+            DispatchQueue.main.async {
+                if let result {
+                    self.processRecognitionResult(result)
+                }
+
+                if error != nil {
+                    self.stopLiveCaptionRecognition(clearText: false)
+                    self.scheduleLiveCaptionRestart()
+                }
+            }
+        }
+    }
+
+    private func stopLiveCaptionRecognition(clearText: Bool) {
+        captionPauseCommitWorkItem?.cancel()
+        captionPauseCommitWorkItem = nil
+        speechRecognitionRequest?.endAudio()
+        speechRecognitionRequest = nil
+        speechRecognitionTask?.cancel()
+        speechRecognitionTask = nil
+        latestRecognitionText = ""
+        committedCharacterOffset = 0
+        if clearText {
+            liveCaptionText = ""
+            committedCaptionText = ""
+        }
+    }
+
+    private func scheduleLiveCaptionRestart() {
+        guard shouldRunLiveCaptions else { return }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
+            self.refreshLiveCaptionState()
+        }
+    }
+
+    private func processRecognitionResult(_ result: SFSpeechRecognitionResult) {
+        let fullText = normalizeCaptionText(result.bestTranscription.formattedString)
+        latestRecognitionText = fullText
+
+        let fullNSString = fullText as NSString
+        let fullLength = fullNSString.length
+        committedCharacterOffset = min(committedCharacterOffset, fullLength)
+
+        let liveChunk = fullLength > committedCharacterOffset ? fullNSString.substring(from: committedCharacterOffset) : ""
+        liveCaptionText = normalizeCaptionText(liveChunk)
+
+        if result.isFinal {
+            commitPendingLiveTranscript(asParagraph: true)
+            captionPauseCommitWorkItem?.cancel()
+            captionPauseCommitWorkItem = nil
+        } else {
+            schedulePauseCommitIfNeeded()
+        }
+    }
+
+    private func schedulePauseCommitIfNeeded() {
+        captionPauseCommitWorkItem?.cancel()
+
+        guard !normalizeCaptionText(liveCaptionText).isEmpty else { return }
+
+        let workItem = DispatchWorkItem { [weak self] in
+            guard let self = self else { return }
+            self.commitPendingLiveTranscript(asParagraph: true)
+        }
+
+        captionPauseCommitWorkItem = workItem
+        DispatchQueue.main.asyncAfter(deadline: .now() + captionPauseCommitDelaySeconds, execute: workItem)
+    }
+
+    private func prepareTranscriptCaptureForRecording() {
+        executeOnMain {
+            self.pendingTranscriptForCompletion = ""
+            self.committedCharacterOffset = 0
+            self.latestRecognitionText = ""
+            self.captionPauseCommitWorkItem?.cancel()
+            self.captionPauseCommitWorkItem = nil
+            self.liveCaptionText = ""
+            self.committedCaptionText = ""
+            self.stopLiveCaptionRecognition(clearText: true)
+            self.setCaptionsEnabled(true)
+        }
+    }
+
+    private func executeOnMain(_ work: () -> Void) {
+        if Thread.isMainThread {
+            work()
+        } else {
+            DispatchQueue.main.sync(execute: work)
+        }
+    }
+
+    private func commitPendingLiveTranscript(asParagraph: Bool) {
+        let live = normalizeCaptionText(liveCaptionText)
+        guard !live.isEmpty else { return }
+        appendCommittedCaption(live, addSentenceTerminator: true, asParagraph: asParagraph)
+        committedCharacterOffset = (latestRecognitionText as NSString).length
+        liveCaptionText = ""
+    }
+
+    private func appendCommittedCaption(_ text: String, addSentenceTerminator: Bool, asParagraph: Bool) {
+        var cleaned = normalizeCaptionText(text)
+        guard !cleaned.isEmpty else { return }
+
+        cleaned = capitalizeSentenceStart(cleaned)
+
+        if addSentenceTerminator && !endsWithTerminalPunctuation(cleaned) {
+            cleaned += "."
+        }
+
+        if committedCaptionText.isEmpty {
+            committedCaptionText = cleaned
+        } else if asParagraph {
+            committedCaptionText += "\n\n" + cleaned
+        } else {
+            committedCaptionText += " " + cleaned
+        }
+    }
+
+    private func normalizeCaptionText(_ text: String) -> String {
+        text
+            .replacingOccurrences(of: "\\s+", with: " ", options: .regularExpression)
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    private func endsWithTerminalPunctuation(_ text: String) -> Bool {
+        guard let last = text.last else { return false }
+        return [".", "!", "?"].contains(last)
+    }
+
+    private func capitalizeSentenceStart(_ text: String) -> String {
+        guard let firstLetterIndex = text.firstIndex(where: { $0.isLetter }) else {
+            return text
+        }
+
+        var characters = Array(text)
+        let arrayIndex = text.distance(from: text.startIndex, to: firstLetterIndex)
+        characters[arrayIndex] = Character(String(characters[arrayIndex]).uppercased())
+        return String(characters)
+    }
+
+    private func finalizedTranscriptText() -> String {
+        captionPauseCommitWorkItem?.cancel()
+        captionPauseCommitWorkItem = nil
+        commitPendingLiveTranscript(asParagraph: true)
+
+        let paragraphCandidates = committedCaptionText
+            .components(separatedBy: "\n\n")
+            .map { normalizeCaptionText($0) }
+            .filter { !$0.isEmpty }
+
+        let finalizedParagraphs = paragraphCandidates.map { paragraph -> String in
+            var normalized = capitalizeSentenceStart(paragraph)
+            if !endsWithTerminalPunctuation(normalized) {
+                normalized += "."
+            }
+            return normalized
+        }.filter { !$0.isEmpty }
+
+        return finalizedParagraphs.joined(separator: "\n\n")
     }
 }
 
@@ -266,10 +529,23 @@ extension CameraManager: AVCaptureFileOutputRecordingDelegate {
 
             if let error = error {
                 print("Recording error: \(error)")
+                self?.pendingTranscriptForCompletion = ""
             } else {
-                self?.onRecordingComplete?(outputFileURL)
+                let finalizedTranscript = self?.pendingTranscriptForCompletion ?? ""
+                self?.pendingTranscriptForCompletion = ""
+                self?.onRecordingComplete?(outputFileURL, finalizedTranscript)
             }
         }
+    }
+}
+
+extension CameraManager: AVCaptureAudioDataOutputSampleBufferDelegate {
+    func captureOutput(_ output: AVCaptureOutput, didOutput sampleBuffer: CMSampleBuffer, from connection: AVCaptureConnection) {
+        guard output === audioDataOutput,
+              let speechRecognitionRequest = speechRecognitionRequest else {
+            return
+        }
+        speechRecognitionRequest.appendAudioSampleBuffer(sampleBuffer)
     }
 }
 
@@ -358,13 +634,14 @@ struct VideoRecordingView: View {
     @State private var isHoveringRecord = false
     @State private var isHoveringSettings = false
     @State private var isHoveringRetry = false
+    @State private var viewOpacity: Double = 0
 
-    var onRecordingComplete: (URL) -> Void
+    var onRecordingComplete: (URL, String) -> Void
 
     init(
         isPresented: Binding<Bool>,
         cameraManager: CameraManager? = nil,
-        onRecordingComplete: @escaping (URL) -> Void
+        onRecordingComplete: @escaping (URL, String) -> Void
     ) {
         self._isPresented = isPresented
         _cameraManager = StateObject(wrappedValue: cameraManager ?? CameraManager())
@@ -394,12 +671,20 @@ struct VideoRecordingView: View {
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .background(Color.black)
         .ignoresSafeArea()
+        .opacity(viewOpacity)
         .onAppear {
+            viewOpacity = 0
+            withAnimation(.easeOut(duration: 1.0)) {
+                viewOpacity = 1
+            }
+            cameraManager.setCaptionsEnabled(false)
             if cameraManager.previewLayer == nil {
                 cameraManager.checkPermissions()
             }
         }
         .onDisappear {
+            viewOpacity = 0
+            cameraManager.setCaptionsEnabled(false)
             cameraManager.cleanup()
         }
     }
@@ -449,14 +734,29 @@ struct VideoRecordingView: View {
 
             ZStack(alignment: .bottom) {
                 HStack(spacing: 8) {
-                    Text(displayTimer)
-                        .foregroundColor(.white.opacity(0.92))
+                    if cameraManager.isRecording {
+                        Text("Recording")
+                            .foregroundColor(.red.opacity(0.92))
 
-                    Text("•")
-                        .foregroundColor(.white.opacity(0.55))
+                        Text("•")
+                            .foregroundColor(.white.opacity(0.55))
 
-                    Text(cameraManager.isRecording ? "Recording" : "Ready")
-                        .foregroundColor(cameraManager.isRecording ? Color.red.opacity(0.92) : .white.opacity(0.92))
+                        recordingControlButton
+
+                        Text("•")
+                            .foregroundColor(.white.opacity(0.55))
+
+                        Text(displayTimer)
+                            .foregroundColor(.white.opacity(0.92))
+                    } else {
+                        recordingControlButton
+
+                        Text("•")
+                            .foregroundColor(.white.opacity(0.55))
+
+                        Text(displayTimer)
+                            .foregroundColor(.white.opacity(0.92))
+                    }
 
                     Spacer()
 
@@ -477,9 +777,6 @@ struct VideoRecordingView: View {
                 .font(.system(size: 13))
                 .padding(.horizontal, 24)
                 .padding(.bottom, 22)
-
-                recordButton
-                    .padding(.bottom, 16)
             }
             .background(
                 LinearGradient(
@@ -493,6 +790,33 @@ struct VideoRecordingView: View {
             )
         }
         .ignoresSafeArea(edges: .bottom)
+    }
+
+    private var recordingControlButton: some View {
+        Button {
+            toggleRecording()
+        } label: {
+            Text(cameraManager.isRecording ? "Stop Recording" : "Start Recording")
+        }
+        .buttonStyle(.plain)
+        .foregroundColor(recordingControlColor)
+        .onHover { hovering in
+            isHoveringRecord = hovering
+            if hovering {
+                NSCursor.pointingHand.push()
+            } else {
+                NSCursor.pop()
+            }
+        }
+        .disabled(!canRecord)
+        .opacity(canRecord ? 1.0 : 0.55)
+    }
+
+    private var recordingControlColor: Color {
+        if cameraManager.isRecording {
+            return isHoveringRecord ? .white : .white.opacity(0.92)
+        }
+        return isHoveringRecord ? .white : .white.opacity(0.92)
     }
 
     private var closeButton: some View {
@@ -543,53 +867,14 @@ struct VideoRecordingView: View {
         }
     }
 
-    private var recordButton: some View {
-        Button {
-            toggleRecording()
-        } label: {
-            ZStack {
-                Circle()
-                    .fill(Color.black.opacity(0.42))
-
-                Circle()
-                    .stroke(Color.white.opacity(0.32), lineWidth: 1)
-
-                if cameraManager.isRecording {
-                    RoundedRectangle(cornerRadius: 4)
-                        .fill(Color.red.opacity(0.95))
-                        .frame(width: 18, height: 18)
-                } else {
-                    Circle()
-                        .fill(Color.red.opacity(0.95))
-                        .frame(width: 26, height: 26)
-                }
-            }
-            .frame(width: 68, height: 68)
-            .shadow(color: Color.black.opacity(0.45), radius: 10, y: 5)
-            .scaleEffect(isHoveringRecord ? 1.04 : 1.0)
-        }
-        .buttonStyle(.plain)
-        .help(cameraManager.isRecording ? "Stop Recording" : "Start Recording")
-        .onHover { hovering in
-            isHoveringRecord = hovering
-            if hovering {
-                NSCursor.pointingHand.push()
-            } else {
-                NSCursor.pop()
-            }
-        }
-        .disabled(!canRecord)
-        .opacity(canRecord ? 1.0 : 0.55)
-    }
-
     private func toggleRecording() {
         if cameraManager.isRecording {
             cameraManager.stopRecording()
             return
         }
 
-        cameraManager.onRecordingComplete = { url in
-            onRecordingComplete(url)
+        cameraManager.onRecordingComplete = { url, transcript in
+            onRecordingComplete(url, transcript)
         }
 
         let tempURL = FileManager.default.temporaryDirectory
@@ -601,7 +886,7 @@ struct VideoRecordingView: View {
 
     private func closeRecorder() {
         if cameraManager.isRecording {
-            cameraManager.onRecordingComplete = { url in
+            cameraManager.onRecordingComplete = { url, _ in
                 try? FileManager.default.removeItem(at: url)
             }
             cameraManager.stopRecording()
