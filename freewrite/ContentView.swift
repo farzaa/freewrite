@@ -128,6 +128,9 @@ struct ContentView: View {
     @State private var isPreparingVideoRecording = false
     @State private var preparedCameraManager: CameraManager? = nil
     @State private var videoRecordingPreparationID: UUID? = nil
+    @State private var showingVideoPermissionPopover = false
+    @State private var videoPermissionPopoverMessage = ""
+    @State private var videoPermissionSettingsPane = "Privacy_Camera"
     let timer = Timer.publish(every: 1, on: .main, in: .common).autoconnect()
     let entryHeight: CGFloat = 40
     
@@ -624,10 +627,10 @@ struct ContentView: View {
             entries = loadedEntries
             logEntriesOrder("loadExistingEntries")
 
-            // If the latest entry is a video, load it first on app open.
+            // Never open directly into video on startup; create a fresh text entry instead.
             if let latestEntry = entries.first, latestEntry.entryType == .video {
-                selectedEntryId = latestEntry.id
-                loadEntry(entry: latestEntry)
+                print("Latest entry is video, creating new text entry for startup")
+                createNewEntry()
                 return
             }
 
@@ -675,6 +678,9 @@ struct ContentView: View {
             return
         }
 
+        showingVideoPermissionPopover = false
+        videoPermissionPopoverMessage = ""
+
         let preparationID = UUID()
         let manager = CameraManager()
 
@@ -701,7 +707,18 @@ struct ContentView: View {
         manager.onCannotRecord = { [weak manager] in
             guard let manager else { return }
             DispatchQueue.main.async {
-                finishVideoRecordingPreflight(preparationID: preparationID, manager: manager)
+                guard self.videoRecordingPreparationID == preparationID else {
+                    return
+                }
+                let payload = self.videoPermissionPopoverPayload(
+                    cameraGranted: manager.permissionGranted,
+                    microphoneGranted: manager.microphonePermissionGranted,
+                    speechGranted: manager.speechPermissionGranted
+                )
+                self.videoPermissionPopoverMessage = payload.message
+                self.videoPermissionSettingsPane = payload.settingsPane
+                self.showingVideoPermissionPopover = true
+                self.clearVideoRecordingPreparationState()
             }
         }
 
@@ -746,6 +763,54 @@ struct ContentView: View {
         videoRecordingPreparationID = nil
         isPreparingVideoRecording = false
         preparedCameraManager = nil
+    }
+
+    private func videoPermissionPopoverPayload(
+        cameraGranted: Bool,
+        microphoneGranted: Bool,
+        speechGranted: Bool
+    ) -> (message: String, settingsPane: String) {
+        var missing: [(name: String, pane: String)] = []
+        if !cameraGranted {
+            missing.append(("camera", "Privacy_Camera"))
+        }
+        if !microphoneGranted {
+            missing.append(("microphone", "Privacy_Microphone"))
+        }
+        if !speechGranted {
+            missing.append(("speech recognition", "Privacy_SpeechRecognition"))
+        }
+
+        if missing.isEmpty {
+            return (
+                message: "Could not prepare camera right now. Please try again.",
+                settingsPane: "Privacy_Camera"
+            )
+        }
+
+        let names = missing.map(\.name)
+        let missingList: String
+        switch names.count {
+        case 0:
+            missingList = "camera"
+        case 1:
+            missingList = names[0]
+        case 2:
+            missingList = "\(names[0]) and \(names[1])"
+        default:
+            missingList = "\(names[0]), \(names[1]), and \(names[2])"
+        }
+
+        return (
+            message: "Enable \(missingList) access in System Settings to start recording.",
+            settingsPane: missing.first?.pane ?? "Privacy_Camera"
+        )
+    }
+
+    private func openVideoPermissionSettings() {
+        if let url = URL(string: "x-apple.systempreferences:com.apple.preference.security?\(videoPermissionSettingsPane)") {
+            NSWorkspace.shared.open(url)
+        }
     }
     
     var timerButtonTitle: String {
@@ -1098,6 +1163,43 @@ struct ContentView: View {
                                 } else {
                                     NSCursor.pop()
                                 }
+                            }
+                            .popover(isPresented: $showingVideoPermissionPopover, attachmentAnchor: .point(UnitPoint(x: 0.5, y: 0)), arrowEdge: .top) {
+                                VStack(spacing: 0) {
+                                    Text(videoPermissionPopoverMessage)
+                                        .font(.system(size: 14))
+                                        .foregroundColor(popoverTextColor)
+                                        .lineLimit(nil)
+                                        .multilineTextAlignment(.leading)
+                                        .frame(maxWidth: .infinity, alignment: .leading)
+                                        .padding(.horizontal, 12)
+                                        .padding(.vertical, 8)
+
+                                    Divider()
+
+                                    Button(action: {
+                                        showingVideoPermissionPopover = false
+                                        openVideoPermissionSettings()
+                                    }) {
+                                        Text("Open System Settings")
+                                            .frame(maxWidth: .infinity, alignment: .leading)
+                                            .padding(.horizontal, 12)
+                                            .padding(.vertical, 8)
+                                    }
+                                    .buttonStyle(.plain)
+                                    .foregroundColor(popoverTextColor)
+                                    .onHover { hovering in
+                                        if hovering {
+                                            NSCursor.pointingHand.push()
+                                        } else {
+                                            NSCursor.pop()
+                                        }
+                                    }
+                                }
+                                .frame(minWidth: 120, maxWidth: 250)
+                                .background(popoverBackgroundColor)
+                                .cornerRadius(8)
+                                .shadow(color: Color.black.opacity(0.1), radius: 4, y: 2)
                             }
 
                             Text("•")

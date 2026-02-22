@@ -246,20 +246,21 @@ struct VideoPlayerView: View {
 ## Video Recording Flow
 
 1. User clicks video camera icon (🎥)
-2. `showingVideoRecording` set to `true`
-3. `VideoRecordingView` rendered via `.overlay` on top of `ContentView` with animations disabled for open/close (plain swap, no transition)
-4. Camera preview fills the entire window content area edge-to-edge
-5. Transparent bottom nav appears over video with: `Close`, timer/status, and permission actions; recording control text switches between `Start Recording` and `Stop Recording`, and shows red `Recording` state while active
-6. Camera/microphone permissions requested (if needed)
-7. User clicks "Start Recording"
+2. Camera icon switches to a small spinner while preflight runs
+3. App requests/validates **all required permissions**: camera + microphone + speech recognition
+4. If any permission is missing, recorder is **not** presented; a compact popover above the camera icon explains what is missing and links to System Settings
+5. Once camera session is fully ready (plus a short presentation delay), `VideoRecordingView` is rendered via `.overlay` on top of `ContentView` with animations disabled for open/close (plain swap, no transition)
+6. Camera preview fills the entire window content area edge-to-edge
+7. Transparent bottom nav appears over video with: `Close`, recording status, recording control text (`Start Recording` / `Stop Recording`), and timer
+8. User clicks "Start Recording"
    - Recording begins to temp file
    - Timer starts counting up
    - Button changes to "Stop Recording"
-8. User clicks "Stop Recording"
+9. User clicks "Stop Recording"
    - Recording stops
    - Speech transcript is finalized (spacing + sentence endings/capitalization)
    - `onRecordingComplete` closure called with temp URL + finalized transcript
-9. `saveVideoEntry(from:transcript:)` called
+10. `saveVideoEntry(from:transcript:)` called
    - Creates per-entry video directory in `~/Documents/Freewrite/Videos/[UUID]-[date]/`
    - Video copied from temp to `~/Documents/Freewrite/Videos/[UUID]-[date]/[UUID]-[date].mov`
    - Thumbnail generated once and saved to `~/Documents/Freewrite/Videos/[UUID]-[date]/thumbnail.jpg`
@@ -268,7 +269,7 @@ struct VideoPlayerView: View {
    - Entry added to `entries` array (on main thread), selected immediately, and loaded into the main view
    - Playback starts automatically with audio enabled
    - Overlay dismissed
-10. If user clicks `Close` while recording, the temp recording is discarded and no entry is created; recorder dismisses first, then camera cleanup runs on disappear
+11. If user clicks `Close` while recording, the temp recording is discarded and no entry is created; recorder dismisses first, then camera cleanup runs on disappear
 
 ## Video Playback Flow
 
@@ -297,7 +298,7 @@ On app launch (`onAppear`):
    - Creates `HumanEntry` with appropriate type
 5. Sorts entries by date (newest first)
 6. Applies launch selection rules in order:
-   - If newest entry is a video entry: load that video entry first
+   - If newest entry is a video entry: create a new text entry and select it (never open directly into video on app launch)
    - Else if no entries: create welcome entry
    - Else if no empty entry exists for today (and app is not in the single-welcome-entry state): create a new empty entry
    - Else select the most recent empty entry from today (or the welcome entry if it's the only entry)
@@ -337,7 +338,7 @@ Privacy usage descriptions (in Xcode project build settings):
 ```
 INFOPLIST_KEY_NSCameraUsageDescription = "Freewrite needs camera access to record video entries."
 INFOPLIST_KEY_NSMicrophoneUsageDescription = "Freewrite needs microphone access to record audio with your video entries."
-INFOPLIST_KEY_NSSpeechRecognitionUsageDescription = "Freewrite uses speech recognition to show live captions while recording."
+INFOPLIST_KEY_NSSpeechRecognitionUsageDescription = "Freewrite uses speech recognition to transcribe your video entries."
 ```
 
 ## Technical Nuances & Implementation Details
@@ -621,7 +622,8 @@ Speech transcription in `VideoRecordingView` is implemented with Apple's `Speech
 6. Finalize transcript on stop and persist it as `transcript.md` in that entry's video directory.
 
 Key details:
-- Speech permission is independent of camera/mic permission; recording can still work if speech is denied.
+- Camera, microphone, and speech recognition permissions are all required before opening the recorder.
+- If any permission is denied, the app keeps the user in the writing view and shows a compact camera-icon popover with the missing permission(s).
 - Transcription is started on recording start and stopped on recording stop.
 - Final transcript formatting is applied at stop to improve readability before saving/copying.
 - Video playback nav exposes `Copy Transcript` for saved video entries with a transcript file.

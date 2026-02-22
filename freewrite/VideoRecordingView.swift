@@ -67,33 +67,37 @@ class CameraManager: NSObject, ObservableObject {
         logPermissionState("checkPermissions() start")
         hasNotifiedReady = false
         hasNotifiedCannotRecord = false
-        requestSpeechPermissionIfNeeded()
-
-        requestCameraPermissionIfNeeded { [weak self] in
-            self?.requestMicrophonePermissionIfNeeded {
-                self?.evaluateCapturePermissionsAndSetup()
+        requestSpeechPermissionIfNeeded { [weak self] in
+            self?.requestCameraPermissionIfNeeded {
+                self?.requestMicrophonePermissionIfNeeded {
+                    self?.evaluateCapturePermissionsAndSetup()
+                }
             }
         }
     }
 
-    private func requestSpeechPermissionIfNeeded() {
+    private func requestSpeechPermissionIfNeeded(completion: @escaping () -> Void) {
         switch SFSpeechRecognizer.authorizationStatus() {
         case .authorized:
             speechPermissionGranted = true
             refreshLiveCaptionState()
+            completion()
         case .notDetermined:
             SFSpeechRecognizer.requestAuthorization { [weak self] status in
                 DispatchQueue.main.async {
                     self?.speechPermissionGranted = status == .authorized
                     self?.refreshLiveCaptionState()
+                    completion()
                 }
             }
         case .denied, .restricted:
             speechPermissionGranted = false
             refreshLiveCaptionState()
+            completion()
         @unknown default:
             speechPermissionGranted = false
             refreshLiveCaptionState()
+            completion()
         }
     }
 
@@ -136,7 +140,7 @@ class CameraManager: NSObject, ObservableObject {
     }
 
     private func evaluateCapturePermissionsAndSetup() {
-        if permissionGranted && microphonePermissionGranted {
+        if permissionGranted && microphonePermissionGranted && speechPermissionGranted {
             setupCamera()
             return
         }
@@ -146,6 +150,9 @@ class CameraManager: NSObject, ObservableObject {
         }
         if !microphonePermissionGranted {
             print("[CameraManager] microphone access unavailable; recording is blocked until enabled in System Settings.")
+        }
+        if !speechPermissionGranted {
+            print("[CameraManager] speech recognition access unavailable; recording is blocked until enabled in System Settings.")
         }
 
         notifyCannotRecordIfNeeded()
@@ -241,7 +248,7 @@ class CameraManager: NSObject, ObservableObject {
     }
 
     private func notifyReadyIfPossible() {
-        guard permissionGranted, microphonePermissionGranted, previewLayer != nil else { return }
+        guard permissionGranted, microphonePermissionGranted, speechPermissionGranted, previewLayer != nil else { return }
         notifyReadyIfNeeded()
     }
 
@@ -632,8 +639,6 @@ struct VideoRecordingView: View {
     @StateObject private var cameraManager: CameraManager
     @State private var isHoveringClose = false
     @State private var isHoveringRecord = false
-    @State private var isHoveringSettings = false
-    @State private var isHoveringRetry = false
     @State private var viewOpacity: Double = 0
 
     var onRecordingComplete: (URL, String) -> Void
@@ -655,7 +660,9 @@ struct VideoRecordingView: View {
     }
 
     var canRecord: Bool {
-        cameraManager.permissionGranted && cameraManager.microphonePermissionGranted
+        cameraManager.permissionGranted &&
+        cameraManager.microphonePermissionGranted &&
+        cameraManager.speechPermissionGranted
     }
 
     var displayTimer: String {
@@ -665,7 +672,6 @@ struct VideoRecordingView: View {
     var body: some View {
         ZStack {
             cameraSurface
-            permissionOverlay
             floatingBottomNav
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -697,34 +703,13 @@ struct VideoRecordingView: View {
                 .clipped()
                 .ignoresSafeArea()
         } else {
-            Color.black
+            Color.white
+                .overlay {
+                    ProgressView()
+                        .controlSize(.small)
+                        .tint(.gray.opacity(0.9))
+                }
                 .ignoresSafeArea()
-        }
-    }
-
-    @ViewBuilder
-    private var permissionOverlay: some View {
-        if !canRecord {
-            VStack(spacing: 10) {
-                Text(cameraManager.permissionGranted ? "Microphone Access Needed" : "Camera Access Needed")
-                    .font(.system(size: 20, weight: .medium))
-                    .foregroundColor(.white)
-
-                Text(
-                    cameraManager.permissionGranted
-                    ? "Enable microphone access in System Settings to record with audio."
-                    : "Enable camera access in System Settings to record video."
-                )
-                .font(.system(size: 14))
-                .foregroundColor(.white.opacity(0.78))
-                .multilineTextAlignment(.center)
-                .padding(.horizontal, 32)
-            }
-            .padding(20)
-            .background(
-                RoundedRectangle(cornerRadius: 14)
-                    .fill(Color.black.opacity(0.5))
-            )
         }
     }
 
@@ -759,19 +744,6 @@ struct VideoRecordingView: View {
                     }
 
                     Spacer()
-
-                    if !canRecord {
-                        settingsButton
-
-                        Text("•")
-                            .foregroundColor(.white.opacity(0.55))
-
-                        retryPermissionButton
-
-                        Text("•")
-                            .foregroundColor(.white.opacity(0.55))
-                    }
-
                     closeButton
                 }
                 .font(.system(size: 13))
@@ -835,38 +807,6 @@ struct VideoRecordingView: View {
         }
     }
 
-    private var settingsButton: some View {
-        Button("System Settings") {
-            openSystemSettings()
-        }
-        .buttonStyle(.plain)
-        .foregroundColor(isHoveringSettings ? .white : .white.opacity(0.9))
-        .onHover { hovering in
-            isHoveringSettings = hovering
-            if hovering {
-                NSCursor.pointingHand.push()
-            } else {
-                NSCursor.pop()
-            }
-        }
-    }
-
-    private var retryPermissionButton: some View {
-        Button("Retry Permission") {
-            cameraManager.checkPermissions()
-        }
-        .buttonStyle(.plain)
-        .foregroundColor(isHoveringRetry ? .white : .white.opacity(0.9))
-        .onHover { hovering in
-            isHoveringRetry = hovering
-            if hovering {
-                NSCursor.pointingHand.push()
-            } else {
-                NSCursor.pop()
-            }
-        }
-    }
-
     private func toggleRecording() {
         if cameraManager.isRecording {
             cameraManager.stopRecording()
@@ -895,12 +835,6 @@ struct VideoRecordingView: View {
         isPresented = false
     }
 
-    private func openSystemSettings() {
-        let privacyPane = cameraManager.permissionGranted ? "Privacy_Microphone" : "Privacy_Camera"
-        if let url = URL(string: "x-apple.systempreferences:com.apple.preference.security?\(privacyPane)") {
-            NSWorkspace.shared.open(url)
-        }
-    }
 }
 
 // Helper function to generate a thumbnail from a video
