@@ -128,6 +128,8 @@ struct ContentView: View {
     @State private var didCopyTranscript: Bool = false
     @State private var selectedVideoHasTranscript = false
     @State private var backspaceDisabled = false // Add state for backspace toggle
+    @State private var searchText: String = ""
+    @State private var isSearchFocused = false
     @State private var isHoveringBackspaceToggle = false // Add state for backspace toggle hover
     @State private var showingVideoRecording = false // Add state for video recording view
     @State private var isHoveringVideoButton = false // Add state for video button hover
@@ -867,7 +869,37 @@ struct ContentView: View {
         return colorScheme == .light ? Color.primary : Color.white
     }
 
-    
+    private var filteredEntries: [HumanEntry] {
+        let query = searchText.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !query.isEmpty else { return entries }
+
+        return entries.filter { entry in
+            // Check preview text first (fast path)
+            if entry.previewText.localizedCaseInsensitiveContains(query) {
+                return true
+            }
+            // Check date
+            if entry.date.localizedCaseInsensitiveContains(query) {
+                return true
+            }
+            // Check full file content
+            let fileURL = documentsDirectory.appendingPathComponent(entry.filename)
+            if let content = try? String(contentsOf: fileURL, encoding: .utf8),
+               content.localizedCaseInsensitiveContains(query) {
+                return true
+            }
+            // Check video transcript if available
+            if let videoFilename = entry.videoFilename {
+                let transcriptURL = getVideoTranscriptURL(for: videoFilename)
+                if let transcript = try? String(contentsOf: transcriptURL, encoding: .utf8),
+                   transcript.localizedCaseInsensitiveContains(query) {
+                    return true
+                }
+            }
+            return false
+        }
+    }
+
     var body: some View {
         let buttonBackground = colorScheme == .light ? Color.white : Color.black
         let navHeight: CGFloat = 68
@@ -1559,11 +1591,34 @@ struct ContentView: View {
                     }
                     
                     Divider()
-                    
+
+                    // Search bar
+                    HStack(spacing: 6) {
+                        Image(systemName: "magnifyingglass")
+                            .font(.system(size: 11))
+                            .foregroundColor(.secondary)
+                        TextField("Search entries...", text: $searchText)
+                            .textFieldStyle(.plain)
+                            .font(.system(size: 12))
+                        if !searchText.isEmpty {
+                            Button(action: { searchText = "" }) {
+                                Image(systemName: "xmark.circle.fill")
+                                    .font(.system(size: 11))
+                                    .foregroundColor(.secondary)
+                            }
+                            .buttonStyle(.plain)
+                        }
+                    }
+                    .padding(.horizontal, 12)
+                    .padding(.vertical, 8)
+                    .background(Color(colorScheme == .light ? NSColor.controlBackgroundColor : NSColor.darkGray).opacity(0.5))
+
+                    Divider()
+
                     // Entries List
                     ScrollView {
                         LazyVStack(spacing: 0) {
-                            ForEach(entries) { entry in
+                            ForEach(filteredEntries) { entry in
                                 Button(action: {
                                     if selectedEntryId != entry.id {
                                         historyDebug("ROW TAP \(debugEntrySummary(entry))")
