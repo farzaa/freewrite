@@ -83,7 +83,6 @@ struct ContentView: View {
         let settingsPane: String
     }
 
-    private let headerString = "\n\n"
     @State private var entries: [HumanEntry] = []
     @State private var text: String = ""  // Remove initial welcome text since we'll handle it in createNewEntry
     
@@ -145,14 +144,14 @@ struct ContentView: View {
     let standardFonts = ["Lato-Regular", "Arial", ".AppleSystemUIFont", "Times New Roman"]
     let fontSizes: [CGFloat] = [16, 18, 20, 22, 24, 26]
     let placeholderOptions = [
-        "\n\nBegin writing",
-        "\n\nPick a thought and go",
-        "\n\nStart typing",
-        "\n\nWhat's on your mind",
-        "\n\nJust start",
-        "\n\nType your first thought",
-        "\n\nStart with one sentence",
-        "\n\nJust say it"
+        "Begin writing",
+        "Pick a thought and go",
+        "Start typing",
+        "What's on your mind",
+        "Just start",
+        "Type your first thought",
+        "Start with one sentence",
+        "Just say it"
     ]
     
     // Add file manager and save timer
@@ -853,11 +852,6 @@ struct ContentView: View {
         return "\(Int(fontSize))px"
     }
     
-    var placeholderOffset: CGFloat {
-        // Instead of using calculated line height, use a simple offset
-        return fontSize / 2
-    }
-    
     // Add a color utility computed property
     var popoverBackgroundColor: Color {
         return colorScheme == .light ? Color(NSColor.controlBackgroundColor) : Color(NSColor.darkGray)
@@ -892,17 +886,7 @@ struct ContentView: View {
                         .ignoresSafeArea(edges: .top)
                 } else {
                     // Show text editor for text entries
-                    TextEditor(text: Binding(
-                        get: { text },
-                        set: { newValue in
-                            // Ensure the text always starts with two newlines
-                            if !newValue.hasPrefix("\n\n") {
-                                text = "\n\n" + newValue.trimmingCharacters(in: .newlines)
-                            } else {
-                                text = newValue
-                            }
-                        }
-                    ))
+                    TextEditor(text: $text)
                     .background(Color(colorScheme == .light ? .white : .black))
                     .font(.custom(selectedFont, size: fontSize))
                     .foregroundColor(colorScheme == .light ? Color(red: 0.20, green: 0.20, blue: 0.20) : Color(red: 0.9, green: 0.9, blue: 0.9))
@@ -910,14 +894,12 @@ struct ContentView: View {
                     .scrollIndicators(.never)
                     .lineSpacing(lineHeight)
                     .frame(maxWidth: 650)
-
-
+                    .padding(.top, 40)
                     .id("\(selectedFont)-\(fontSize)-\(colorScheme)")
                     .padding(.bottom, bottomNavOpacity > 0 ? navHeight : 0)
-                    .ignoresSafeArea()
                     .colorScheme(colorScheme)
                     .onAppear {
-                        placeholderText = placeholderOptions.randomElement() ?? "\n\nBegin writing"
+                        placeholderText = placeholderOptions.randomElement() ?? "Begin writing"
                         // Removed findSubview code which was causing errors
 
                         // Add keyboard monitor for backspace/delete keys
@@ -932,14 +914,12 @@ struct ContentView: View {
                     }
                     .overlay(
                         ZStack(alignment: .topLeading) {
-                            if text.isEmpty || text == headerString {
+                            if text.isEmpty {
                                 Text(placeholderText)
                                     .font(.custom(selectedFont, size: fontSize))
                                     .foregroundColor(colorScheme == .light ? .gray.opacity(0.5) : .gray.opacity(0.6))
-                                    // .padding(.top, 8)
-                                    // .padding(.leading, 8)
                                     .allowsHitTesting(false)
-                                    .offset(x: 5, y: placeholderOffset)
+                                    .offset(x: 5, y: 40)
                             }
                         }, alignment: .topLeading
                     )
@@ -1846,7 +1826,9 @@ struct ContentView: View {
 
             do {
                 if fileManager.fileExists(atPath: fileURL.path) {
-                    text = try String(contentsOf: fileURL, encoding: .utf8)
+                    let rawText = try String(contentsOf: fileURL, encoding: .utf8)
+                    // Strip legacy leading newlines from older entries
+                    text = String(rawText.drop(while: { $0 == "\n" }))
                     print("Successfully loaded entry: \(entry.filename)")
                 }
             } catch {
@@ -1870,17 +1852,16 @@ struct ContentView: View {
             // Read welcome message from default.md
             if let defaultMessageURL = Bundle.main.url(forResource: "default", withExtension: "md"),
                let defaultMessage = try? String(contentsOf: defaultMessageURL, encoding: .utf8) {
-                text = "\n\n" + defaultMessage
+                text = defaultMessage
             }
             // Save the welcome message immediately
             saveEntry(entry: newEntry)
             // Update the preview text
             updatePreviewText(for: newEntry)
         } else {
-            // Regular new entry starts with newlines
-            text = "\n\n"
+            text = ""
             // Randomize placeholder text for new entry
-            placeholderText = placeholderOptions.randomElement() ?? "\n\nBegin writing"
+            placeholderText = placeholderOptions.randomElement() ?? "Begin writing"
             // Save the empty entry
             saveEntry(entry: newEntry)
         }

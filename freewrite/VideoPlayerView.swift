@@ -75,11 +75,15 @@ struct VideoPlayerView: View {
     @State private var playbackStatusObservation: NSKeyValueObservation?
     @State private var playbackProgressObserver: Any?
     @State private var itemStatusObservation: NSKeyValueObservation?
+    @State private var volumeObservation: NSKeyValueObservation?
+    @State private var muteObservation: NSKeyValueObservation?
     @State private var configuredVideoURL: URL?
     @State private var hasRevealedCurrentItem = false
     @State private var currentItemReadyToPlay = false
     @State private var playerIsActivelyPlaying = false
     @State private var playbackSecondsForCurrentItem: Double = 0
+    @AppStorage("videoVolume") private var savedVolume: Double = 1.0
+    @AppStorage("videoIsMuted") private var savedIsMuted: Bool = true
 
     var body: some View {
         ZStack {
@@ -100,9 +104,11 @@ struct VideoPlayerView: View {
             }
         }
         .onAppear {
-            player.isMuted = false
+            player.isMuted = savedIsMuted
+            player.volume = Float(savedVolume)
             player.actionAtItemEnd = .none
             player.automaticallyWaitsToMinimizeStalling = false
+            observeVolumeChanges()
             observePlaybackState()
             configurePlayer(for: videoURL)
             applyPlaybackSuspension(isPlaybackSuspended)
@@ -123,7 +129,8 @@ struct VideoPlayerView: View {
             hasRevealedCurrentItem = false
             currentItemReadyToPlay = false
             playbackSecondsForCurrentItem = 0
-            player.isMuted = false
+            player.isMuted = savedIsMuted
+            player.volume = Float(savedVolume)
             player.seek(to: .zero)
             if !isPlaybackSuspended {
                 player.playImmediately(atRate: 1.0)
@@ -150,7 +157,8 @@ struct VideoPlayerView: View {
         }
 
         player.replaceCurrentItem(with: item)
-        player.isMuted = false
+        player.isMuted = savedIsMuted
+        player.volume = Float(savedVolume)
         configuredVideoURL = url
 
         playbackEndObserver = NotificationCenter.default.addObserver(
@@ -169,6 +177,8 @@ struct VideoPlayerView: View {
     
     private func tearDownPlayer() {
         clearItemObservers()
+        volumeObservation = nil
+        muteObservation = nil
         playbackStatusObservation = nil
         if let progressObserver = playbackProgressObserver {
             player.removeTimeObserver(progressObserver)
@@ -221,6 +231,20 @@ struct VideoPlayerView: View {
         guard currentItemReadyToPlay, playerIsActivelyPlaying, playbackSecondsForCurrentItem >= 1.0 else { return }
         withAnimation(.easeOut(duration: 0.75)) {
             hasRevealedCurrentItem = true
+        }
+    }
+
+    private func observeVolumeChanges() {
+        guard volumeObservation == nil else { return }
+        volumeObservation = player.observe(\.volume, options: [.new]) { player, _ in
+            DispatchQueue.main.async {
+                self.savedVolume = Double(player.volume)
+            }
+        }
+        muteObservation = player.observe(\.isMuted, options: [.new]) { player, _ in
+            DispatchQueue.main.async {
+                self.savedIsMuted = player.isMuted
+            }
         }
     }
 

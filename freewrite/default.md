@@ -109,7 +109,7 @@ If I’m thinking through a new business idea, I prefer a more official-looking 
 
 Lastly, you'll see a video icon at the bottom.
 
-I added this recently. It allows you to create video entries. I like recording long video logs where I talk to myself to think through a thought I’m having or simply detail my day. It's kinda like freewrite, but, as a video log where I'm yapping vs writing.
+I added this recently. It allows you to create video entries. I like to use it to record 5-10 minute long video logs where I talk to myself to think through an idea I have or to simply detail my day. It's kinda like freewrite, but, as a video log where I'm yapping vs writing.
 
 I highly recommend recording a 5-minute video entry where you talk through a problem you’re facing and see how it goes.
 
@@ -117,8 +117,15 @@ It requires 3 permissions: camera, mic, and speech.
 
 What’s nice is that it also creates a transcript. You can use this in your favorite AI to chat further about the video entry just like a freewrite entry. The "Chat" button also works on video entries.
 
-See a bug? Wanna add something? See open issues and requests on the repo here:
+All the video storage + transcription is done locally. Freewrite doesn't have analytics. It doesn't send your stuff anywhere, ever. It never leaves your computer.
+
+We are fully open-source:
 https://github.com/farzaa/freewrite
+
+And, be sure to follow me here:
+https://x.com/farzatv
+https://www.instagram.com/farza954
+
 
 Enjoy everyone!!
 
