@@ -11,7 +11,8 @@ import SwiftUI
 struct freewriteApp: App {
     @NSApplicationDelegateAdaptor(AppDelegate.self) var appDelegate
     @AppStorage("colorScheme") private var colorSchemeString: String = "light"
-    
+    @State private var updateChecker = UpdateChecker()
+
     init() {
         // Register Lato font
         if let fontURL = Bundle.main.url(forResource: "Lato-Regular", withExtension: "ttf") {
@@ -24,6 +25,14 @@ struct freewriteApp: App {
             ContentView()
                 .toolbar(.hidden, for: .windowToolbar)
                 .preferredColorScheme(colorSchemeString == "dark" ? .dark : .light)
+                .task { await updateChecker.checkForUpdate() }
+                .alert("Update Available", isPresented: $updateChecker.updateAvailable) {
+                    Button("Download Update") { updateChecker.openReleasePage() }
+                    Button("Later", role: .cancel) { updateChecker.dismissUpdate() }
+                } message: {
+                    let current = Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "unknown"
+                    Text("Freewrite \(updateChecker.latestVersion) is available. You're currently on \(current).")
+                }
         }
         .windowStyle(.hiddenTitleBar)
         .defaultSize(width: 1100, height: 600)

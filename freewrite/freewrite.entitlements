@@ -12,5 +12,7 @@
     <true/>
     <key>com.apple.security.personal-information.speech-recognition</key>
     <true/>
+    <key>com.apple.security.network.client</key>
+    <true/>
 </dict>
 </plist>
