@@ -128,6 +128,9 @@ struct ContentView: View {
     @State private var selectedVideoHasTranscript = false
     @State private var backspaceDisabled = false // Add state for backspace toggle
     @State private var isHoveringBackspaceToggle = false // Add state for backspace toggle hover
+    @State private var showingAmbientMenu = false
+    @State private var isHoveringAmbientButton = false
+    @StateObject private var ambientSoundManager = AmbientSoundManager()
     @State private var showingVideoRecording = false // Add state for video recording view
     @State private var isHoveringVideoButton = false // Add state for video button hover
     @State private var currentVideoURL: URL? = nil // Add state for current video being viewed
@@ -753,6 +756,11 @@ struct ContentView: View {
                 isPreparingVideoRecording = false
                 showingVideoRecording = true
             }
+
+            // Pause ambient sound during video recording
+            if ambientSoundManager.isPlaying {
+                ambientSoundManager.stop()
+            }
         }
 
         if presentationDelay > 0 {
@@ -1125,6 +1133,79 @@ struct ContentView: View {
                                     }
                                     return event
                                 }
+                            }
+
+                            Text("•")
+                                .foregroundColor(.gray)
+
+                            // Ambient sound button
+                            Button(action: {
+                                showingAmbientMenu.toggle()
+                            }) {
+                                Image(systemName: ambientSoundManager.isPlaying ? "speaker.wave.2.fill" : "speaker.wave.2")
+                                    .foregroundColor(ambientSoundManager.isPlaying ? (colorScheme == .light ? .black : .white) : (isHoveringAmbientButton ? textHoverColor : textColor))
+                                    .frame(width: 14, height: 14)
+                            }
+                            .buttonStyle(.plain)
+                            .onHover { hovering in
+                                isHoveringAmbientButton = hovering
+                                isHoveringBottomNav = hovering
+                                if hovering {
+                                    NSCursor.pointingHand.push()
+                                } else {
+                                    NSCursor.pop()
+                                }
+                            }
+                            .popover(isPresented: $showingAmbientMenu, arrowEdge: .top) {
+                                VStack(alignment: .leading, spacing: 0) {
+                                    ForEach(AmbientSound.allCases) { sound in
+                                        Button(action: {
+                                            ambientSoundManager.toggle(sound)
+                                        }) {
+                                            HStack(spacing: 8) {
+                                                Image(systemName: sound.icon)
+                                                    .frame(width: 16)
+                                                    .foregroundColor(ambientSoundManager.currentSound == sound ? .accentColor : popoverTextColor)
+                                                Text(sound.rawValue)
+                                                    .foregroundColor(ambientSoundManager.currentSound == sound ? .accentColor : popoverTextColor)
+                                                Spacer()
+                                                if ambientSoundManager.currentSound == sound {
+                                                    Image(systemName: "checkmark")
+                                                        .font(.system(size: 10, weight: .bold))
+                                                        .foregroundColor(.accentColor)
+                                                }
+                                            }
+                                            .padding(.horizontal, 12)
+                                            .padding(.vertical, 8)
+                                            .contentShape(Rectangle())
+                                        }
+                                        .buttonStyle(.plain)
+                                        if sound != AmbientSound.allCases.last {
+                                            Divider()
+                                        }
+                                    }
+                                    if ambientSoundManager.isPlaying {
+                                        Divider()
+                                        Button(action: {
+                                            ambientSoundManager.stop()
+                                            showingAmbientMenu = false
+                                        }) {
+                                            HStack(spacing: 8) {
+                                                Image(systemName: "stop.fill")
+                                                    .frame(width: 16)
+                                                    .foregroundColor(popoverTextColor)
+                                                Text("Stop")
+                                                    .foregroundColor(popoverTextColor)
+                                            }
+                                            .padding(.horizontal, 12)
+                                            .padding(.vertical, 8)
+                                            .contentShape(Rectangle())
+                                        }
+                                        .buttonStyle(.plain)
+                                    }
+                                }
+                                .padding(.vertical, 4)
+                                .frame(width: 160)
                             }
 
                             Text("•")
