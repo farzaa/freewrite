@@ -128,6 +128,8 @@ struct ContentView: View {
     @State private var selectedVideoHasTranscript = false
     @State private var backspaceDisabled = false // Add state for backspace toggle
     @State private var isHoveringBackspaceToggle = false // Add state for backspace toggle hover
+    @State private var pinnedEntryIds: Set<String> = []
+    @State private var hoveredPinId: UUID? = nil
     @State private var showingVideoRecording = false // Add state for video recording view
     @State private var isHoveringVideoButton = false // Add state for video button hover
     @State private var currentVideoURL: URL? = nil // Add state for current video being viewed
@@ -861,7 +863,31 @@ struct ContentView: View {
         return colorScheme == .light ? Color.primary : Color.white
     }
 
-    
+    private var sortedEntries: [HumanEntry] {
+        let pinned = entries.filter { pinnedEntryIds.contains($0.id.uuidString) }
+        let unpinned = entries.filter { !pinnedEntryIds.contains($0.id.uuidString) }
+        return pinned + unpinned
+    }
+
+    private func isEntryPinned(_ entry: HumanEntry) -> Bool {
+        pinnedEntryIds.contains(entry.id.uuidString)
+    }
+
+    private func togglePin(_ entry: HumanEntry) {
+        let idString = entry.id.uuidString
+        if pinnedEntryIds.contains(idString) {
+            pinnedEntryIds.remove(idString)
+        } else {
+            pinnedEntryIds.insert(idString)
+        }
+        UserDefaults.standard.set(Array(pinnedEntryIds), forKey: "pinnedEntryIds")
+    }
+
+    private func loadPinnedEntries() {
+        let saved = UserDefaults.standard.stringArray(forKey: "pinnedEntryIds") ?? []
+        pinnedEntryIds = Set(saved)
+    }
+
     var body: some View {
         let buttonBackground = colorScheme == .light ? Color.white : Color.black
         let navHeight: CGFloat = 68
@@ -1543,7 +1569,7 @@ struct ContentView: View {
                     // Entries List
                     ScrollView {
                         LazyVStack(spacing: 0) {
-                            ForEach(entries) { entry in
+                            ForEach(sortedEntries) { entry in
                                 Button(action: {
                                     if selectedEntryId != entry.id {
                                         historyDebug("ROW TAP \(debugEntrySummary(entry))")
@@ -1594,16 +1620,45 @@ struct ContentView: View {
 
                                         VStack(alignment: .leading, spacing: 4) {
                                             HStack {
+                                                if isEntryPinned(entry) && hoveredEntryId != entry.id {
+                                                    Image(systemName: "pin.fill")
+                                                        .font(.system(size: 9))
+                                                        .foregroundColor(.secondary)
+                                                        .rotationEffect(.degrees(45))
+                                                }
                                                 Text(entry.previewText)
                                                     .font(.system(size: 13))
                                                     .lineLimit(1)
                                                     .foregroundColor(.primary)
 
                                                 Spacer()
-                                                
-                                                // Export/Trash icons that appear on hover
+
+                                                // Pin/Export/Trash icons that appear on hover
                                                 if hoveredEntryId == entry.id {
                                                     HStack(spacing: 8) {
+                                                        // Pin button
+                                                        Button(action: {
+                                                            togglePin(entry)
+                                                        }) {
+                                                            Image(systemName: isEntryPinned(entry) ? "pin.slash" : "pin")
+                                                                .font(.system(size: 11))
+                                                                .foregroundColor(hoveredPinId == entry.id ?
+                                                                    (colorScheme == .light ? .black : .white) :
+                                                                    (colorScheme == .light ? .gray : .gray.opacity(0.8)))
+                                                        }
+                                                        .buttonStyle(.plain)
+                                                        .help(isEntryPinned(entry) ? "Unpin entry" : "Pin entry")
+                                                        .onHover { hovering in
+                                                            withAnimation(.easeInOut(duration: 0.2)) {
+                                                                hoveredPinId = hovering ? entry.id : nil
+                                                            }
+                                                            if hovering {
+                                                                NSCursor.pointingHand.push()
+                                                            } else {
+                                                                NSCursor.pop()
+                                                            }
+                                                        }
+
                                                         // Export PDF button
                                                         Button(action: {
                                                             exportEntryAsPDF(entry: entry)
@@ -1675,8 +1730,21 @@ struct ContentView: View {
                                 }
                                 .help("Click to select this entry")  // Add tooltip
                                 
-                                if entry.id != entries.last?.id {
-                                    Divider()
+                                if entry.id != sortedEntries.last?.id {
+                                    // Thicker divider between pinned and unpinned sections
+                                    if isEntryPinned(entry) && !pinnedEntryIds.isEmpty {
+                                        let sortedList = sortedEntries
+                                        if let idx = sortedList.firstIndex(where: { $0.id == entry.id }),
+                                           idx + 1 < sortedList.count,
+                                           !isEntryPinned(sortedList[idx + 1]) {
+                                            Divider().frame(height: 2)
+                                                .background(Color.secondary.opacity(0.3))
+                                        } else {
+                                            Divider()
+                                        }
+                                    } else {
+                                        Divider()
+                                    }
                                 }
                             }
                         }
@@ -1709,6 +1777,7 @@ struct ContentView: View {
         .preferredColorScheme(colorScheme)
         .onAppear {
             showingSidebar = false  // Hide sidebar by default
+            loadPinnedEntries()
             loadExistingEntries()
         }
         .onChange(of: showingVideoRecording) { _, isShowing in
